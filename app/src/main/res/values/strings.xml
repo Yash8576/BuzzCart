@@ -1,0 +1,48 @@
+<resources>
+    <string name="app_name">BuzzCart</string>
+
+    <!-- Menu Strings -->
+    <string name="menu_title">Menu</string>
+    <string name="menu_close">Close</string>
+    <string name="menu_profile_settings">Profile Settings</string>
+    <string name="menu_account_settings">Account Settings</string>
+    <string name="menu_privacy_security">Privacy &amp; Security</string>
+    <string name="menu_notifications">Notifications</string>
+    <string name="menu_payment_billing">Payment &amp; Billing</string>
+    <string name="menu_order_history">Order History</string>
+    <string name="menu_help_support">Help &amp; Support</string>
+    <string name="menu_about">About BuzzCart</string>
+    <string name="menu_logout">Logout</string>
+
+    <!-- Profile Strings -->
+    <string name="profile_title">My Profile</string>
+    <string name="following">Following</string>
+    <string name="followers">Followers</string>
+    <string name="posts">Posts</string>
+    <string name="reels">Reels</string>
+    <string name="videos">Videos</string>
+    <string name="my_posts">My Posts</string>
+    <string name="my_reels">My Reels</string>
+    <string name="my_videos">My Videos</string>
+
+    <!-- Search Strings -->
+    <string name="search_title">Search</string>
+    <string name="search_hint">Search for people, sellers, reels, products...</string>
+    <string name="accounts">Accounts</string>
+    <string name="sellers">Sellers</string>
+    <string name="products">Products</string>
+    <string name="search_results">Search Results - %1$s</string>
+
+    <!-- Home Strings -->
+    <string name="welcome_user">Welcome, %1$s!</string>
+    <string name="discover_products">Discover Amazing Products</string>
+    <string name="home_description">Browse through our collection of amazing products and deals just for you!</string>
+
+    <!-- Content Descriptions -->
+    <string name="search_button">Search</string>
+    <string name="back_button">Back</string>
+    <string name="menu_button">Menu</string>
+
+    <!-- Coming Soon Messages -->
+    <string name="coming_soon">%1$s - Coming Soon</string>
+</resources>
