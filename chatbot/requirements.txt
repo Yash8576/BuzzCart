@@ -1,0 +1,41 @@
+# API Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# LangChain and RAG
+langchain==0.1.6
+langchain-community==0.0.17
+langchain-openai==0.0.5
+langchain-core==0.1.20
+
+# Vector Databases
+chromadb==0.4.22
+# Uncomment for other vector stores:
+# pinecone-client==3.0.0
+# qdrant-client==1.7.0
+
+# Embeddings
+sentence-transformers==2.3.1
+openai==1.10.0
+
+# Document Processing
+pypdf==4.0.1
+python-docx==1.1.0
+python-multipart==0.0.6
+beautifulsoup4==4.12.3
+markdown==3.5.2
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+
+# Utilities
+python-dotenv==1.0.1
+aiohttp==3.9.3
+tenacity==8.2.3
+tiktoken==0.5.2
+
+# Monitoring
+prometheus-client==0.19.0

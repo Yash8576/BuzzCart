@@ -1,0 +1,146 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+    - 'v*.*.*' # Trigger on version tags like v1.0.0, v1.2.3
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (e.g., v1.0.0)'
+        required: true
+
+env:
+  ENVIRONMENT: production
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to Production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://api.yourdomain.com
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        cd flutter_backend
+        pip install -r requirements.txt
+
+    - name: Run Database Migrations
+      run: |
+        echo "Running database migrations for production"
+        # Add migration commands here
+      env:
+        MONGO_URL: ${{ secrets.PROD_MONGO_URL }}
+        DB_NAME: ${{ secrets.PROD_DB_NAME }}
+
+    # Example: Deploy to your hosting provider
+    # - name: Deploy to production server
+    #   run: |
+    #     echo "Deploy backend to production"
+    #     # Add your deployment commands here
+
+    - name: Health Check
+      run: |
+        echo "Performing health check"
+        # curl -f https://api.yourdomain.com/health || exit 1
+
+  build-flutter:
+    name: Build Flutter (Production)
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://yourdomain.com
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Get dependencies
+      run: |
+        cd frontend
+        flutter pub get
+
+    - name: Build web (production)
+      run: |
+        cd frontend
+        flutter build web --release \
+          --dart-define=API_BASE_URL=${{ secrets.PROD_BACKEND_URL }}
+
+    # Example: Deploy to production
+    # - name: Deploy to Vercel/Netlify/CloudFlare
+    #   run: |
+    #     echo "Deploying to production"
+
+    - name: Upload Flutter web artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: flutter-web-production
+        path: frontend/build/web
+        retention-days: 30
+
+    - name: Invalidate CDN Cache
+      run: |
+        echo "Invalidating CDN cache"
+        # Add CDN cache invalidation if using CloudFlare/CloudFront
+
+  create-release:
+    name: Create GitHub Release
+    needs: [ deploy-backend, build-flutter ]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Generate Release Notes
+      id: changelog
+      run: |
+        echo "Generating changelog"
+        # git log --oneline $(git describe --tags --abbrev=0 HEAD^)..HEAD
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          ## What's Changed
+          Production deployment completed successfully!
+
+          Deployed:
+          - Backend API: https://api.yourdomain.com
+          - Frontend: https://yourdomain.com
+        draft: false
+        prerelease: false
+
+  notify:
+    name: Notify Team
+    needs: [ deploy-backend, build-flutter ]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+    - name: Production Deployment Status
+      run: |
+        echo "Production deployment completed"
+        # Add Slack/Discord notification for production deployments

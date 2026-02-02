@@ -1,0 +1,91 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ staging ]
+  workflow_dispatch:
+
+
+env:
+  ENVIRONMENT: staging
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        cd flutter_backend
+        pip install -r requirements.txt
+
+    # Example: Deploy to your hosting provider
+    # Uncomment and configure based on your infrastructure
+
+    # - name: Deploy to AWS/GCP/Azure/Railway/Render
+    #   run: |
+    #     echo "Deploy backend to staging environment"
+    #     # Add your deployment commands here
+
+    - name: Run Database Migrations
+      run: |
+        echo "Running database migrations for staging"
+        # Add migration commands here
+      env:
+        MONGO_URL: ${{ secrets.STAGING_MONGO_URL }}
+        DB_NAME: ${{ secrets.STAGING_DB_NAME }}
+
+  build-flutter:
+    name: Build Flutter (Staging)
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Get dependencies
+      run: |
+        cd frontend
+        flutter pub get
+
+    - name: Build web (staging)
+      run: |
+        cd frontend
+        flutter build web --release \
+          --dart-define=API_BASE_URL=${{ secrets.STAGING_BACKEND_URL }}
+
+    - name: Upload Flutter web artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: flutter-web-staging
+        path: frontend/build/web
+        retention-days: 7
+
+  notify:
+    name: Notify Team
+    needs: [ deploy-backend, build-flutter ]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+    - name: Deployment Status
+      run: |
+        echo "Staging deployment completed"
+        # Add Slack/Discord notification here if needed

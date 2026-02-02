@@ -1,0 +1,105 @@
+# Environment files (NEVER commit real secrets!)
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+webapp/backend/.env
+webapp/frontend/.env
+chatbot/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+dist-ssr/
+*.local
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+frontend/build/
+frontend/.dart_tool/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Backups
+backups/*.sql
+backups/*.dump
+backups/media/*
+!backups/media/.gitkeep
+
+# Storage (local development)
+storage/media/*
+!storage/media/.gitkeep
+storage/backend_db/*
+!storage/backend_db/.gitkeep
+storage/frontend_db/*
+!storage/frontend_db/.gitkeep
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets & Keys
+*.key
+*.pem
+*.p12
+secrets/
+credentials/

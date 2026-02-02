@@ -1,0 +1,76 @@
+name: buzz_social_cart
+description: A social commerce platform - pixel-perfect Flutter recreation of web app
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.1.1
+  flutter_riverpod: ^2.4.9
+
+  # Networking
+  dio: ^5.4.0
+  http: ^1.1.2
+
+  # Local Storage
+  shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.0.0
+
+  # Navigation
+  go_router: ^13.0.0
+
+  # UI Components
+  cupertino_icons: ^1.0.6
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  flutter_svg: ^2.0.9
+  fluttertoast: ^8.2.4
+  google_fonts: ^6.1.0
+
+  # Video Player
+  video_player: ^2.8.2
+  chewie: ^1.7.5
+  appinio_video_player: ^1.2.2
+
+  # Authentication & Security
+  jwt_decoder: ^2.0.1
+
+  # Utilities
+  uuid: ^4.3.3
+  intl: ^0.18.1
+  timeago: ^3.6.0
+  url_launcher: ^6.2.4
+  share_plus: ^7.2.2
+  image_picker: ^1.0.7
+
+  # Forms & Validation
+  email_validator: ^2.1.17
+
+  # JSON Serialization
+  json_annotation: ^4.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Code Generation
+  build_runner: ^2.4.8
+  json_serializable: ^6.7.1
+
+  # Linting
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+  - assets/images/
+  - assets/icons/
+  - assets/animations/
+  - assets/fonts/

@@ -1,0 +1,64 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, staging, dev ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+  # Run weekly on Monday at 9 AM
+  - cron: '0 9 * * 1'
+
+jobs:
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Python dependencies
+    - name: Python Security Scan
+      run: |
+        cd flutter_backend
+        pip install safety
+        safety check --json || echo "Vulnerabilities found"
+
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Full history for comprehensive scan
+
+    - name: Gitleaks scan
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} # Optional
+
+  code-quality:
+    name: Code Security Quality
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Bandit (Python security linter)
+      run: |
+        cd flutter_backend
+        pip install bandit
+        bandit -r . -f json -o bandit-report.json || echo "Issues found"
+
+    - name: Upload Bandit report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: bandit-security-report
+        path: flutter_backend/bandit-report.json
