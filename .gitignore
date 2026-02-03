@@ -103,3 +103,6 @@ Thumbs.db
 *.p12
 secrets/
 credentials/
+
+# Webapp subdirectory
+webapp/
