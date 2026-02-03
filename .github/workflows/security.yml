@@ -25,7 +25,6 @@ jobs:
         pip install safety
         safety check --json || echo "Vulnerabilities found"
 
-
   secret-scan:
     name: Secret Scanning
     runs-on: ubuntu-latest

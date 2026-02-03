@@ -837,6 +837,10 @@ app.include_router(chat_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=os.environ.get('CORS_ALLOW_CREDENTIALS', 'true').lower() == 'true',
+    allow_origin_regex=os.environ.get(
+        'CORS_ORIGIN_REGEX',
+        r'^https?://(localhost|127\.0\.0\.1)(:\d+)?$',
+    ),
     allow_origins=os.environ.get(
         'CORS_ORIGINS',
         'http://localhost:5173,http://localhost:3000,http://localhost:8080,http://localhost:8000',
