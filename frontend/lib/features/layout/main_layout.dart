@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
@@ -14,7 +15,9 @@ class MainLayout extends StatefulWidget {
   State<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
+class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
+  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  
   final List<_NavItem> _navItems = [
     _NavItem(path: '/', icon: Icons.home, label: 'Home'),
     _NavItem(path: '/videos', icon: Icons.play_circle, label: 'Videos'),
@@ -28,6 +31,33 @@ class _MainLayoutState extends State<MainLayout> {
     _NavItem(path: '/messages', icon: Icons.message, label: 'Messages'),
     _NavItem(path: '/settings', icon: Icons.settings, label: 'Settings'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _updateActivity();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateActivity();
+    }
+  }
+
+  Future<void> _updateActivity() async {
+    await _storage.write(
+      key: 'last_activity',
+      value: DateTime.now().toIso8601String(),
+    );
+  }
 
   @override
   void didChangeDependencies() {
