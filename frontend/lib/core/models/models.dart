@@ -1,0 +1,285 @@
+// Data models matching the backend API
+
+class UserModel {
+  final String id;
+  final String email;
+  final String name;
+  final String? avatar;
+  final String? bio;
+  final int followersCount;
+  final int followingCount;
+  final String createdAt;
+
+  UserModel({
+    required this.id,
+    required this.email,
+    required this.name,
+    this.avatar,
+    this.bio,
+    this.followersCount = 0,
+    this.followingCount = 0,
+    required this.createdAt,
+  });
+
+  factory UserModel.fromJson(Map<String, dynamic> json) {
+    return UserModel(
+      id: json['id'] as String,
+      email: json['email'] as String,
+      name: json['name'] as String,
+      avatar: json['avatar'] as String?,
+      bio: json['bio'] as String?,
+      followersCount: json['followers_count'] as int? ?? 0,
+      followingCount: json['following_count'] as int? ?? 0,
+      createdAt: json['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'email': email,
+      'name': name,
+      'avatar': avatar,
+      'bio': bio,
+      'followers_count': followersCount,
+      'following_count': followingCount,
+      'created_at': createdAt,
+    };
+  }
+}
+
+class ProductModel {
+  final String id;
+  final String title;
+  final String description;
+  final double price;
+  final List<String> images;
+  final String category;
+  final List<String> tags;
+  final String sellerId;
+  final String sellerName;
+  final double rating;
+  final int reviewsCount;
+  final int views;
+  final String createdAt;
+
+  ProductModel({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.price,
+    required this.images,
+    required this.category,
+    required this.tags,
+    required this.sellerId,
+    required this.sellerName,
+    this.rating = 0.0,
+    this.reviewsCount = 0,
+    this.views = 0,
+    required this.createdAt,
+  });
+
+  factory ProductModel.fromJson(Map<String, dynamic> json) {
+    return ProductModel(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      description: json['description'] as String,
+      price: (json['price'] as num).toDouble(),
+      images: List<String>.from(json['images'] as List? ?? []),
+      category: json['category'] as String,
+      tags: List<String>.from(json['tags'] as List? ?? []),
+      sellerId: json['seller_id'] as String,
+      sellerName: json['seller_name'] as String,
+      rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+      reviewsCount: json['reviews_count'] as int? ?? 0,
+      views: json['views'] as int? ?? 0,
+      createdAt: json['created_at'] as String,
+    );
+  }
+}
+
+class VideoModel {
+  final String id;
+  final String title;
+  final String description;
+  final String url;
+  final String thumbnail;
+  final int duration;
+  final int views;
+  final int likes;
+  final String creatorId;
+  final String creatorName;
+  final String? creatorAvatar;
+  final List<ProductModel> products;
+  final String createdAt;
+
+  VideoModel({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.url,
+    required this.thumbnail,
+    required this.duration,
+    this.views = 0,
+    this.likes = 0,
+    required this.creatorId,
+    required this.creatorName,
+    this.creatorAvatar,
+    this.products = const [],
+    required this.createdAt,
+  });
+
+  factory VideoModel.fromJson(Map<String, dynamic> json) {
+    return VideoModel(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      description: json['description'] as String,
+      url: json['url'] as String,
+      thumbnail: json['thumbnail'] as String,
+      duration: json['duration'] as int,
+      views: json['views'] as int? ?? 0,
+      likes: json['likes'] as int? ?? 0,
+      creatorId: json['creator_id'] as String,
+      creatorName: json['creator_name'] as String,
+      creatorAvatar: json['creator_avatar'] as String?,
+      products: (json['products'] as List?)
+              ?.map((p) => ProductModel.fromJson(p as Map<String, dynamic>))
+              .toList() ??
+          [],
+      createdAt: json['created_at'] as String,
+    );
+  }
+}
+
+class ReelModel {
+  final String id;
+  final String url;
+  final String thumbnail;
+  final String caption;
+  final int views;
+  final int likes;
+  final String creatorId;
+  final String creatorName;
+  final String? creatorAvatar;
+  final List<ProductModel> products;
+  final String createdAt;
+
+  ReelModel({
+    required this.id,
+    required this.url,
+    required this.thumbnail,
+    required this.caption,
+    this.views = 0,
+    this.likes = 0,
+    required this.creatorId,
+    required this.creatorName,
+    this.creatorAvatar,
+    this.products = const [],
+    required this.createdAt,
+  });
+
+  factory ReelModel.fromJson(Map<String, dynamic> json) {
+    return ReelModel(
+      id: json['id'] as String,
+      url: json['url'] as String,
+      thumbnail: json['thumbnail'] as String,
+      caption: json['caption'] as String? ?? '',
+      views: json['views'] as int? ?? 0,
+      likes: json['likes'] as int? ?? 0,
+      creatorId: json['creator_id'] as String,
+      creatorName: json['creator_name'] as String,
+      creatorAvatar: json['creator_avatar'] as String?,
+      products: (json['products'] as List?)
+              ?.map((p) => ProductModel.fromJson(p as Map<String, dynamic>))
+              .toList() ??
+          [],
+      createdAt: json['created_at'] as String,
+    );
+  }
+}
+
+class CartItemModel {
+  final ProductModel product;
+  final int quantity;
+
+  CartItemModel({
+    required this.product,
+    required this.quantity,
+  });
+
+  factory CartItemModel.fromJson(Map<String, dynamic> json) {
+    return CartItemModel(
+      product: ProductModel.fromJson(json['product'] as Map<String, dynamic>),
+      quantity: json['quantity'] as int,
+    );
+  }
+}
+
+class CartModel {
+  final List<CartItemModel> items;
+  final double subtotal;
+  final double total;
+  final int itemCount;
+
+  CartModel({
+    required this.items,
+    required this.subtotal,
+    required this.total,
+    required this.itemCount,
+  });
+
+  factory CartModel.fromJson(Map<String, dynamic> json) {
+    return CartModel(
+      items: (json['items'] as List)
+          .map((item) => CartItemModel.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      subtotal: (json['subtotal'] as num).toDouble(),
+      total: (json['total'] as num).toDouble(),
+      itemCount: json['item_count'] as int,
+    );
+  }
+
+  factory CartModel.empty() {
+    return CartModel(
+      items: [],
+      subtotal: 0,
+      total: 0,
+      itemCount: 0,
+    );
+  }
+}
+
+class FeedItem {
+  final String type; // 'product', 'video', 'reel'
+  final dynamic data; // ProductModel, VideoModel, or ReelModel
+
+  FeedItem({
+    required this.type,
+    required this.data,
+  });
+
+  factory FeedItem.fromJson(Map<String, dynamic> json) {
+    final type = json['type'] as String;
+    final data = json['data'] as Map<String, dynamic>;
+
+    dynamic parsedData;
+    switch (type) {
+      case 'product':
+        parsedData = ProductModel.fromJson(data);
+        break;
+      case 'video':
+        parsedData = VideoModel.fromJson(data);
+        break;
+      case 'reel':
+        parsedData = ReelModel.fromJson(data);
+        break;
+      default:
+        throw Exception('Unknown feed item type: $type');
+    }
+
+    return FeedItem(
+      type: type,
+      data: parsedData,
+    );
+  }
+}
