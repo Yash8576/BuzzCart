@@ -22,6 +22,12 @@ func Register(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
+		// Validate business rules (sellers must be public, etc.)
+		if err := req.Validate(); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		// Check if email already exists
 		var existingUser models.User
 		err := db.Collection("users").FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&existingUser)
@@ -37,13 +43,15 @@ func Register(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		// Create user
+		// Create user with account type and privacy settings
 		user := models.User{
 			ID:             uuid.New().String(),
 			Email:          req.Email,
 			Password:       hashedPassword,
 			Name:           req.Name,
 			Bio:            "",
+			AccountType:    req.AccountType,
+			PrivacyProfile: req.PrivacyProfile,
 			FollowersCount: 0,
 			FollowingCount: 0,
 			CreatedAt:      time.Now(),

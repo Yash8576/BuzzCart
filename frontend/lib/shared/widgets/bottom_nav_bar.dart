@@ -24,8 +24,13 @@ class CustomBottomNavBar extends StatelessWidget {
         ],
       ),
       child: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: onTap,
+        currentIndex: currentIndex >= 2 ? currentIndex + 1 : currentIndex,
+        onTap: (index) {
+          // Skip the middle placeholder item (index 2)
+          if (index == 2) return;
+          final actualIndex = index > 2 ? index - 1 : index;
+          onTap(actualIndex);
+        },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.electricBlue,
         unselectedItemColor: Colors.grey,
@@ -41,6 +46,11 @@ class CustomBottomNavBar extends StatelessWidget {
             icon: Icon(Icons.store_outlined),
             activeIcon: Icon(Icons.store),
             label: 'Shop',
+          ),
+          // Placeholder for center FAB
+          BottomNavigationBarItem(
+            icon: SizedBox(height: 24),
+            label: '',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.shopping_cart_outlined),

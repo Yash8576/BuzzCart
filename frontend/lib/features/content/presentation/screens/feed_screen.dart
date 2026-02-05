@@ -1,171 +1,322 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/services/api_service.dart';
+import '../../../../core/providers/cart_provider.dart';
 
-class FeedScreen extends StatelessWidget {
+class FeedScreen extends StatefulWidget {
   const FeedScreen({super.key});
 
   @override
+  State<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends State<FeedScreen> {
+  final ApiService _api = ApiService();
+  List<dynamic> _feed = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchFeed();
+  }
+
+  Future<void> _fetchFeed() async {
+    try {
+      setState(() => _loading = true);
+      final data = await _api.getFeed();
+      setState(() {
+        _feed = data;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to load feed';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _handleAddToCart(String productId) async {
+    try {
+      await context.read<CartProvider>().addToCart(productId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Added to cart!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to add to cart')),
+        );
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Buzz Social Cart'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      body: ListView.builder(
-        itemCount: 10,
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_error!),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _fetchFeed,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _fetchFeed,
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: _feed.length,
         itemBuilder: (context, index) {
-          return _ContentCard(index: index);
+          final item = _feed[index];
+          final type = item['type'];
+          final data = item['data'];
+
+          if (type == 'product') {
+            return _ProductCard(
+              product: data,
+              onAddToCart: () => _handleAddToCart(data['id']),
+            );
+          } else if (type == 'video' || type == 'reel') {
+            return _VideoCard(
+              video: data,
+              isReel: type == 'reel',
+            );
+          }
+          return const SizedBox.shrink();
         },
       ),
     );
   }
 }
 
-class _ContentCard extends StatelessWidget {
-  final int index;
+class _ProductCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final VoidCallback onAddToCart;
 
-  const _ContentCard({required this.index});
+  const _ProductCard({required this.product, required this.onAddToCart});
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Creator Info
-          ListTile(
-            leading: CircleAvatar(
-              backgroundColor: AppColors.electricBlue,
-              child: Text(
-                'U${index + 1}',
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-            title: Text('Creator ${index + 1}'),
-            subtitle: const Text('2 hours ago'),
-            trailing: IconButton(
-              icon: const Icon(Icons.more_vert),
-              onPressed: () {},
-            ),
-          ),
-          
-          // Content Image/Video Placeholder
-          Container(
-            height: 300,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.electricBlue.withAlpha(77),
-                  AppColors.neonPurple.withAlpha(77),
-                ],
-              ),
-            ),
-            child: Stack(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: InkWell(
+        onTap: () => context.go('/shop/${product['id']}'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
               children: [
-                Center(
-                  child: Icon(
-                    index % 2 == 0 ? Icons.play_circle_outline : Icons.image_outlined,
-                    size: 60,
-                    color: Colors.white,
+                AspectRatio(
+                  aspectRatio: 1,
+                  child: Image.network(
+                    product['images']?[0] ?? '',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.image, size: 50),
+                    ),
                   ),
                 ),
                 Positioned(
-                  bottom: 16,
-                  left: 16,
+                  bottom: 12,
+                  right: 12,
+                  child: FloatingActionButton.small(
+                    onPressed: onAddToCart,
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    child: const Icon(Icons.shopping_bag),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product['title'] ?? '',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.electricBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.visibility, size: 14, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${product['views'] ?? 0} views',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoCard extends StatelessWidget {
+  final Map<String, dynamic> video;
+  final bool isReel;
+
+  const _VideoCard({required this.video, required this.isReel});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: InkWell(
+        onTap: () => context.go(isReel ? '/reels' : '/videos/${video['id']}'),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ListTile(
+              leading: CircleAvatar(
+                backgroundImage: video['creator_avatar'] != null
+                    ? NetworkImage(video['creator_avatar'])
+                    : null,
+                child: video['creator_avatar'] == null
+                    ? Text(video['creator_name']?[0] ?? 'U')
+                    : null,
+              ),
+              title: Text(video['creator_name'] ?? 'Unknown'),
+              subtitle: Text(video['created_at'] ?? ''),
+            ),
+            Stack(
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.network(
+                    video['thumbnail'] ?? '',
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.black,
+                      child: const Icon(Icons.play_circle_outline,
+                          size: 50, color: Colors.white),
+                    ),
+                  ),
+                ),
+                Positioned.fill(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        Icon(Icons.shopping_bag, size: 16, color: Colors.white),
-                        SizedBox(width: 4),
-                        Text(
-                          '3 Products',
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ],
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withAlpha(153),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          
-          // Actions
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.favorite_outline),
-                  onPressed: () {},
-                ),
-                const Text('1.2K'),
-                const SizedBox(width: 16),
-                IconButton(
-                  icon: const Icon(Icons.comment_outlined),
-                  onPressed: () {},
-                ),
-                const Text('234'),
-                const SizedBox(width: 16),
-                IconButton(
-                  icon: const Icon(Icons.share_outlined),
-                  onPressed: () {},
-                ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.shopping_cart, size: 18),
-                  label: const Text('Shop Now'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.electricBlue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                const Positioned.fill(
+                  child: Center(
+                    child: Icon(
+                      Icons.play_circle_fill,
+                      size: 64,
+                      color: Colors.white,
                     ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          
-          // Caption
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Amazing product showcase! Check out these trending items 🔥',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '#fashion #trending #shopping',
-                  style: TextStyle(
-                    color: AppColors.electricBlue,
-                    fontWeight: FontWeight.w500,
+                if (video['products'] != null && video['products'].isNotEmpty)
+                  Positioned(
+                    bottom: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.shopping_bag, size: 14, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${video['products'].length} Products',
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    video['title'] ?? '',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.visibility, size: 14, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${video['views'] ?? 0} views',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(width: 16),
+                      const Icon(Icons.favorite, size: 14, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${video['likes'] ?? 0} likes',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

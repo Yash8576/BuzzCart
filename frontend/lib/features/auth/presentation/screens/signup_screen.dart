@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/providers/auth_provider.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -19,6 +21,10 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
   bool _agreeToTerms = false;
+  
+  // Account Type & Privacy Settings
+  String _accountType = 'CONSUMER'; // 'SELLER' or 'CONSUMER'
+  String _privacyProfile = 'PUBLIC'; // 'PUBLIC' or 'PRIVATE'
 
   @override
   void dispose() {
@@ -42,14 +48,48 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    // Business rule validation: Sellers must be public
+    if (_accountType == 'SELLER' && _privacyProfile == 'PRIVATE') {
+      _privacyProfile = 'PUBLIC';
+    }
+
     setState(() => _isLoading = true);
     
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
-    
-    if (mounted) {
-      setState(() => _isLoading = false);
-      context.go('/home');
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
+      await authProvider.register(
+        _emailController.text.trim(),
+        _passwordController.text,
+        _nameController.text.trim(),
+        accountType: _accountType,
+        privacyProfile: _privacyProfile,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Welcome! Account created as ${_accountType == 'SELLER' ? 'Seller' : 'Consumer'}',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        context.go('/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Registration failed: $e'),
+            backgroundColor: AppColors.destructive,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -239,6 +279,210 @@ class _SignupScreenState extends State<SignupScreen> {
                         return null;
                       },
                     ),
+                    const SizedBox(height: 24),
+                    
+                    // Account Type Selection
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.account_circle,
+                                color: AppColors.electricBlue,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Account Type',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: RadioListTile<String>(
+                                  title: Row(
+                                    children: const [
+                                      Icon(Icons.shopping_bag, size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Consumer'),
+                                    ],
+                                  ),
+                                  subtitle: const Text(
+                                    'Browse & buy',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                  value: 'CONSUMER',
+                                  groupValue: _accountType,
+                                  activeColor: AppColors.electricBlue,
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _accountType = value!;
+                                    });
+                                  },
+                                ),
+                              ),
+                              Expanded(
+                                child: RadioListTile<String>(
+                                  title: Row(
+                                    children: const [
+                                      Icon(Icons.store, size: 18),
+                                      SizedBox(width: 8),
+                                      Text('Seller'),
+                                    ],
+                                  ),
+                                  subtitle: const Text(
+                                    'Sell products',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
+                                  value: 'SELLER',
+                                  groupValue: _accountType,
+                                  activeColor: AppColors.electricBlue,
+                                  contentPadding: EdgeInsets.zero,
+                                  dense: true,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _accountType = value!;
+                                      // Force sellers to be public
+                                      if (_accountType == 'SELLER') {
+                                        _privacyProfile = 'PUBLIC';
+                                      }
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // Privacy Settings (Only for Consumers)
+                    if (_accountType == 'CONSUMER')
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.lock_outline,
+                                  color: AppColors.neonPurple,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Privacy Settings',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            SwitchListTile(
+                              title: const Text('Private Account'),
+                              subtitle: Text(
+                                _privacyProfile == 'PRIVATE'
+                                    ? 'Only followers can see your activity'
+                                    : 'Anyone can see your activity',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              value: _privacyProfile == 'PRIVATE',
+                              activeColor: AppColors.neonPurple,
+                              contentPadding: EdgeInsets.zero,
+                              onChanged: (bool value) {
+                                setState(() {
+                                  _privacyProfile = value ? 'PRIVATE' : 'PUBLIC';
+                                });
+                              },
+                            ),
+                            if (_privacyProfile == 'PRIVATE')
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                margin: const EdgeInsets.only(top: 8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.neonPurple.withAlpha(26),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline,
+                                      size: 16,
+                                      color: AppColors.neonPurple,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Your purchases and reviews will be public by default',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    
+                    // Seller Info Banner
+                    if (_accountType == 'SELLER')
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.electricBlue.withAlpha(26),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: AppColors.electricBlue.withAlpha(77),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 18,
+                              color: AppColors.electricBlue,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Seller accounts are always public to ensure transparency',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[800],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     
                     // Terms & Conditions Checkbox

@@ -5,6 +5,7 @@ import (
 	"buzzcart/internal/database"
 	"buzzcart/internal/handlers"
 	"buzzcart/internal/middleware"
+	"buzzcart/internal/storage"
 	"log"
 	"os"
 
@@ -27,6 +28,12 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Disconnect()
+
+	// Initialize MinIO storage
+	if err := storage.InitializeStorage(cfg); err != nil {
+		log.Fatalf("Failed to initialize MinIO storage: %v", err)
+	}
+	log.Println("✓ MinIO storage initialized successfully")
 
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "release" {
@@ -99,6 +106,19 @@ func main() {
 			cart.DELETE("/clear", handlers.ClearCart(db))
 		}
 
+		// Upload routes
+		upload := api.Group("/upload")
+		{
+			// Public upload endpoints
+			upload.POST("/image", handlers.UploadImageHandler)
+			upload.POST("/video", handlers.UploadVideoHandler)
+			upload.POST("/product-image", handlers.UploadProductImageHandler)
+
+			// Protected upload endpoints (require authentication)
+			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler)
+			upload.DELETE("/:objectName", middleware.Auth(cfg.JWTSecret), handlers.DeleteFileHandler)
+		}
+
 		// Follow routes
 		api.POST("/follow/:user_id", middleware.Auth(cfg.JWTSecret), handlers.FollowUser(db))
 		api.POST("/unfollow/:user_id", middleware.Auth(cfg.JWTSecret), handlers.UnfollowUser(db))
@@ -125,7 +145,7 @@ func main() {
 	if port == "" {
 		port = "8000"
 	}
-	
+
 	log.Printf("Server starting on port %s", port)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

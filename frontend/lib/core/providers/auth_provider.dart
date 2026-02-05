@@ -20,6 +20,7 @@ class AuthProvider extends ChangeNotifier {
   UserModel? get user => _user;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
+  bool get isSeller => _user?.isSeller ?? false;
 
   AuthProvider({required ApiService apiService}) : _api = apiService {
     _init();
@@ -103,9 +104,21 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> register(String email, String password, String name) async {
+  Future<void> register(
+    String email,
+    String password,
+    String name, {
+    String accountType = 'CONSUMER',
+    String privacyProfile = 'PUBLIC',
+  }) async {
     try {
-      final response = await _api.register(email, password, name);
+      final response = await _api.register(
+        email,
+        password,
+        name,
+        accountType: accountType,
+        privacyProfile: privacyProfile,
+      );
       _user = UserModel.fromJson(response['user'] as Map<String, dynamic>);
       _isAuthenticated = true;
       await _updateLastActivity();

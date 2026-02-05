@@ -105,12 +105,19 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> register(
-      String email, String password, String name) async {
+    String email,
+    String password,
+    String name, {
+    String accountType = 'CONSUMER',
+    String privacyProfile = 'PUBLIC',
+  }) async {
     try {
       final response = await _dio.post('/auth/register', data: {
         'email': email,
         'password': password,
         'name': name,
+        'account_type': accountType,
+        'privacy_profile': privacyProfile,
       });
 
       final token = response.data['access_token'] as String;

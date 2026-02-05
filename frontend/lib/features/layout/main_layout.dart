@@ -256,17 +256,19 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cart = context.watch<CartProvider>().cart;
 
-    return Container(
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: isDark ? AppColors.darkCard : AppColors.lightCard,
-        border: Border(
-          bottom: BorderSide(
-            color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        height: 56,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: isDark ? AppColors.darkCard : AppColors.lightCard,
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? AppColors.darkBorder : AppColors.lightBorder,
+            ),
           ),
         ),
-      ),
       child: Row(
         children: [
           Text(
@@ -322,6 +324,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
           ),
         ],
       ),
+    ),
     );
   }
 

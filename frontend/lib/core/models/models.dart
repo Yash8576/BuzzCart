@@ -8,6 +8,8 @@ class UserModel {
   final String? bio;
   final int followersCount;
   final int followingCount;
+  final String accountType; // 'SELLER' or 'CONSUMER'
+  final String privacyProfile; // 'PUBLIC' or 'PRIVATE'
   final String createdAt;
 
   UserModel({
@@ -18,8 +20,13 @@ class UserModel {
     this.bio,
     this.followersCount = 0,
     this.followingCount = 0,
+    this.accountType = 'CONSUMER',
+    this.privacyProfile = 'PUBLIC',
     required this.createdAt,
   });
+  
+  bool get isSeller => accountType == 'SELLER';
+  bool get isPrivate => privacyProfile == 'PRIVATE';
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
@@ -30,6 +37,8 @@ class UserModel {
       bio: json['bio'] as String?,
       followersCount: json['followers_count'] as int? ?? 0,
       followingCount: json['following_count'] as int? ?? 0,
+      accountType: json['account_type'] as String? ?? 'CONSUMER',
+      privacyProfile: json['privacy_profile'] as String? ?? 'PUBLIC',
       createdAt: json['created_at'] as String,
     );
   }
@@ -43,6 +52,8 @@ class UserModel {
       'bio': bio,
       'followers_count': followersCount,
       'following_count': followingCount,
+      'account_type': accountType,
+      'privacy_profile': privacyProfile,
       'created_at': createdAt,
     };
   }
