@@ -28,7 +28,7 @@ class ShopScreen extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              children: [
+              children: const [
                 _CategoryChip('All', isSelected: true),
                 _CategoryChip('Electronics'),
                 _CategoryChip('Fashion'),
@@ -109,8 +109,8 @@ class _ProductCard extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Colors.primaries[index % Colors.primaries.length].withOpacity(0.3),
-                        Colors.primaries[(index + 1) % Colors.primaries.length].withOpacity(0.3),
+                        Colors.primaries[index % Colors.primaries.length].withValues(alpha: 0.3),
+                        Colors.primaries[(index + 1) % Colors.primaries.length].withValues(alpha: 0.3),
                       ],
                     ),
                   ),

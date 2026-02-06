@@ -2,18 +2,17 @@ package handlers
 
 import (
 	"buzzcart/internal/models"
-	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/lib/pq"
 )
 
-func CreateVideo(db *mongo.Database) gin.HandlerFunc {
+func CreateVideo(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -25,7 +24,9 @@ func CreateVideo(db *mongo.Database) gin.HandlerFunc {
 
 		// Get user info
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
+		err := db.QueryRow("SELECT id, name, avatar FROM users WHERE id = $1", userID).Scan(
+			&user.ID, &user.Name, &user.Avatar,
+		)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -34,20 +35,29 @@ func CreateVideo(db *mongo.Database) gin.HandlerFunc {
 		// Fetch products
 		var products []models.ProductSimple
 		if len(req.ProductIDs) > 0 {
-			cursor, _ := db.Collection("products").Find(context.Background(), bson.M{"id": bson.M{"$in": req.ProductIDs}})
-			var fullProducts []models.Product
-			cursor.All(context.Background(), &fullProducts)
-			for _, p := range fullProducts {
-				image := ""
-				if len(p.Images) > 0 {
-					image = p.Images[0]
+			rows, err := db.Query(
+				"SELECT id, title, price, images FROM products WHERE id = ANY($1)",
+				pq.Array(req.ProductIDs),
+			)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var p models.Product
+					var imagesJSON []byte
+					rows.Scan(&p.ID, &p.Title, &p.Price, &imagesJSON)
+					var images []string
+					json.Unmarshal(imagesJSON, &images)
+					image := ""
+					if len(images) > 0 {
+						image = images[0]
+					}
+					products = append(products, models.ProductSimple{
+						ID:    p.ID,
+						Title: p.Title,
+						Price: p.Price,
+						Image: image,
+					})
 				}
-				products = append(products, models.ProductSimple{
-					ID:    p.ID,
-					Title: p.Title,
-					Price: p.Price,
-					Image: image,
-				})
 			}
 		}
 
@@ -71,7 +81,13 @@ func CreateVideo(db *mongo.Database) gin.HandlerFunc {
 			CreatedAt:     time.Now(),
 		}
 
-		_, err = db.Collection("videos").InsertOne(context.Background(), video)
+		productsJSON, _ := json.Marshal(video.Products)
+		_, err = db.Exec(
+			`INSERT INTO videos (id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at) 
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			video.ID, video.Title, video.Description, video.URL, video.Thumbnail, video.Duration,
+			video.Views, video.Likes, video.CreatorID, video.CreatorName, video.CreatorAvatar, productsJSON, video.CreatedAt,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create video"})
 			return
@@ -81,21 +97,36 @@ func CreateVideo(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetVideos(db *mongo.Database) gin.HandlerFunc {
+func GetVideos(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(20)
-
-		cursor, err := db.Collection("videos").Find(context.Background(), bson.M{}, opts)
+		rows, err := db.Query(
+			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM videos ORDER BY created_at DESC LIMIT 20`,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch videos"})
 			return
 		}
-		defer cursor.Close(context.Background())
+		defer rows.Close()
 
 		var videos []models.Video
-		if err = cursor.All(context.Background(), &videos); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode videos"})
-			return
+		for rows.Next() {
+			var video models.Video
+			var productsJSON []byte
+			err := rows.Scan(
+				&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
+				&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
+				&productsJSON, &video.CreatedAt,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode videos"})
+				return
+			}
+			json.Unmarshal(productsJSON, &video.Products)
+			if video.Products == nil {
+				video.Products = []models.ProductSimple{}
+			}
+			videos = append(videos, video)
 		}
 
 		if videos == nil {
@@ -106,37 +137,45 @@ func GetVideos(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetVideo(db *mongo.Database) gin.HandlerFunc {
+func GetVideo(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		videoID := c.Param("video_id")
 
 		var video models.Video
-		err := db.Collection("videos").FindOne(context.Background(), bson.M{"id": videoID}).Decode(&video)
-		if err != nil {
+		var productsJSON []byte
+		err := db.QueryRow(
+			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM videos WHERE id = $1`, videoID,
+		).Scan(
+			&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
+			&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
+			&productsJSON, &video.CreatedAt,
+		)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Video not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video"})
 			return
 		}
 
+		json.Unmarshal(productsJSON, &video.Products)
+		if video.Products == nil {
+			video.Products = []models.ProductSimple{}
+		}
+
 		// Increment views
-		db.Collection("videos").UpdateOne(
-			context.Background(),
-			bson.M{"id": videoID},
-			bson.M{"$inc": bson.M{"views": 1}},
-		)
+		db.Exec("UPDATE videos SET views = views + 1 WHERE id = $1", videoID)
 
 		c.JSON(http.StatusOK, video)
 	}
 }
 
-func LikeVideo(db *mongo.Database) gin.HandlerFunc {
+func LikeVideo(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		videoID := c.Param("video_id")
 
-		_, err := db.Collection("videos").UpdateOne(
-			context.Background(),
-			bson.M{"id": videoID},
-			bson.M{"$inc": bson.M{"likes": 1}},
-		)
+		_, err := db.Exec("UPDATE videos SET likes = likes + 1 WHERE id = $1", videoID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to like video"})
 			return

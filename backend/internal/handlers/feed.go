@@ -2,28 +2,62 @@ package handlers
 
 import (
 	"buzzcart/internal/models"
-	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/lib/pq"
 )
 
-func GetFeed(db *mongo.Database) gin.HandlerFunc {
+func GetFeed(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(20)
-
 		// Get videos
-		videoCursor, _ := db.Collection("videos").Find(context.Background(), bson.M{}, opts)
+		videoRows, _ := db.Query(
+			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM videos ORDER BY created_at DESC LIMIT 20`,
+		)
 		var videos []models.Video
-		videoCursor.All(context.Background(), &videos)
+		if videoRows != nil {
+			defer videoRows.Close()
+			for videoRows.Next() {
+				var video models.Video
+				var productsJSON []byte
+				videoRows.Scan(
+					&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
+					&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
+					&productsJSON, &video.CreatedAt,
+				)
+				json.Unmarshal(productsJSON, &video.Products)
+				if video.Products == nil {
+					video.Products = []models.ProductSimple{}
+				}
+				videos = append(videos, video)
+			}
+		}
 
 		// Get reels
-		reelCursor, _ := db.Collection("reels").Find(context.Background(), bson.M{}, opts)
+		reelRows, _ := db.Query(
+			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM reels ORDER BY created_at DESC LIMIT 20`,
+		)
 		var reels []models.Reel
-		reelCursor.All(context.Background(), &reels)
+		if reelRows != nil {
+			defer reelRows.Close()
+			for reelRows.Next() {
+				var reel models.Reel
+				var productsJSON []byte
+				reelRows.Scan(
+					&reel.ID, &reel.URL, &reel.Thumbnail, &reel.Caption, &reel.Views, &reel.Likes,
+					&reel.CreatorID, &reel.CreatorName, &reel.CreatorAvatar, &productsJSON, &reel.CreatedAt,
+				)
+				json.Unmarshal(productsJSON, &reel.Products)
+				if reel.Products == nil {
+					reel.Products = []models.ProductSimple{}
+				}
+				reels = append(reels, reel)
+			}
+		}
 
 		if videos == nil {
 			videos = []models.Video{}
@@ -39,19 +73,50 @@ func GetFeed(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetDiscover(db *mongo.Database) gin.HandlerFunc {
+func GetDiscover(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := options.Find().SetSort(bson.D{{Key: "views", Value: -1}}).SetLimit(20)
-
 		// Get trending videos
-		videoCursor, _ := db.Collection("videos").Find(context.Background(), bson.M{}, opts)
+		videoRows, _ := db.Query(
+			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM videos ORDER BY views DESC LIMIT 20`,
+		)
 		var videos []models.Video
-		videoCursor.All(context.Background(), &videos)
+		if videoRows != nil {
+			defer videoRows.Close()
+			for videoRows.Next() {
+				var video models.Video
+				var productsJSON []byte
+				videoRows.Scan(
+					&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
+					&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
+					&productsJSON, &video.CreatedAt,
+				)
+				json.Unmarshal(productsJSON, &video.Products)
+				if video.Products == nil {
+					video.Products = []models.ProductSimple{}
+				}
+				videos = append(videos, video)
+			}
+		}
 
 		// Get trending products
-		productCursor, _ := db.Collection("products").Find(context.Background(), bson.M{}, opts)
+		productRows, _ := db.Query(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products ORDER BY views DESC LIMIT 20`,
+		)
 		var products []models.Product
-		productCursor.All(context.Background(), &products)
+		if productRows != nil {
+			defer productRows.Close()
+			for productRows.Next() {
+				var product models.Product
+				productRows.Scan(
+					&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+					&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+					&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+				)
+				products = append(products, product)
+			}
+		}
 
 		if videos == nil {
 			videos = []models.Video{}
@@ -67,7 +132,7 @@ func GetDiscover(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func Search(db *mongo.Database) gin.HandlerFunc {
+func Search(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
@@ -80,37 +145,95 @@ func Search(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		filter := bson.M{"$or": []bson.M{
-			{"title": bson.M{"$regex": query, "$options": "i"}},
-			{"description": bson.M{"$regex": query, "$options": "i"}},
-		}}
-
-		opts := options.Find().SetLimit(10)
+		searchPattern := "%" + query + "%"
 
 		// Search products
-		productCursor, _ := db.Collection("products").Find(context.Background(), filter, opts)
+		productRows, _ := db.Query(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products WHERE title ILIKE $1 OR description ILIKE $1 LIMIT 10`,
+			searchPattern,
+		)
 		var products []models.Product
-		productCursor.All(context.Background(), &products)
+		if productRows != nil {
+			defer productRows.Close()
+			for productRows.Next() {
+				var product models.Product
+				productRows.Scan(
+					&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+					&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+					&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+				)
+				products = append(products, product)
+			}
+		}
 
 		// Search videos
-		videoCursor, _ := db.Collection("videos").Find(context.Background(), filter, opts)
+		videoRows, _ := db.Query(
+			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM videos WHERE title ILIKE $1 OR description ILIKE $1 LIMIT 10`,
+			searchPattern,
+		)
 		var videos []models.Video
-		videoCursor.All(context.Background(), &videos)
+		if videoRows != nil {
+			defer videoRows.Close()
+			for videoRows.Next() {
+				var video models.Video
+				var productsJSON []byte
+				videoRows.Scan(
+					&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
+					&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
+					&productsJSON, &video.CreatedAt,
+				)
+				json.Unmarshal(productsJSON, &video.Products)
+				if video.Products == nil {
+					video.Products = []models.ProductSimple{}
+				}
+				videos = append(videos, video)
+			}
+		}
 
 		// Search reels
-		reelFilter := bson.M{"caption": bson.M{"$regex": query, "$options": "i"}}
-		reelCursor, _ := db.Collection("reels").Find(context.Background(), reelFilter, opts)
+		reelRows, _ := db.Query(
+			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM reels WHERE caption ILIKE $1 LIMIT 10`,
+			searchPattern,
+		)
 		var reels []models.Reel
-		reelCursor.All(context.Background(), &reels)
+		if reelRows != nil {
+			defer reelRows.Close()
+			for reelRows.Next() {
+				var reel models.Reel
+				var productsJSON []byte
+				reelRows.Scan(
+					&reel.ID, &reel.URL, &reel.Thumbnail, &reel.Caption, &reel.Views, &reel.Likes,
+					&reel.CreatorID, &reel.CreatorName, &reel.CreatorAvatar, &productsJSON, &reel.CreatedAt,
+				)
+				json.Unmarshal(productsJSON, &reel.Products)
+				if reel.Products == nil {
+					reel.Products = []models.ProductSimple{}
+				}
+				reels = append(reels, reel)
+			}
+		}
 
 		// Search users
-		userFilter := bson.M{"$or": []bson.M{
-			{"name": bson.M{"$regex": query, "$options": "i"}},
-			{"bio": bson.M{"$regex": query, "$options": "i"}},
-		}}
-		userCursor, _ := db.Collection("users").Find(context.Background(), userFilter, opts)
+		userRows, _ := db.Query(
+			`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
+			 FROM users WHERE name ILIKE $1 OR bio ILIKE $1 LIMIT 10`,
+			searchPattern,
+		)
 		var users []models.User
-		userCursor.All(context.Background(), &users)
+		if userRows != nil {
+			defer userRows.Close()
+			for userRows.Next() {
+				var user models.User
+				userRows.Scan(
+					&user.ID, &user.Name, &user.Email, &user.Avatar, &user.Bio,
+					&user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+				)
+				users = append(users, user)
+			}
+		}
 
 		if products == nil {
 			products = []models.Product{}

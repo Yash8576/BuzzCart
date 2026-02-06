@@ -21,13 +21,13 @@ class SplashPage extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
+              const Icon(
                 Icons.shopping_bag_outlined,
                 size: 100,
                 color: Colors.white,
               ),
               const SizedBox(height: 24),
-              Text(
+              const Text(
                 'BuzzCart',
                 style: TextStyle(
                   fontSize: 36,
@@ -40,11 +40,11 @@ class SplashPage extends StatelessWidget {
                 'Social Commerce',
                 style: TextStyle(
                   fontSize: 18,
-                  color: Colors.white.withOpacity(0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                 ),
               ),
               const SizedBox(height: 48),
-              CircularProgressIndicator(
+              const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             ],

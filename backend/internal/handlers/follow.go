@@ -1,17 +1,14 @@
 package handlers
 
 import (
-	"buzzcart/internal/models"
-	"context"
+	"database/sql"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func FollowUser(db *mongo.Database) gin.HandlerFunc {
+func FollowUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		targetUserID := c.Param("user_id")
@@ -22,72 +19,54 @@ func FollowUser(db *mongo.Database) gin.HandlerFunc {
 		}
 
 		// Check if already following
-		var existing models.Follow
-		err := db.Collection("follows").FindOne(
-			context.Background(),
-			bson.M{"follower_id": userID, "following_id": targetUserID},
-		).Decode(&existing)
+		var count int
+		err := db.QueryRow(
+			"SELECT COUNT(*) FROM user_follows WHERE follower_id = $1 AND following_id = $2",
+			userID, targetUserID,
+		).Scan(&count)
 
-		if err == nil {
+		if err == nil && count > 0 {
 			c.JSON(http.StatusOK, gin.H{"message": "Already following"})
 			return
 		}
 
 		// Create follow relationship
-		follow := models.Follow{
-			FollowerID:  userID,
-			FollowingID: targetUserID,
-			CreatedAt:   time.Now(),
-		}
-
-		_, err = db.Collection("follows").InsertOne(context.Background(), follow)
+		_, err = db.Exec(
+			"INSERT INTO user_follows (follower_id, following_id, created_at) VALUES ($1, $2, $3)",
+			userID, targetUserID, time.Now(),
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to follow user"})
 			return
 		}
 
 		// Update counts
-		db.Collection("users").UpdateOne(
-			context.Background(),
-			bson.M{"id": userID},
-			bson.M{"$inc": bson.M{"following_count": 1}},
-		)
-		db.Collection("users").UpdateOne(
-			context.Background(),
-			bson.M{"id": targetUserID},
-			bson.M{"$inc": bson.M{"followers_count": 1}},
-		)
+		db.Exec("UPDATE users SET following_count = following_count + 1 WHERE id = $1", userID)
+		db.Exec("UPDATE users SET followers_count = followers_count + 1 WHERE id = $1", targetUserID)
 
 		c.JSON(http.StatusOK, gin.H{"message": "User followed"})
 	}
 }
 
-func UnfollowUser(db *mongo.Database) gin.HandlerFunc {
+func UnfollowUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		targetUserID := c.Param("user_id")
 
-		result, err := db.Collection("follows").DeleteOne(
-			context.Background(),
-			bson.M{"follower_id": userID, "following_id": targetUserID},
+		result, err := db.Exec(
+			"DELETE FROM user_follows WHERE follower_id = $1 AND following_id = $2",
+			userID, targetUserID,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unfollow user"})
 			return
 		}
 
-		if result.DeletedCount > 0 {
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected > 0 {
 			// Update counts
-			db.Collection("users").UpdateOne(
-				context.Background(),
-				bson.M{"id": userID},
-				bson.M{"$inc": bson.M{"following_count": -1}},
-			)
-			db.Collection("users").UpdateOne(
-				context.Background(),
-				bson.M{"id": targetUserID},
-				bson.M{"$inc": bson.M{"followers_count": -1}},
-			)
+			db.Exec("UPDATE users SET following_count = following_count - 1 WHERE id = $1", userID)
+			db.Exec("UPDATE users SET followers_count = followers_count - 1 WHERE id = $1", targetUserID)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "User unfollowed"})

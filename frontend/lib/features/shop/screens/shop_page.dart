@@ -173,7 +173,7 @@ class _ShopPageState extends State<ShopPage> {
                       const SizedBox(height: 8),
                       Text(
                         '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
                           color: AppColors.electricBlue,
@@ -244,7 +244,7 @@ class _ShopPageState extends State<ShopPage> {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               decoration: const InputDecoration(
                 labelText: 'Filter by Category',
                 border: OutlineInputBorder(),
@@ -307,7 +307,7 @@ class _ShopPageState extends State<ShopPage> {
                               const SizedBox(height: 4),
                               Text(
                                 '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.electricBlue,
                                 ),

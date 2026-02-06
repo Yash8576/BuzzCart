@@ -23,10 +23,10 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 20),
             
             // Profile Header
-            CircleAvatar(
+            const CircleAvatar(
               radius: 50,
               backgroundColor: AppColors.electricBlue,
-              child: const Text(
+              child: Text(
                 'JD',
                 style: TextStyle(
                   fontSize: 32,
@@ -54,7 +54,7 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 24),
             
             // Stats
-            Row(
+            const Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _StatItem(label: 'Posts', value: '24'),

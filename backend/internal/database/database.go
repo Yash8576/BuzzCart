@@ -2,40 +2,48 @@ package database
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"time"
 
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	_ "github.com/lib/pq"
 )
 
-var client *mongo.Client
+var db *sql.DB
 
-func Connect(mongoURL, dbName string) (*mongo.Database, error) {
+func Connect(dbURL string) (*sql.DB, error) {
+	var err error
+	db, err = sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Set connection pool settings
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Ping the database to verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var err error
-	client, err = mongo.Connect(ctx, options.Client().ApplyURI(mongoURL))
-	if err != nil {
-		return nil, err
+	if err = db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Ping the database
-	if err = client.Ping(ctx, nil); err != nil {
-		return nil, err
-	}
-
-	log.Println("Successfully connected to MongoDB")
-	return client.Database(dbName), nil
+	log.Println("Successfully connected to PostgreSQL")
+	return db, nil
 }
 
 func Disconnect() {
-	if client != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := client.Disconnect(ctx); err != nil {
-			log.Printf("Error disconnecting from MongoDB: %v", err)
+	if db != nil {
+		if err := db.Close(); err != nil {
+			log.Printf("Error closing PostgreSQL connection: %v", err)
 		}
 	}
+}
+
+func GetDB() *sql.DB {
+	return db
 }

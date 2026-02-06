@@ -4,17 +4,16 @@ import (
 	"buzzcart/internal/config"
 	"buzzcart/internal/models"
 	"buzzcart/internal/utils"
-	"context"
+	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func Register(db *mongo.Database) gin.HandlerFunc {
+func Register(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.UserCreate
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -29,10 +28,13 @@ func Register(db *mongo.Database) gin.HandlerFunc {
 		}
 
 		// Check if email already exists
-		var existingUser models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&existingUser)
+		var existingID string
+		err := db.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingID)
 		if err == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Email already registered"})
+			return
+		} else if err != sql.ErrNoRows {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
@@ -51,13 +53,28 @@ func Register(db *mongo.Database) gin.HandlerFunc {
 			Name:           req.Name,
 			Bio:            "",
 			AccountType:    req.AccountType,
+			Role:           req.Role,
+			Status:         models.StatusActive,
+			IsVerified:     false,
+			PhoneNumber:    req.PhoneNumber,
 			PrivacyProfile: req.PrivacyProfile,
 			FollowersCount: 0,
 			FollowingCount: 0,
 			CreatedAt:      time.Now(),
 		}
 
-		_, err = db.Collection("users").InsertOne(context.Background(), user)
+		// Generate username from email if not provided (use part before @)
+		username := req.Email[:strings.Index(req.Email, "@")]
+
+		// Insert user into database
+		_, err = db.Exec(`
+		INSERT INTO users (id, username, email, password_hash, name, bio, account_type, role, status, is_verified, 
+			phone_number, privacy_profile, followers_count, following_count, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+	`, user.ID, username, user.Email, user.Password, user.Name, user.Bio, user.AccountType, user.Role,
+			user.Status, user.IsVerified, user.PhoneNumber, user.PrivacyProfile,
+			user.FollowersCount, user.FollowingCount, user.CreatedAt, user.CreatedAt)
+
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 			return
@@ -79,7 +96,7 @@ func Register(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func Login(db *mongo.Database) gin.HandlerFunc {
+func Login(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.UserLogin
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,9 +106,21 @@ func Login(db *mongo.Database) gin.HandlerFunc {
 
 		// Find user
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"email": req.Email}).Decode(&user)
-		if err != nil {
+		err := db.QueryRow(`
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
+				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+			FROM users WHERE email = $1
+		`, req.Email).Scan(
+			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
+			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
+			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
+
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
@@ -117,14 +146,26 @@ func Login(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetMe(db *mongo.Database) gin.HandlerFunc {
+func GetMe(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
-		if err != nil {
+		err := db.QueryRow(`
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
+				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+			FROM users WHERE id = $1
+		`, userID).Scan(
+			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
+			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
+			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
+
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
@@ -132,7 +173,7 @@ func GetMe(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func UpdateProfile(db *mongo.Database) gin.HandlerFunc {
+func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -142,34 +183,64 @@ func UpdateProfile(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		// Build update document
-		updateDoc := bson.M{}
+		// Build update query dynamically
+		query := "UPDATE users SET "
+		args := []interface{}{}
+		argCount := 1
+
 		if req.Name != nil {
-			updateDoc["name"] = *req.Name
+			if argCount > 1 {
+				query += ", "
+			}
+			query += "name = $" + string(rune(argCount+'0'))
+			args = append(args, *req.Name)
+			argCount++
 		}
 		if req.Bio != nil {
-			updateDoc["bio"] = *req.Bio
+			if argCount > 1 {
+				query += ", "
+			}
+			query += "bio = $" + string(rune(argCount+'0'))
+			args = append(args, *req.Bio)
+			argCount++
 		}
 		if req.Avatar != nil {
-			updateDoc["avatar"] = *req.Avatar
+			if argCount > 1 {
+				query += ", "
+			}
+			query += "avatar = $" + string(rune(argCount+'0'))
+			args = append(args, *req.Avatar)
+			argCount++
 		}
 
-		if len(updateDoc) > 0 {
-			_, err := db.Collection("users").UpdateOne(
-				context.Background(),
-				bson.M{"id": userID},
-				bson.M{"$set": updateDoc},
-			)
+		if len(args) > 0 {
+			query += " WHERE id = $" + string(rune(argCount+'0'))
+			args = append(args, userID)
+
+			_, err := db.Exec(query, args...)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 				return
 			}
 		}
 
+		// Fetch updated user
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
-		if err != nil {
+		err := db.QueryRow(`
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
+				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+			FROM users WHERE id = $1
+		`, userID).Scan(
+			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
+			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
+			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
+
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
@@ -177,14 +248,26 @@ func UpdateProfile(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetUser(db *mongo.Database) gin.HandlerFunc {
+func GetUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("user_id")
 
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
-		if err != nil {
+		err := db.QueryRow(`
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
+				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+			FROM users WHERE id = $1
+		`, userID).Scan(
+			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
+			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
+			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
+
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 

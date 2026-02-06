@@ -2,18 +2,17 @@ package handlers
 
 import (
 	"buzzcart/internal/models"
-	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/lib/pq"
 )
 
-func CreateReel(db *mongo.Database) gin.HandlerFunc {
+func CreateReel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -25,7 +24,9 @@ func CreateReel(db *mongo.Database) gin.HandlerFunc {
 
 		// Get user info
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
+		err := db.QueryRow("SELECT id, name, avatar FROM users WHERE id = $1", userID).Scan(
+			&user.ID, &user.Name, &user.Avatar,
+		)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -34,20 +35,29 @@ func CreateReel(db *mongo.Database) gin.HandlerFunc {
 		// Fetch products
 		var products []models.ProductSimple
 		if len(req.ProductIDs) > 0 {
-			cursor, _ := db.Collection("products").Find(context.Background(), bson.M{"id": bson.M{"$in": req.ProductIDs}})
-			var fullProducts []models.Product
-			cursor.All(context.Background(), &fullProducts)
-			for _, p := range fullProducts {
-				image := ""
-				if len(p.Images) > 0 {
-					image = p.Images[0]
+			rows, err := db.Query(
+				"SELECT id, title, price, images FROM products WHERE id = ANY($1)",
+				pq.Array(req.ProductIDs),
+			)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var p models.Product
+					var imagesJSON []byte
+					rows.Scan(&p.ID, &p.Title, &p.Price, &imagesJSON)
+					var images []string
+					json.Unmarshal(imagesJSON, &images)
+					image := ""
+					if len(images) > 0 {
+						image = images[0]
+					}
+					products = append(products, models.ProductSimple{
+						ID:    p.ID,
+						Title: p.Title,
+						Price: p.Price,
+						Image: image,
+					})
 				}
-				products = append(products, models.ProductSimple{
-					ID:    p.ID,
-					Title: p.Title,
-					Price: p.Price,
-					Image: image,
-				})
 			}
 		}
 
@@ -69,7 +79,13 @@ func CreateReel(db *mongo.Database) gin.HandlerFunc {
 			CreatedAt:     time.Now(),
 		}
 
-		_, err = db.Collection("reels").InsertOne(context.Background(), reel)
+		productsJSON, _ := json.Marshal(reel.Products)
+		_, err = db.Exec(
+			`INSERT INTO reels (id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at) 
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			reel.ID, reel.URL, reel.Thumbnail, reel.Caption, reel.Views, reel.Likes,
+			reel.CreatorID, reel.CreatorName, reel.CreatorAvatar, productsJSON, reel.CreatedAt,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reel"})
 			return
@@ -79,21 +95,35 @@ func CreateReel(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetReels(db *mongo.Database) gin.HandlerFunc {
+func GetReels(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(20)
-
-		cursor, err := db.Collection("reels").Find(context.Background(), bson.M{}, opts)
+		rows, err := db.Query(
+			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM reels ORDER BY created_at DESC LIMIT 20`,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reels"})
 			return
 		}
-		defer cursor.Close(context.Background())
+		defer rows.Close()
 
 		var reels []models.Reel
-		if err = cursor.All(context.Background(), &reels); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reels"})
-			return
+		for rows.Next() {
+			var reel models.Reel
+			var productsJSON []byte
+			err := rows.Scan(
+				&reel.ID, &reel.URL, &reel.Thumbnail, &reel.Caption, &reel.Views, &reel.Likes,
+				&reel.CreatorID, &reel.CreatorName, &reel.CreatorAvatar, &productsJSON, &reel.CreatedAt,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reels"})
+				return
+			}
+			json.Unmarshal(productsJSON, &reel.Products)
+			if reel.Products == nil {
+				reel.Products = []models.ProductSimple{}
+			}
+			reels = append(reels, reel)
 		}
 
 		if reels == nil {
@@ -104,37 +134,44 @@ func GetReels(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetReel(db *mongo.Database) gin.HandlerFunc {
+func GetReel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 
 		var reel models.Reel
-		err := db.Collection("reels").FindOne(context.Background(), bson.M{"id": reelID}).Decode(&reel)
-		if err != nil {
+		var productsJSON []byte
+		err := db.QueryRow(
+			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
+			 FROM reels WHERE id = $1`, reelID,
+		).Scan(
+			&reel.ID, &reel.URL, &reel.Thumbnail, &reel.Caption, &reel.Views, &reel.Likes,
+			&reel.CreatorID, &reel.CreatorName, &reel.CreatorAvatar, &productsJSON, &reel.CreatedAt,
+		)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel"})
 			return
 		}
 
+		json.Unmarshal(productsJSON, &reel.Products)
+		if reel.Products == nil {
+			reel.Products = []models.ProductSimple{}
+		}
+
 		// Increment views
-		db.Collection("reels").UpdateOne(
-			context.Background(),
-			bson.M{"id": reelID},
-			bson.M{"$inc": bson.M{"views": 1}},
-		)
+		db.Exec("UPDATE reels SET views = views + 1 WHERE id = $1", reelID)
 
 		c.JSON(http.StatusOK, reel)
 	}
 }
 
-func LikeReel(db *mongo.Database) gin.HandlerFunc {
+func LikeReel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 
-		_, err := db.Collection("reels").UpdateOne(
-			context.Background(),
-			bson.M{"id": reelID},
-			bson.M{"$inc": bson.M{"likes": 1}},
-		)
+		_, err := db.Exec("UPDATE reels SET likes = likes + 1 WHERE id = $1", reelID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to like reel"})
 			return

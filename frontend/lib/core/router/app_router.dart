@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/upload_content_provider.dart';
+import '../providers/add_product_provider.dart';
 import '../../features/auth/screens/splash_page.dart';
 import '../../features/auth/screens/login_page.dart';
-import '../../features/auth/screens/signup_page.dart';
+import '../../features/auth/presentation/screens/signup_screen.dart';
 import '../../features/layout/main_layout.dart';
 import '../../features/home/screens/home_page.dart';
 import '../../features/shop/screens/shop_page.dart';
@@ -15,6 +17,8 @@ import '../../features/profile/screens/profile_page.dart';
 import '../../features/messages/screens/messages_page.dart';
 import '../../features/search/screens/search_page.dart';
 import '../../features/settings/screens/settings_page.dart';
+import '../../features/upload/presentation/screens/add_product_screen.dart';
+import '../../features/upload/presentation/screens/upload_content_screen.dart';
 
 // Create a router that refreshes when AuthProvider changes
 GoRouter createAppRouter(AuthProvider authProvider) {
@@ -65,7 +69,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
     ),
     GoRoute(
       path: '/signup',
-      builder: (context, state) => const SignupPage(),
+      builder: (context, state) => const SignupScreen(),
     ),
 
     // Protected routes with layout
@@ -121,6 +125,84 @@ GoRouter createAppRouter(AuthProvider authProvider) {
         GoRoute(
           path: '/settings',
           builder: (context, state) => const SettingsPage(),
+        ),
+        GoRoute(
+          path: '/add-product',
+          builder: (context, state) => const AddProductScreen(),
+          onExit: (context) async {
+            final provider = context.read<AddProductProvider>();
+            if (!provider.hasUnsavedWork) {
+              return true; // Allow navigation if no unsaved work
+            }
+            
+            // Show confirmation dialog
+            final shouldLeave = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Discard Product?'),
+                content: const Text(
+                  'You have unsaved changes. Are you sure you want to discard this product?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Continue Editing'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      provider.clearAll(); // Clear state on discard
+                      Navigator.pop(context, true);
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    child: const Text('Discard'),
+                  ),
+                ],
+              ),
+            );
+            
+            return shouldLeave ?? false;
+          },
+        ),
+        GoRoute(
+          path: '/upload-content',
+          builder: (context, state) => const UploadContentScreen(),
+          onExit: (context) async {
+            final provider = context.read<UploadContentProvider>();
+            if (!provider.hasUnsavedWork) {
+              return true; // Allow navigation if no unsaved work
+            }
+            
+            // Show confirmation dialog
+            final shouldLeave = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Discard Content?'),
+                content: const Text(
+                  'You have unsaved changes. Are you sure you want to discard this content?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Continue Editing'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      provider.clearAll(); // Clear state on discard
+                      Navigator.pop(context, true);
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    child: const Text('Discard'),
+                  ),
+                ],
+              ),
+            );
+            
+            return shouldLeave ?? false;
+          },
         ),
       ],
     ),

@@ -4,6 +4,8 @@ import 'core/theme/app_theme.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/cart_provider.dart';
 import 'core/providers/theme_provider.dart';
+import 'core/providers/upload_content_provider.dart';
+import 'core/providers/add_product_provider.dart';
 import 'core/services/api_service.dart';
 import 'core/router/app_router.dart';
 
@@ -33,6 +35,12 @@ void main() async {
             apiService: context.read<ApiService>(),
           ),
           update: (_, api, __) => CartProvider(apiService: api),
+        ),
+        ChangeNotifierProvider<UploadContentProvider>(
+          create: (_) => UploadContentProvider(),
+        ),
+        ChangeNotifierProvider<AddProductProvider>(
+          create: (_) => AddProductProvider(),
         ),
       ],
       child: const BuzzSocialCartApp(),

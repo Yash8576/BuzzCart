@@ -2,18 +2,16 @@ package handlers
 
 import (
 	"buzzcart/internal/models"
-	"context"
+	"database/sql"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"github.com/lib/pq"
 )
 
-func CreateProduct(db *mongo.Database) gin.HandlerFunc {
+func CreateProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -25,7 +23,9 @@ func CreateProduct(db *mongo.Database) gin.HandlerFunc {
 
 		// Get user info
 		var user models.User
-		err := db.Collection("users").FindOne(context.Background(), bson.M{"id": userID}).Decode(&user)
+		err := db.QueryRow("SELECT id, name, email, avatar, bio, followers_count, following_count, created_at FROM users WHERE id = $1", userID).Scan(
+			&user.ID, &user.Name, &user.Email, &user.Avatar, &user.Bio, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -54,7 +54,12 @@ func CreateProduct(db *mongo.Database) gin.HandlerFunc {
 			product.Tags = []string{}
 		}
 
-		_, err = db.Collection("products").InsertOne(context.Background(), product)
+		_, err = db.Exec(
+			`INSERT INTO products (id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at) 
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+			product.ID, product.Title, product.Description, product.Price, pq.Array(product.Images), product.Category, pq.Array(product.Tags),
+			product.SellerID, product.SellerName, product.Rating, product.ReviewsCount, product.Views, product.CreatedAt,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
 			return
@@ -64,21 +69,31 @@ func CreateProduct(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetProducts(db *mongo.Database) gin.HandlerFunc {
+func GetProducts(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(20)
-
-		cursor, err := db.Collection("products").Find(context.Background(), bson.M{}, opts)
+		rows, err := db.Query(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products ORDER BY created_at DESC LIMIT 20`,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 			return
 		}
-		defer cursor.Close(context.Background())
+		defer rows.Close()
 
 		var products []models.Product
-		if err = cursor.All(context.Background(), &products); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
-			return
+		for rows.Next() {
+			var product models.Product
+			err := rows.Scan(
+				&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+				&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+				&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
+				return
+			}
+			products = append(products, product)
 		}
 
 		if products == nil {
@@ -89,37 +104,46 @@ func GetProducts(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetProduct(db *mongo.Database) gin.HandlerFunc {
+func GetProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("product_id")
 
 		var product models.Product
-		err := db.Collection("products").FindOne(context.Background(), bson.M{"id": productID}).Decode(&product)
-		if err != nil {
+		err := db.QueryRow(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products WHERE id = $1`, productID,
+		).Scan(
+			&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+			&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+			&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+		)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
 			return
 		}
 
 		// Increment views
-		db.Collection("products").UpdateOne(
-			context.Background(),
-			bson.M{"id": productID},
-			bson.M{"$inc": bson.M{"views": 1}},
-		)
+		db.Exec("UPDATE products SET views = views + 1 WHERE id = $1", productID)
 
 		c.JSON(http.StatusOK, product)
 	}
 }
 
-func UpdateProduct(db *mongo.Database) gin.HandlerFunc {
+func UpdateProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		productID := c.Param("product_id")
 
 		var product models.Product
-		err := db.Collection("products").FindOne(context.Background(), bson.M{"id": productID}).Decode(&product)
-		if err != nil {
+		err := db.QueryRow("SELECT seller_id FROM products WHERE id = $1", productID).Scan(&product.SellerID)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
 			return
 		}
 
@@ -134,26 +158,24 @@ func UpdateProduct(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		updateDoc := bson.M{
-			"title":       req.Title,
-			"description": req.Description,
-			"price":       req.Price,
-			"images":      req.Images,
-			"category":    req.Category,
-			"tags":        req.Tags,
-		}
-
-		_, err = db.Collection("products").UpdateOne(
-			context.Background(),
-			bson.M{"id": productID},
-			bson.M{"$set": updateDoc},
+		_, err = db.Exec(
+			`UPDATE products SET title = $1, description = $2, price = $3, images = $4, category = $5, tags = $6 
+			 WHERE id = $7`,
+			req.Title, req.Description, req.Price, pq.Array(req.Images), req.Category, pq.Array(req.Tags), productID,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
 			return
 		}
 
-		err = db.Collection("products").FindOne(context.Background(), bson.M{"id": productID}).Decode(&product)
+		err = db.QueryRow(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products WHERE id = $1`, productID,
+		).Scan(
+			&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+			&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+			&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated product"})
 			return
@@ -163,15 +185,18 @@ func UpdateProduct(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func DeleteProduct(db *mongo.Database) gin.HandlerFunc {
+func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 		productID := c.Param("product_id")
 
 		var product models.Product
-		err := db.Collection("products").FindOne(context.Background(), bson.M{"id": productID}).Decode(&product)
-		if err != nil {
+		err := db.QueryRow("SELECT seller_id FROM products WHERE id = $1", productID).Scan(&product.SellerID)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
 			return
 		}
 
@@ -180,7 +205,7 @@ func DeleteProduct(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		_, err = db.Collection("products").DeleteOne(context.Background(), bson.M{"id": productID})
+		_, err = db.Exec("DELETE FROM products WHERE id = $1", productID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
 			return
@@ -190,21 +215,33 @@ func DeleteProduct(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func GetSellerProducts(db *mongo.Database) gin.HandlerFunc {
+func GetSellerProducts(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sellerID := c.Param("seller_id")
 
-		cursor, err := db.Collection("products").Find(context.Background(), bson.M{"seller_id": sellerID})
+		rows, err := db.Query(
+			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+			 FROM products WHERE seller_id = $1`, sellerID,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 			return
 		}
-		defer cursor.Close(context.Background())
+		defer rows.Close()
 
 		var products []models.Product
-		if err = cursor.All(context.Background(), &products); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
-			return
+		for rows.Next() {
+			var product models.Product
+			err := rows.Scan(
+				&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
+				&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
+				&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
+				return
+			}
+			products = append(products, product)
 		}
 
 		if products == nil {

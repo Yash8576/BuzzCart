@@ -110,6 +110,7 @@ class AuthProvider extends ChangeNotifier {
     String name, {
     String accountType = 'CONSUMER',
     String privacyProfile = 'PUBLIC',
+    String? phoneNumber,
   }) async {
     try {
       final response = await _api.register(
@@ -118,6 +119,7 @@ class AuthProvider extends ChangeNotifier {
         name,
         accountType: accountType,
         privacyProfile: privacyProfile,
+        phoneNumber: phoneNumber,
       );
       _user = UserModel.fromJson(response['user'] as Map<String, dynamic>);
       _isAuthenticated = true;

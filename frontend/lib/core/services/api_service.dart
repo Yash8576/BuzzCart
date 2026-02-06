@@ -110,15 +110,28 @@ class ApiService {
     String name, {
     String accountType = 'CONSUMER',
     String privacyProfile = 'PUBLIC',
+    String? phoneNumber,
   }) async {
     try {
-      final response = await _dio.post('/auth/register', data: {
+      // Map account type to role and convert to lowercase for backend
+      final accountTypeLower = accountType.toLowerCase();
+      String role = accountType == 'SELLER' ? 'seller' : 'consumer';
+      
+      final data = {
         'email': email,
         'password': password,
         'name': name,
-        'account_type': accountType,
-        'privacy_profile': privacyProfile,
-      });
+        'account_type': accountTypeLower,
+        'role': role,
+        'privacy_profile': privacyProfile.toLowerCase(),
+      };
+      
+      // Add phone number if provided
+      if (phoneNumber != null && phoneNumber.isNotEmpty) {
+        data['phone_number'] = phoneNumber;
+      }
+      
+      final response = await _dio.post('/auth/register', data: data);
 
       final token = response.data['access_token'] as String;
       await _saveToken(token);

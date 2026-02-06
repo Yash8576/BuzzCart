@@ -6,8 +6,7 @@ import (
 )
 
 type Config struct {
-	MongoURL     string
-	DBName       string
+	DatabaseURL  string
 	JWTSecret    string
 	Port         string
 	OpenAIAPIKey string
@@ -24,8 +23,7 @@ type MinIOConfig struct {
 
 func Load() *Config {
 	return &Config{
-		MongoURL:     getEnv("MONGO_URL", "mongodb://localhost:27017"),
-		DBName:       getEnv("DB_NAME", "buzzcart_dev"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://like2share_user:like2share_dev_password@localhost:5432/like2share_db?sslmode=disable"),
 		JWTSecret:    getEnv("JWT_SECRET", "buzz-social-cart-secret-key-2024"),
 		Port:         getEnv("PORT", "8000"),
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),

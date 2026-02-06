@@ -124,6 +124,8 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   Widget _buildSidebar() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final user = context.watch<AuthProvider>().user;
+    final location = GoRouterState.of(context).matchedLocation;
+    final isHomePage = location == '/';
 
     return Container(
       width: 256,
@@ -147,23 +149,101 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            child: Row(
-              children: [
-                Text(
-                  'Buzz',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
+            child: isHomePage
+                ? PopupMenuButton<String>(
+                    offset: const Offset(0, 50),
+                    onSelected: (value) {
+                      if (value == 'content') {
+                        context.go('/upload-content');
+                      } else if (value == 'product') {
+                        context.go('/add-product');
+                      }
+                    },
+                    itemBuilder: (context) {
+                      final isSeller = user?.isSeller ?? false;
+                      if (isSeller) {
+                        return [
+                          const PopupMenuItem(
+                            value: 'content',
+                            child: Row(
+                              children: [
+                                Icon(Icons.add_photo_alternate),
+                                SizedBox(width: 12),
+                                Text('Add Content'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'product',
+                            child: Row(
+                              children: [
+                                Icon(Icons.inventory_2),
+                                SizedBox(width: 12),
+                                Text('Add Product'),
+                              ],
+                            ),
+                          ),
+                        ];
+                      } else {
+                        return [
+                          const PopupMenuItem(
+                            value: 'content',
+                            child: Row(
+                              children: [
+                                Icon(Icons.add_photo_alternate),
+                                SizedBox(width: 12),
+                                Text('Add Content'),
+                              ],
+                            ),
+                          ),
+                        ];
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Buzz',
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          Text(
+                            'Cart',
+                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.electricBlue,
+                                ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.keyboard_arrow_down, size: 20),
+                        ],
                       ),
-                ),
-                Text(
-                  'Cart',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.electricBlue,
-                      ),
-                ),
-              ],
-            ),
+                    ),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Buzz',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        Text(
+                          'Cart',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.electricBlue,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
           ),
 
           // Navigation items
@@ -255,6 +335,8 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   Widget _buildMobileHeader() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cart = context.watch<CartProvider>().cart;
+    final location = GoRouterState.of(context).matchedLocation;
+    final isHomePage = location == '/';
 
     return SafeArea(
       bottom: false,
@@ -271,19 +353,100 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
         ),
       child: Row(
         children: [
-          Text(
-            'Buzz',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+          isHomePage
+              ? PopupMenuButton<String>(
+                  offset: const Offset(0, 40),
+                  onSelected: (value) {
+                    if (value == 'content') {
+                      context.go('/upload-content');
+                    } else if (value == 'product') {
+                      context.go('/add-product');
+                    }
+                  },
+                  itemBuilder: (context) {
+                    final user = context.read<AuthProvider>().user;
+                    final isSeller = user?.isSeller ?? false;
+                    if (isSeller) {
+                      return [
+                        const PopupMenuItem(
+                          value: 'content',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_photo_alternate, size: 18),
+                              SizedBox(width: 8),
+                              Text('Add Content'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'product',
+                          child: Row(
+                            children: [
+                              Icon(Icons.inventory_2, size: 18),
+                              SizedBox(width: 8),
+                              Text('Add Product'),
+                            ],
+                          ),
+                        ),
+                      ];
+                    } else {
+                      return [
+                        const PopupMenuItem(
+                          value: 'content',
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_photo_alternate, size: 18),
+                              SizedBox(width: 8),
+                              Text('Add Content'),
+                            ],
+                          ),
+                        ),
+                      ];
+                    }
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Buzz',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        Text(
+                          'Cart',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.electricBlue,
+                              ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.keyboard_arrow_down, size: 18),
+                      ],
+                    ),
+                  ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Buzz',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      Text(
+                        'Cart',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.electricBlue,
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
-          ),
-          Text(
-            'Cart',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.electricBlue,
-                ),
-          ),
           const Spacer(),
           IconButton(
             icon: const Icon(Icons.search),

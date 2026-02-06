@@ -16,6 +16,22 @@ const (
 	AccountTypeConsumer AccountType = "consumer"
 )
 
+type UserRole string
+
+const (
+	RoleConsumer UserRole = "consumer"
+	RoleSeller   UserRole = "seller"
+	RoleAdmin    UserRole = "admin"
+)
+
+type AccountStatus string
+
+const (
+	StatusActive    AccountStatus = "active"
+	StatusInactive  AccountStatus = "inactive"
+	StatusSuspended AccountStatus = "suspended"
+)
+
 type PrivacyProfile string
 
 const (
@@ -36,17 +52,21 @@ const (
 // ============================================================================
 
 type User struct {
-	ID             string         `json:"id" bson:"id"`
-	Email          string         `json:"email" bson:"email"`
-	Password       string         `json:"-" bson:"password"`
-	Name           string         `json:"name" bson:"name"`
-	Avatar         *string        `json:"avatar,omitempty" bson:"avatar,omitempty"`
-	Bio            string         `json:"bio" bson:"bio"`
-	AccountType    AccountType    `json:"account_type" bson:"account_type"`
-	PrivacyProfile PrivacyProfile `json:"privacy_profile" bson:"privacy_profile"`
-	FollowersCount int            `json:"followers_count" bson:"followers_count"`
-	FollowingCount int            `json:"following_count" bson:"following_count"`
-	CreatedAt      time.Time      `json:"created_at" bson:"created_at"`
+	ID             string         `json:"id" db:"id"`
+	Email          string         `json:"email" db:"email"`
+	Password       string         `json:"-" db:"password"`
+	Name           string         `json:"name" db:"name"`
+	Avatar         *string        `json:"avatar,omitempty" db:"avatar"`
+	Bio            string         `json:"bio" db:"bio"`
+	AccountType    AccountType    `json:"account_type" db:"account_type"`
+	Role           UserRole       `json:"role" db:"role"`
+	Status         AccountStatus  `json:"status" db:"status"`
+	IsVerified     bool           `json:"is_verified" db:"is_verified"`
+	PhoneNumber    *string        `json:"phone_number,omitempty" db:"phone_number"`
+	PrivacyProfile PrivacyProfile `json:"privacy_profile" db:"privacy_profile"`
+	FollowersCount int            `json:"followers_count" db:"followers_count"`
+	FollowingCount int            `json:"following_count" db:"following_count"`
+	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
 }
 
 type UserCreate struct {
@@ -54,6 +74,8 @@ type UserCreate struct {
 	Password       string         `json:"password" binding:"required,min=6"`
 	Name           string         `json:"name" binding:"required"`
 	AccountType    AccountType    `json:"account_type" binding:"required,oneof=seller consumer"`
+	Role           UserRole       `json:"role" binding:"required,oneof=consumer seller admin"`
+	PhoneNumber    *string        `json:"phone_number,omitempty"`
 	PrivacyProfile PrivacyProfile `json:"privacy_profile" binding:"required_if=AccountType consumer,oneof=public private"`
 }
 
@@ -67,6 +89,23 @@ func (uc *UserCreate) Validate() error {
 	// Consumer accounts must specify privacy
 	if uc.AccountType == AccountTypeConsumer && uc.PrivacyProfile == "" {
 		return fmt.Errorf("consumers must specify privacy_profile (public or private)")
+	}
+
+	// Sync role with account_type if not explicitly set
+	if uc.Role == "" {
+		if uc.AccountType == AccountTypeSeller {
+			uc.Role = RoleSeller
+		} else {
+			uc.Role = RoleConsumer
+		}
+	}
+
+	// Ensure role matches account_type (sellers can't be consumers and vice versa)
+	if uc.AccountType == AccountTypeSeller && uc.Role == RoleConsumer {
+		return fmt.Errorf("seller account cannot have consumer role")
+	}
+	if uc.AccountType == AccountTypeConsumer && uc.Role == RoleSeller {
+		return fmt.Errorf("consumer account cannot have seller role")
 	}
 
 	return nil
@@ -90,19 +129,19 @@ type TokenResponse struct {
 }
 
 type Product struct {
-	ID           string    `json:"id" bson:"id"`
-	Title        string    `json:"title" bson:"title"`
-	Description  string    `json:"description" bson:"description"`
-	Price        float64   `json:"price" bson:"price"`
-	Images       []string  `json:"images" bson:"images"`
-	Category     string    `json:"category" bson:"category"`
-	Tags         []string  `json:"tags" bson:"tags"`
-	SellerID     string    `json:"seller_id" bson:"seller_id"`
-	SellerName   string    `json:"seller_name" bson:"seller_name"`
-	Rating       float64   `json:"rating" bson:"rating"`
-	ReviewsCount int       `json:"reviews_count" bson:"reviews_count"`
-	Views        int       `json:"views" bson:"views"`
-	CreatedAt    time.Time `json:"created_at" bson:"created_at"`
+	ID           string    `json:"id" db:"id"`
+	Title        string    `json:"title" db:"title"`
+	Description  string    `json:"description" db:"description"`
+	Price        float64   `json:"price" db:"price"`
+	Images       []string  `json:"images" db:"images"`
+	Category     string    `json:"category" db:"category"`
+	Tags         []string  `json:"tags" db:"tags"`
+	SellerID     string    `json:"seller_id" db:"seller_id"`
+	SellerName   string    `json:"seller_name" db:"seller_name"`
+	Rating       float64   `json:"rating" db:"rating"`
+	ReviewsCount int       `json:"reviews_count" db:"reviews_count"`
+	Views        int       `json:"views" db:"views"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 }
 
 type ProductCreate struct {
@@ -115,19 +154,19 @@ type ProductCreate struct {
 }
 
 type Video struct {
-	ID            string          `json:"id" bson:"id"`
-	Title         string          `json:"title" bson:"title"`
-	Description   string          `json:"description" bson:"description"`
-	URL           string          `json:"url" bson:"url"`
-	Thumbnail     string          `json:"thumbnail" bson:"thumbnail"`
-	Duration      int             `json:"duration" bson:"duration"`
-	Views         int             `json:"views" bson:"views"`
-	Likes         int             `json:"likes" bson:"likes"`
-	CreatorID     string          `json:"creator_id" bson:"creator_id"`
-	CreatorName   string          `json:"creator_name" bson:"creator_name"`
-	CreatorAvatar *string         `json:"creator_avatar,omitempty" bson:"creator_avatar,omitempty"`
-	Products      []ProductSimple `json:"products" bson:"products"`
-	CreatedAt     time.Time       `json:"created_at" bson:"created_at"`
+	ID            string          `json:"id" db:"id"`
+	Title         string          `json:"title" db:"title"`
+	Description   string          `json:"description" db:"description"`
+	URL           string          `json:"url" db:"url"`
+	Thumbnail     string          `json:"thumbnail" db:"thumbnail"`
+	Duration      int             `json:"duration" db:"duration"`
+	Views         int             `json:"views" db:"views"`
+	Likes         int             `json:"likes" db:"likes"`
+	CreatorID     string          `json:"creator_id" db:"creator_id"`
+	CreatorName   string          `json:"creator_name" db:"creator_name"`
+	CreatorAvatar *string         `json:"creator_avatar,omitempty" db:"creator_avatar"`
+	Products      []ProductSimple `json:"products" db:"products"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 }
 
 type VideoCreate struct {
@@ -140,17 +179,17 @@ type VideoCreate struct {
 }
 
 type Reel struct {
-	ID            string          `json:"id" bson:"id"`
-	URL           string          `json:"url" bson:"url"`
-	Thumbnail     string          `json:"thumbnail" bson:"thumbnail"`
-	Caption       string          `json:"caption" bson:"caption"`
-	Views         int             `json:"views" bson:"views"`
-	Likes         int             `json:"likes" bson:"likes"`
-	CreatorID     string          `json:"creator_id" bson:"creator_id"`
-	CreatorName   string          `json:"creator_name" bson:"creator_name"`
-	CreatorAvatar *string         `json:"creator_avatar,omitempty" bson:"creator_avatar,omitempty"`
-	Products      []ProductSimple `json:"products" bson:"products"`
-	CreatedAt     time.Time       `json:"created_at" bson:"created_at"`
+	ID            string          `json:"id" db:"id"`
+	URL           string          `json:"url" db:"url"`
+	Thumbnail     string          `json:"thumbnail" db:"thumbnail"`
+	Caption       string          `json:"caption" db:"caption"`
+	Views         int             `json:"views" db:"views"`
+	Likes         int             `json:"likes" db:"likes"`
+	CreatorID     string          `json:"creator_id" db:"creator_id"`
+	CreatorName   string          `json:"creator_name" db:"creator_name"`
+	CreatorAvatar *string         `json:"creator_avatar,omitempty" db:"creator_avatar"`
+	Products      []ProductSimple `json:"products" db:"products"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 }
 
 type ReelCreate struct {
@@ -161,24 +200,24 @@ type ReelCreate struct {
 }
 
 type ProductSimple struct {
-	ID    string  `json:"id" bson:"id"`
-	Title string  `json:"title" bson:"title"`
-	Price float64 `json:"price" bson:"price"`
-	Image string  `json:"image" bson:"image"`
+	ID    string  `json:"id" db:"id"`
+	Title string  `json:"title" db:"title"`
+	Price float64 `json:"price" db:"price"`
+	Image string  `json:"image" db:"image"`
 }
 
 type CartItem struct {
-	ProductID string  `json:"product_id" bson:"product_id"`
-	Title     string  `json:"title" bson:"title"`
-	Price     float64 `json:"price" bson:"price"`
-	Image     string  `json:"image" bson:"image"`
-	Quantity  int     `json:"quantity" bson:"quantity"`
+	ProductID string  `json:"product_id" db:"product_id"`
+	Title     string  `json:"title" db:"title"`
+	Price     float64 `json:"price" db:"price"`
+	Image     string  `json:"image" db:"image"`
+	Quantity  int     `json:"quantity" db:"quantity"`
 }
 
 type Cart struct {
-	UserID    string     `json:"user_id" bson:"user_id"`
-	Items     []CartItem `json:"items" bson:"items"`
-	UpdatedAt time.Time  `json:"updated_at" bson:"updated_at"`
+	UserID    string     `json:"user_id" db:"user_id"`
+	Items     []CartItem `json:"items" db:"items"`
+	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 type CartResponse struct {
@@ -194,14 +233,14 @@ type CartItemAdd struct {
 }
 
 type Message struct {
-	ID             string    `json:"id" bson:"id"`
-	ConversationID string    `json:"conversation_id" bson:"conversation_id"`
-	SenderID       string    `json:"sender_id" bson:"sender_id"`
-	ReceiverID     string    `json:"receiver_id" bson:"receiver_id"`
-	Content        string    `json:"content" bson:"content"`
-	ProductID      *string   `json:"product_id,omitempty" bson:"product_id,omitempty"`
-	CreatedAt      time.Time `json:"created_at" bson:"created_at"`
-	Read           bool      `json:"read" bson:"read"`
+	ID             string    `json:"id" db:"id"`
+	ConversationID string    `json:"conversation_id" db:"conversation_id"`
+	SenderID       string    `json:"sender_id" db:"sender_id"`
+	ReceiverID     string    `json:"receiver_id" db:"receiver_id"`
+	Content        string    `json:"content" db:"content"`
+	ProductID      *string   `json:"product_id,omitempty" db:"product_id"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	Read           bool      `json:"read" db:"read"`
 }
 
 type MessageCreate struct {
@@ -211,9 +250,9 @@ type MessageCreate struct {
 }
 
 type Follow struct {
-	FollowerID  string    `json:"follower_id" bson:"follower_id"`
-	FollowingID string    `json:"following_id" bson:"following_id"`
-	CreatedAt   time.Time `json:"created_at" bson:"created_at"`
+	FollowerID  string    `json:"follower_id" db:"follower_id"`
+	FollowingID string    `json:"following_id" db:"following_id"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
 // ============================================================================
@@ -221,12 +260,12 @@ type Follow struct {
 // ============================================================================
 
 type FollowRequest struct {
-	ID          string              `json:"id" bson:"id"`
-	RequesterID string              `json:"requester_id" bson:"requester_id"`
-	RequesteeID string              `json:"requestee_id" bson:"requestee_id"`
-	Status      FollowRequestStatus `json:"status" bson:"status"`
-	RequestedAt time.Time           `json:"requested_at" bson:"requested_at"`
-	RespondedAt *time.Time          `json:"responded_at,omitempty" bson:"responded_at,omitempty"`
+	ID          string              `json:"id" db:"id"`
+	RequesterID string              `json:"requester_id" db:"requester_id"`
+	RequesteeID string              `json:"requestee_id" db:"requestee_id"`
+	Status      FollowRequestStatus `json:"status" db:"status"`
+	RequestedAt time.Time           `json:"requested_at" db:"requested_at"`
+	RespondedAt *time.Time          `json:"responded_at,omitempty" db:"responded_at"`
 }
 
 type FollowRequestCreate struct {
@@ -242,28 +281,28 @@ type FollowRequestRespond struct {
 // ============================================================================
 
 type Order struct {
-	ID          string      `json:"id" bson:"id"`
-	UserID      string      `json:"user_id" bson:"user_id"`
-	OrderNumber string      `json:"order_number" bson:"order_number"`
-	Status      string      `json:"status" bson:"status"`
-	Subtotal    float64     `json:"subtotal" bson:"subtotal"`
-	Tax         float64     `json:"tax" bson:"tax"`
-	Shipping    float64     `json:"shipping" bson:"shipping"`
-	Discount    float64     `json:"discount" bson:"discount"`
-	Total       float64     `json:"total" bson:"total"`
-	IsPrivate   bool        `json:"is_private" bson:"is_private"` // Privacy flag - defaults to false (public)
-	Items       []OrderItem `json:"items,omitempty" bson:"items,omitempty"`
-	CreatedAt   time.Time   `json:"created_at" bson:"created_at"`
-	CompletedAt *time.Time  `json:"completed_at,omitempty" bson:"completed_at,omitempty"`
+	ID          string      `json:"id" db:"id"`
+	UserID      string      `json:"user_id" db:"user_id"`
+	OrderNumber string      `json:"order_number" db:"order_number"`
+	Status      string      `json:"status" db:"status"`
+	Subtotal    float64     `json:"subtotal" db:"subtotal"`
+	Tax         float64     `json:"tax" db:"tax"`
+	Shipping    float64     `json:"shipping" db:"shipping"`
+	Discount    float64     `json:"discount" db:"discount"`
+	Total       float64     `json:"total" db:"total"`
+	IsPrivate   bool        `json:"is_private" db:"is_private"` // Privacy flag - defaults to false (public)
+	Items       []OrderItem `json:"items,omitempty" db:"items"`
+	CreatedAt   time.Time   `json:"created_at" db:"created_at"`
+	CompletedAt *time.Time  `json:"completed_at,omitempty" db:"completed_at"`
 }
 
 type OrderItem struct {
-	ID           string  `json:"id" bson:"id"`
-	ProductID    string  `json:"product_id" bson:"product_id"`
-	ProductTitle string  `json:"product_title" bson:"product_title"`
-	Quantity     int     `json:"quantity" bson:"quantity"`
-	UnitPrice    float64 `json:"unit_price" bson:"unit_price"`
-	Subtotal     float64 `json:"subtotal" bson:"subtotal"`
+	ID           string  `json:"id" db:"id"`
+	ProductID    string  `json:"product_id" db:"product_id"`
+	ProductTitle string  `json:"product_title" db:"product_title"`
+	Quantity     int     `json:"quantity" db:"quantity"`
+	UnitPrice    float64 `json:"unit_price" db:"unit_price"`
+	Subtotal     float64 `json:"subtotal" db:"subtotal"`
 }
 
 type OrderCreate struct {
@@ -286,21 +325,21 @@ type OrderUpdatePrivacy struct {
 // ============================================================================
 
 type Review struct {
-	ID                 string    `json:"id" bson:"id"`
-	ProductID          string    `json:"product_id" bson:"product_id"`
-	UserID             string    `json:"user_id" bson:"user_id"`
-	Rating             int       `json:"rating" bson:"rating"`
-	ReviewTitle        string    `json:"review_title,omitempty" bson:"review_title,omitempty"`
-	ReviewText         string    `json:"review_text,omitempty" bson:"review_text,omitempty"`
-	IsVerifiedPurchase bool      `json:"is_verified_purchase" bson:"is_verified_purchase"`
-	IsPrivate          bool      `json:"is_private" bson:"is_private"` // Privacy flag - defaults to false (public)
-	HelpfulCount       int       `json:"helpful_count" bson:"helpful_count"`
-	CreatedAt          time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at" bson:"updated_at"`
+	ID                 string    `json:"id" db:"id"`
+	ProductID          string    `json:"product_id" db:"product_id"`
+	UserID             string    `json:"user_id" db:"user_id"`
+	Rating             int       `json:"rating" db:"rating"`
+	ReviewTitle        string    `json:"review_title,omitempty" db:"review_title"`
+	ReviewText         string    `json:"review_text,omitempty" db:"review_text"`
+	IsVerifiedPurchase bool      `json:"is_verified_purchase" db:"is_verified_purchase"`
+	IsPrivate          bool      `json:"is_private" db:"is_private"` // Privacy flag - defaults to false (public)
+	HelpfulCount       int       `json:"helpful_count" db:"helpful_count"`
+	CreatedAt          time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
 
 	// Populated fields (not stored in DB)
-	Username   string  `json:"username,omitempty" bson:"-"`
-	UserAvatar *string `json:"user_avatar,omitempty" bson:"-"`
+	Username   string  `json:"username,omitempty" db:"-"`
+	UserAvatar *string `json:"user_avatar,omitempty" db:"-"`
 }
 
 type ReviewCreate struct {

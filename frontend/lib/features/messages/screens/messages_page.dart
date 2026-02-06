@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/services/api_service.dart';
 import '../../../core/providers/auth_provider.dart';
 
 class MessagesPage extends StatefulWidget {
@@ -12,7 +11,7 @@ class MessagesPage extends StatefulWidget {
 }
 
 class _MessagesPageState extends State<MessagesPage> {
-  final ApiService _api = ApiService();
+  // final ApiService _api = ApiService(); // Unused for now
   List<dynamic> _conversations = [];
   Map<String, dynamic>? _selectedConversation;
   List<dynamic> _messages = [];
@@ -59,7 +58,7 @@ class _MessagesPageState extends State<MessagesPage> {
   Future<void> _sendMessage() async {
     if (_messageController.text.trim().isEmpty || _selectedConversation == null) return;
 
-    final message = _messageController.text;
+    // final message = _messageController.text;
     _messageController.clear();
 
     setState(() => _sending = true);
@@ -154,7 +153,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Widget _buildChatThread() {
     final user = context.watch<AuthProvider>().user;
-    final otherUser = _selectedConversation!['participants']?[0];
+    // final otherUser = _selectedConversation!['participants']?[0];
 
     return Column(
       children: [

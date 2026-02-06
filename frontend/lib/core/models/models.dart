@@ -9,6 +9,10 @@ class UserModel {
   final int followersCount;
   final int followingCount;
   final String accountType; // 'SELLER' or 'CONSUMER'
+  final String role; // 'consumer', 'seller', or 'admin'
+  final String status; // 'active', 'inactive', or 'suspended'
+  final bool isVerified;
+  final String? phoneNumber;
   final String privacyProfile; // 'PUBLIC' or 'PRIVATE'
   final String createdAt;
 
@@ -21,12 +25,18 @@ class UserModel {
     this.followersCount = 0,
     this.followingCount = 0,
     this.accountType = 'CONSUMER',
+    this.role = 'consumer',
+    this.status = 'active',
+    this.isVerified = false,
+    this.phoneNumber,
     this.privacyProfile = 'PUBLIC',
     required this.createdAt,
   });
   
-  bool get isSeller => accountType == 'SELLER';
+  bool get isSeller => accountType == 'SELLER' || role == 'seller';
   bool get isPrivate => privacyProfile == 'PRIVATE';
+  bool get isActive => status == 'active';
+  bool get isAdmin => role == 'admin';
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
@@ -38,6 +48,10 @@ class UserModel {
       followersCount: json['followers_count'] as int? ?? 0,
       followingCount: json['following_count'] as int? ?? 0,
       accountType: json['account_type'] as String? ?? 'CONSUMER',
+      role: json['role'] as String? ?? 'consumer',
+      status: json['status'] as String? ?? 'active',
+      isVerified: json['is_verified'] as bool? ?? false,
+      phoneNumber: json['phone_number'] as String?,
       privacyProfile: json['privacy_profile'] as String? ?? 'PUBLIC',
       createdAt: json['created_at'] as String,
     );
@@ -53,6 +67,10 @@ class UserModel {
       'followers_count': followersCount,
       'following_count': followingCount,
       'account_type': accountType,
+      'role': role,
+      'status': status,
+      'is_verified': isVerified,
+      'phone_number': phoneNumber,
       'privacy_profile': privacyProfile,
       'created_at': createdAt,
     };

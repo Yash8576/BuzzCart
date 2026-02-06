@@ -2,22 +2,23 @@ package handlers
 
 import (
 	"buzzcart/internal/models"
-	"context"
+	"database/sql"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func GetCart(db *mongo.Database) gin.HandlerFunc {
+func GetCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
-		var cart models.Cart
-		err := db.Collection("carts").FindOne(context.Background(), bson.M{"user_id": userID}).Decode(&cart)
-		if err != nil {
+		var itemsJSON []byte
+		var updatedAt time.Time
+		err := db.QueryRow("SELECT items, updated_at FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON, &updatedAt)
+
+		if err == sql.ErrNoRows {
 			// Return empty cart if not found
 			c.JSON(http.StatusOK, models.CartResponse{
 				Items:     []models.CartItem{},
@@ -26,18 +27,27 @@ func GetCart(db *mongo.Database) gin.HandlerFunc {
 				ItemCount: 0,
 			})
 			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+			return
+		}
+
+		var items []models.CartItem
+		if err := json.Unmarshal(itemsJSON, &items); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse cart items"})
+			return
 		}
 
 		// Calculate totals
 		subtotal := 0.0
 		itemCount := 0
-		for _, item := range cart.Items {
+		for _, item := range items {
 			subtotal += item.Price * float64(item.Quantity)
 			itemCount += item.Quantity
 		}
 
 		c.JSON(http.StatusOK, models.CartResponse{
-			Items:     cart.Items,
+			Items:     items,
 			Subtotal:  subtotal,
 			Total:     subtotal,
 			ItemCount: itemCount,
@@ -45,7 +55,7 @@ func GetCart(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func AddToCart(db *mongo.Database) gin.HandlerFunc {
+func AddToCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -61,15 +71,23 @@ func AddToCart(db *mongo.Database) gin.HandlerFunc {
 
 		// Get product details
 		var product models.Product
-		err := db.Collection("products").FindOne(context.Background(), bson.M{"id": req.ProductID}).Decode(&product)
-		if err != nil {
+		var imagesJSON []byte
+		err := db.QueryRow("SELECT id, title, price, images FROM products WHERE id = $1", req.ProductID).Scan(
+			&product.ID, &product.Title, &product.Price, &imagesJSON,
+		)
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
 			return
 		}
 
+		var images []string
+		json.Unmarshal(imagesJSON, &images)
 		image := ""
-		if len(product.Images) > 0 {
-			image = product.Images[0]
+		if len(images) > 0 {
+			image = images[0]
 		}
 
 		cartItem := models.CartItem{
@@ -81,36 +99,38 @@ func AddToCart(db *mongo.Database) gin.HandlerFunc {
 		}
 
 		// Find or create cart
-		var cart models.Cart
-		err = db.Collection("carts").FindOne(context.Background(), bson.M{"user_id": userID}).Decode(&cart)
+		var itemsJSON []byte
+		err = db.QueryRow("SELECT items FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON)
 
-		if err == mongo.ErrNoDocuments {
+		var items []models.CartItem
+		if err == sql.ErrNoRows {
 			// Create new cart
-			cart = models.Cart{
-				UserID:    userID,
-				Items:     []models.CartItem{cartItem},
-				UpdatedAt: time.Now(),
-			}
-			_, err = db.Collection("carts").InsertOne(context.Background(), cart)
-		} else {
+			items = []models.CartItem{cartItem}
+			itemsData, _ := json.Marshal(items)
+			_, err = db.Exec(
+				"INSERT INTO carts (user_id, items, updated_at) VALUES ($1, $2, $3)",
+				userID, itemsData, time.Now(),
+			)
+		} else if err == nil {
 			// Update existing cart
+			json.Unmarshal(itemsJSON, &items)
 			found := false
-			for i, item := range cart.Items {
+			for i, item := range items {
 				if item.ProductID == req.ProductID {
-					cart.Items[i].Quantity += req.Quantity
+					items[i].Quantity += req.Quantity
 					found = true
 					break
 				}
 			}
 
 			if !found {
-				cart.Items = append(cart.Items, cartItem)
+				items = append(items, cartItem)
 			}
 
-			_, err = db.Collection("carts").UpdateOne(
-				context.Background(),
-				bson.M{"user_id": userID},
-				bson.M{"$set": bson.M{"items": cart.Items, "updated_at": time.Now()}},
+			itemsData, _ := json.Marshal(items)
+			_, err = db.Exec(
+				"UPDATE carts SET items = $1, updated_at = $2 WHERE user_id = $3",
+				itemsData, time.Now(), userID,
 			)
 		}
 
@@ -123,7 +143,7 @@ func AddToCart(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func RemoveFromCart(db *mongo.Database) gin.HandlerFunc {
+func RemoveFromCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -135,11 +155,27 @@ func RemoveFromCart(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		_, err := db.Collection("carts").UpdateOne(
-			context.Background(),
-			bson.M{"user_id": userID},
-			bson.M{"$pull": bson.M{"items": bson.M{"product_id": req.ProductID}}},
-		)
+		// Get current cart items
+		var itemsJSON []byte
+		err := db.QueryRow("SELECT items FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+			return
+		}
+
+		var items []models.CartItem
+		json.Unmarshal(itemsJSON, &items)
+
+		// Remove item
+		newItems := []models.CartItem{}
+		for _, item := range items {
+			if item.ProductID != req.ProductID {
+				newItems = append(newItems, item)
+			}
+		}
+
+		itemsData, _ := json.Marshal(newItems)
+		_, err = db.Exec("UPDATE carts SET items = $1, updated_at = $2 WHERE user_id = $3", itemsData, time.Now(), userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove from cart"})
 			return
@@ -149,7 +185,7 @@ func RemoveFromCart(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func UpdateCartItem(db *mongo.Database) gin.HandlerFunc {
+func UpdateCartItem(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
@@ -162,11 +198,27 @@ func UpdateCartItem(db *mongo.Database) gin.HandlerFunc {
 			return
 		}
 
-		_, err := db.Collection("carts").UpdateOne(
-			context.Background(),
-			bson.M{"user_id": userID, "items.product_id": req.ProductID},
-			bson.M{"$set": bson.M{"items.$.quantity": req.Quantity}},
-		)
+		// Get current cart items
+		var itemsJSON []byte
+		err := db.QueryRow("SELECT items FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Cart not found"})
+			return
+		}
+
+		var items []models.CartItem
+		json.Unmarshal(itemsJSON, &items)
+
+		// Update quantity
+		for i, item := range items {
+			if item.ProductID == req.ProductID {
+				items[i].Quantity = req.Quantity
+				break
+			}
+		}
+
+		itemsData, _ := json.Marshal(items)
+		_, err = db.Exec("UPDATE carts SET items = $1, updated_at = $2 WHERE user_id = $3", itemsData, time.Now(), userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cart"})
 			return
@@ -176,11 +228,11 @@ func UpdateCartItem(db *mongo.Database) gin.HandlerFunc {
 	}
 }
 
-func ClearCart(db *mongo.Database) gin.HandlerFunc {
+func ClearCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
 
-		_, err := db.Collection("carts").DeleteOne(context.Background(), bson.M{"user_id": userID})
+		_, err := db.Exec("DELETE FROM carts WHERE user_id = $1", userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear cart"})
 			return

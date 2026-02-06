@@ -23,7 +23,7 @@ func main() {
 	cfg := config.Load()
 
 	// Initialize database connection
-	db, err := database.Connect(cfg.MongoURL, cfg.DBName)
+	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

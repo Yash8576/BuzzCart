@@ -12,79 +12,54 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  bool _obscurePassword = true;
-  bool _obscureConfirmPassword = true;
+  bool _showPassword = false;
   bool _isLoading = false;
-  bool _agreeToTerms = false;
   
-  // Account Type & Privacy Settings
-  String _accountType = 'CONSUMER'; // 'SELLER' or 'CONSUMER'
-  String _privacyProfile = 'PUBLIC'; // 'PUBLIC' or 'PRIVATE'
+  // Account Type - default to CONSUMER
+  String _accountType = 'CONSUMER';
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
   }
 
   Future<void> _handleSignup() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    if (!_agreeToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please agree to Terms & Conditions'),
-          backgroundColor: AppColors.destructive,
-        ),
-      );
+    if (_nameController.text.isEmpty ||
+        _emailController.text.isEmpty ||
+        _passwordController.text.isEmpty) {
+      _showError('Please fill in all fields');
       return;
     }
 
-    // Business rule validation: Sellers must be public
-    if (_accountType == 'SELLER' && _privacyProfile == 'PRIVATE') {
-      _privacyProfile = 'PUBLIC';
+    if (_passwordController.text.length < 6) {
+      _showError('Password must be at least 6 characters');
+      return;
     }
 
     setState(() => _isLoading = true);
-    
+
     try {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      
-      await authProvider.register(
-        _emailController.text.trim(),
-        _passwordController.text,
-        _nameController.text.trim(),
-        accountType: _accountType,
-        privacyProfile: _privacyProfile,
-      );
-      
+      await context.read<AuthProvider>().register(
+            _emailController.text.trim(),
+            _passwordController.text,
+            _nameController.text.trim(),
+            accountType: _accountType,
+            privacyProfile: 'PUBLIC',
+          );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Welcome! Account created as ${_accountType == 'SELLER' ? 'Seller' : 'Consumer'}',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-        context.go('/home');
+        context.go('/');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Registration failed: $e'),
-            backgroundColor: AppColors.destructive,
-          ),
-        );
+        _showError(e.toString().contains('exists')
+            ? 'Email already registered'
+            : 'Signup failed. Please try again.');
       }
     } finally {
       if (mounted) {
@@ -93,541 +68,312 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.destructive,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textTheme = Theme.of(context).textTheme;
+
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.electricBlue.withAlpha(26),
-              AppColors.neonPurple.withAlpha(26),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Logo
-                    Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.electricBlue.withAlpha(77),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.shopping_bag,
-                        size: 50,
-                        color: AppColors.electricBlue,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    
-                    // Title
-                    const Text(
-                      'Create Account',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.electricBlue,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Sign up to get started',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[600],
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 32),
-                    
-                    // Name Field
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: InputDecoration(
-                        labelText: 'Full Name',
-                        hintText: 'Enter your full name',
-                        prefixIcon: const Icon(Icons.person_outline),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Email Field
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: InputDecoration(
-                        labelText: 'Email',
-                        hintText: 'Enter your email',
-                        prefixIcon: const Icon(Icons.email_outlined),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your email';
-                        }
-                        if (!value.contains('@')) {
-                          return 'Please enter a valid email';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Password Field
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        hintText: 'Create a password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                          onPressed: () {
-                            setState(() => _obscurePassword = !_obscurePassword);
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter a password';
-                        }
-                        if (value.length < 6) {
-                          return 'Password must be at least 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Confirm Password Field
-                    TextFormField(
-                      controller: _confirmPasswordController,
-                      obscureText: _obscureConfirmPassword,
-                      decoration: InputDecoration(
-                        labelText: 'Confirm Password',
-                        hintText: 'Re-enter your password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscureConfirmPassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                          ),
-                          onPressed: () {
-                            setState(() => _obscureConfirmPassword = !_obscureConfirmPassword);
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please confirm your password';
-                        }
-                        if (value != _passwordController.text) {
-                          return 'Passwords do not match';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Account Type Selection
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.account_circle,
-                                color: AppColors.electricBlue,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Account Type',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: RadioListTile<String>(
-                                  title: Row(
-                                    children: const [
-                                      Icon(Icons.shopping_bag, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Consumer'),
-                                    ],
-                                  ),
-                                  subtitle: const Text(
-                                    'Browse & buy',
-                                    style: TextStyle(fontSize: 11),
-                                  ),
-                                  value: 'CONSUMER',
-                                  groupValue: _accountType,
-                                  activeColor: AppColors.electricBlue,
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _accountType = value!;
-                                    });
-                                  },
-                                ),
-                              ),
-                              Expanded(
-                                child: RadioListTile<String>(
-                                  title: Row(
-                                    children: const [
-                                      Icon(Icons.store, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Seller'),
-                                    ],
-                                  ),
-                                  subtitle: const Text(
-                                    'Sell products',
-                                    style: TextStyle(fontSize: 11),
-                                  ),
-                                  value: 'SELLER',
-                                  groupValue: _accountType,
-                                  activeColor: AppColors.electricBlue,
-                                  contentPadding: EdgeInsets.zero,
-                                  dense: true,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _accountType = value!;
-                                      // Force sellers to be public
-                                      if (_accountType == 'SELLER') {
-                                        _privacyProfile = 'PUBLIC';
-                                      }
-                                    });
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    
-                    // Privacy Settings (Only for Consumers)
-                    if (_accountType == 'CONSUMER')
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.lock_outline,
-                                  color: AppColors.neonPurple,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  'Privacy Settings',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            SwitchListTile(
-                              title: const Text('Private Account'),
-                              subtitle: Text(
-                                _privacyProfile == 'PRIVATE'
-                                    ? 'Only followers can see your activity'
-                                    : 'Anyone can see your activity',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              value: _privacyProfile == 'PRIVATE',
-                              activeColor: AppColors.neonPurple,
-                              contentPadding: EdgeInsets.zero,
-                              onChanged: (bool value) {
-                                setState(() {
-                                  _privacyProfile = value ? 'PRIVATE' : 'PUBLIC';
-                                });
-                              },
-                            ),
-                            if (_privacyProfile == 'PRIVATE')
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                margin: const EdgeInsets.only(top: 8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.neonPurple.withAlpha(26),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.info_outline,
-                                      size: 16,
-                                      color: AppColors.neonPurple,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'Your purchases and reviews will be public by default',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey[800],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 448),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Logo
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Buzz',
+                        style: textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    
-                    // Seller Info Banner
-                    if (_accountType == 'SELLER')
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.electricBlue.withAlpha(26),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AppColors.electricBlue.withAlpha(77),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              size: 18,
-                              color: AppColors.electricBlue,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Seller accounts are always public to ensure transparency',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[800],
-                                ),
-                              ),
-                            ),
-                          ],
+                      TextSpan(
+                        text: 'Cart',
+                        style: textTheme.displaySmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.electricBlue,
                         ),
                       ),
-                    const SizedBox(height: 16),
-                    
-                    // Terms & Conditions Checkbox
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _agreeToTerms,
-                          onChanged: (value) {
-                            setState(() => _agreeToTerms = value ?? false);
-                          },
-                        ),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() => _agreeToTerms = !_agreeToTerms);
-                            },
-                            child: Text.rich(
-                              TextSpan(
-                                text: 'I agree to the ',
-                                style: TextStyle(color: Colors.grey[700]),
-                                children: const [
-                                  TextSpan(
-                                    text: 'Terms & Conditions',
-                                    style: TextStyle(
-                                      color: AppColors.electricBlue,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  TextSpan(text: ' and '),
-                                  TextSpan(
-                                    text: 'Privacy Policy',
-                                    style: TextStyle(
-                                      color: AppColors.electricBlue,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Sign Up Button
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _handleSignup,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.electricBlue,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 4,
-                      ),
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Text(
-                              'Sign Up',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Divider
-                    Row(
-                      children: [
-                        Expanded(child: Divider(color: Colors.grey[400])),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            'OR',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                        ),
-                        Expanded(child: Divider(color: Colors.grey[400])),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    
-                    // Social Sign Up Buttons
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        // Handle Google signup
-                      },
-                      icon: const Icon(Icons.g_mobiledata, size: 28),
-                      label: const Text('Continue with Google'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () {
-                        // Handle Facebook signup
-                      },
-                      icon: const Icon(Icons.facebook, size: 24),
-                      label: const Text('Continue with Facebook'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    
-                    // Login Link
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Social commerce, reimagined',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: isDark
+                        ? AppColors.darkMutedForeground
+                        : AppColors.lightMutedForeground,
+                  ),
+                ),
+                const SizedBox(height: 32),
+
+                // Card
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Already have an account? ',
-                          style: TextStyle(color: Colors.grey[700]),
+                          'Create an account',
+                          style: textTheme.headlineMedium,
                         ),
-                        TextButton(
-                          onPressed: () => context.go('/login'),
-                          child: const Text(
-                            'Login',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.electricBlue,
+                        const SizedBox(height: 4),
+                        Text(
+                          'Sign up to get started',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: isDark
+                                ? AppColors.darkMutedForeground
+                                : AppColors.lightMutedForeground,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Name field
+                        Text(
+                          'Name',
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _nameController,
+                          enabled: !_isLoading,
+                          decoration: const InputDecoration(
+                            hintText: 'Your name',
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Email field
+                        Text(
+                          'Email',
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          enabled: !_isLoading,
+                          decoration: const InputDecoration(
+                            hintText: 'you@example.com',
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Password field
+                        Text(
+                          'Password',
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: !_showPassword,
+                          enabled: !_isLoading,
+                          decoration: InputDecoration(
+                            hintText: '••••••••',
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _showPassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                              ),
+                              onPressed: () {
+                                setState(() => _showPassword = !_showPassword);
+                              },
                             ),
                           ),
+                          onSubmitted: (_) => _handleSignup(),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Account Type Selection
+                        Text(
+                          'Account Type',
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: _isLoading
+                                    ? null
+                                    : () => setState(() => _accountType = 'CONSUMER'),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _accountType == 'CONSUMER'
+                                        ? AppColors.electricBlue.withAlpha(26)
+                                        : Colors.transparent,
+                                    border: Border.all(
+                                      color: _accountType == 'CONSUMER'
+                                          ? AppColors.electricBlue
+                                          : (isDark
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBorder),
+                                      width: _accountType == 'CONSUMER' ? 2 : 1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.shopping_bag_outlined,
+                                        size: 18,
+                                        color: _accountType == 'CONSUMER'
+                                            ? AppColors.electricBlue
+                                            : (isDark
+                                                ? AppColors.darkMutedForeground
+                                                : AppColors.lightMutedForeground),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Consumer',
+                                        style: textTheme.bodyMedium?.copyWith(
+                                          fontWeight: _accountType == 'CONSUMER'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          color: _accountType == 'CONSUMER'
+                                              ? AppColors.electricBlue
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: _isLoading
+                                    ? null
+                                    : () => setState(() => _accountType = 'SELLER'),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _accountType == 'SELLER'
+                                        ? AppColors.electricBlue.withAlpha(26)
+                                        : Colors.transparent,
+                                    border: Border.all(
+                                      color: _accountType == 'SELLER'
+                                          ? AppColors.electricBlue
+                                          : (isDark
+                                              ? AppColors.darkBorder
+                                              : AppColors.lightBorder),
+                                      width: _accountType == 'SELLER' ? 2 : 1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.store_outlined,
+                                        size: 18,
+                                        color: _accountType == 'SELLER'
+                                            ? AppColors.electricBlue
+                                            : (isDark
+                                                ? AppColors.darkMutedForeground
+                                                : AppColors.lightMutedForeground),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Seller',
+                                        style: textTheme.bodyMedium?.copyWith(
+                                          fontWeight: _accountType == 'SELLER'
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                          color: _accountType == 'SELLER'
+                                              ? AppColors.electricBlue
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Signup button
+                        SizedBox(
+                          height: 44,
+                          child: ElevatedButton(
+                            onPressed: _isLoading ? null : _handleSignup,
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text('Create Account'),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Login link
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Already have an account? ',
+                              style: textTheme.bodySmall,
+                            ),
+                            TextButton(
+                              onPressed: () => context.go('/login'),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 0),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(
+                                'Sign in',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: AppColors.electricBlue,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         ),

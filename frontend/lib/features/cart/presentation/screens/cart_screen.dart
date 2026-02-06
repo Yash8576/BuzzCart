@@ -35,7 +35,7 @@ class CartScreen extends StatelessWidget {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 10,
                   offset: const Offset(0, -5),
                 ),
@@ -44,25 +44,25 @@ class CartScreen extends StatelessWidget {
             child: SafeArea(
               child: Column(
                 children: [
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
+                    children: [
                       Text('Subtotal:', style: TextStyle(fontSize: 16)),
                       Text('\$125.00', style: TextStyle(fontSize: 16)),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
+                    children: [
                       Text('Shipping:', style: TextStyle(fontSize: 16)),
                       Text('\$5.00', style: TextStyle(fontSize: 16)),
                     ],
                   ),
                   const Divider(height: 24),
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
+                    children: [
                       Text(
                         'Total:',
                         style: TextStyle(

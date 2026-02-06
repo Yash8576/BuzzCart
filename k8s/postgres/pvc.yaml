@@ -1,3 +1,0 @@
-# Postgres Persistent Volume Claim
-apiVersion: v1
-kind: PersistentVolumeClaim
