@@ -236,6 +236,9 @@ class _SettingsPageState extends State<SettingsPage> {
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () async {
+                final navigator = Navigator.of(context);
+                final scaffoldMessenger = ScaffoldMessenger.of(context);
+                
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
@@ -257,8 +260,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 if (confirmed == true && mounted) {
                   authProvider.logout();
                   if (mounted) {
-                    context.go('/login');
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    navigator.pushReplacementNamed('/login');
+                    scaffoldMessenger.showSnackBar(
                       const SnackBar(content: Text('Logged out successfully')),
                     );
                   }

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../../../../core/providers/add_product_provider.dart';
+import '../../../../core/services/api_service.dart';
 
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
@@ -15,6 +16,7 @@ class AddProductScreen extends StatefulWidget {
 class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
   final ImagePicker _picker = ImagePicker();
+  late final ApiService _api;
   
   // Controllers
   final TextEditingController _titleController = TextEditingController();
@@ -28,6 +30,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     // Load state from provider
     final provider = context.read<AddProductProvider>();
     _titleController.text = provider.productName;
@@ -93,14 +96,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
           provider.addFile(File(video.path));
         }
       } else if (mediaType == 'audio') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Audio upload coming soon!')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Audio upload coming soon!')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking media: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking media: $e')),
+        );
+      }
     }
   }
 
@@ -112,9 +119,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
     final provider = context.read<AddProductProvider>();
     
     if (provider.selectedFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add at least one product media file')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please add at least one product media file')),
+        );
+      }
       return;
     }
 
@@ -123,19 +132,28 @@ class _AddProductScreenState extends State<AddProductScreen> {
     });
 
     try {
-      // TODO: Implement actual product creation
-      // Example:
-      // final response = await apiService.createProduct(
-      //   title: provider.productName,
-      //   description: provider.description,
-      //   price: double.parse(provider.price),
-      //   category: _categoryController.text,
-      //   stock: int.parse(provider.stock),
-      //   media: provider.selectedFiles,
-      //   mediaType: provider.selectedMediaType,
-      // );
+      // Upload all product images first
+      List<String> uploadedUrls = [];
       
-      await Future.delayed(const Duration(seconds: 2)); // Simulated upload
+      for (final file in provider.selectedFiles) {
+        final result = await _api.uploadProductImage(file);
+        if (result['url'] != null) {
+          uploadedUrls.add(result['url'] as String);
+        }
+      }
+      
+      if (uploadedUrls.isEmpty) {
+        throw Exception('Failed to upload product images');
+      }
+      
+      // Create the product with uploaded image URLs
+      await _api.createProduct(
+        title: provider.productName,
+        description: provider.description,
+        price: double.parse(provider.price),
+        category: _categoryController.text.isEmpty ? 'General' : _categoryController.text,
+        images: uploadedUrls,
+      );
       
       if (mounted) {
         provider.clearAll(); // Clear state after successful upload
@@ -145,9 +163,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
         Navigator.pop(context);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create product: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create product: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {

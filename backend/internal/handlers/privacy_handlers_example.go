@@ -362,10 +362,10 @@ func GetPendingFollowRequests(c *gin.Context) {
 }
 
 // ============================================================================
-// GET PRODUCT REVIEWS (Always Public by Default)
+// GET PRODUCT REVIEWS (Always Public by Default) - Example
 // ============================================================================
 
-func GetProductReviews(c *gin.Context) {
+func GetProductReviewsExample(c *gin.Context) {
 	productID := c.Param("productId")
 
 	// Reviews are public by default, even from private accounts

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -220,6 +221,29 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> createVideo({
+    required String title,
+    required String description,
+    required String url,
+    required String thumbnail,
+    int? duration,
+    List<String>? productIds,
+  }) async {
+    try {
+      final response = await _dio.post('/videos', data: {
+        'title': title,
+        'description': description,
+        'url': url,
+        'thumbnail': thumbnail,
+        if (duration != null) 'duration': duration,
+        if (productIds != null && productIds.isNotEmpty) 'product_ids': productIds,
+      });
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Reels APIs
   Future<List<ReelModel>> getReels() async {
     try {
@@ -227,6 +251,25 @@ class ApiService {
       return (response.data as List)
           .map((item) => ReelModel.fromJson(item as Map<String, dynamic>))
           .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> createReel({
+    required String url,
+    required String thumbnail,
+    String? caption,
+    List<String>? productIds,
+  }) async {
+    try {
+      final response = await _dio.post('/reels', data: {
+        'url': url,
+        'thumbnail': thumbnail,
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+        if (productIds != null && productIds.isNotEmpty) 'product_ids': productIds,
+      });
+      return response.data as Map<String, dynamic>;
     } catch (e) {
       rethrow;
     }
@@ -284,6 +327,109 @@ class ApiService {
   Future<Map<String, dynamic>> search(String query) async {
     try {
       final response = await _dio.get('/search', queryParameters: {'q': query});
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Messages APIs
+  Future<List<dynamic>> getConversations() async {
+    try {
+      final response = await _dio.get('/messages/conversations');
+      return response.data as List<dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<dynamic>> getMessages(String conversationId) async {
+    try {
+      final response = await _dio.get('/messages/conversations/$conversationId');
+      return response.data as List<dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> sendMessage({
+    required String receiverId,
+    required String content,
+    String? productId,
+  }) async {
+    try {
+      final response = await _dio.post('/messages', data: {
+        'receiver_id': receiverId,
+        'content': content,
+        if (productId != null) 'product_id': productId,
+      });
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Product Creation API
+  Future<ProductModel> createProduct({
+    required String title,
+    required String description,
+    required double price,
+    required String category,
+    required List<String> images,
+    List<String>? tags,
+  }) async {
+    try {
+      final response = await _dio.post('/products', data: {
+        'title': title,
+        'description': description,
+        'price': price,
+        'category': category,
+        'images': images,
+        if (tags != null && tags.isNotEmpty) 'tags': tags,
+      });
+      return ProductModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Upload APIs
+  Future<Map<String, dynamic>> uploadImage(File file) async {
+    try {
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+      });
+
+      final response = await _dio.post('/upload/image', data: formData);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadVideo(File file) async {
+    try {
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'video': await MultipartFile.fromFile(file.path, filename: fileName),
+      });
+
+      final response = await _dio.post('/upload/video', data: formData);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadProductImage(File file) async {
+    try {
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+      });
+
+      final response = await _dio.post('/upload/product-image', data: formData);
       return response.data as Map<String, dynamic>;
     } catch (e) {
       rethrow;

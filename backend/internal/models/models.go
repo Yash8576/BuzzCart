@@ -47,6 +47,14 @@ const (
 	FollowRequestRejected FollowRequestStatus = "rejected"
 )
 
+type ModerationStatus string
+
+const (
+	ModerationPending  ModerationStatus = "pending"
+	ModerationApproved ModerationStatus = "approved"
+	ModerationRejected ModerationStatus = "rejected"
+)
+
 // ============================================================================
 // USER MODELS
 // ============================================================================
@@ -325,17 +333,21 @@ type OrderUpdatePrivacy struct {
 // ============================================================================
 
 type Review struct {
-	ID                 string    `json:"id" db:"id"`
-	ProductID          string    `json:"product_id" db:"product_id"`
-	UserID             string    `json:"user_id" db:"user_id"`
-	Rating             int       `json:"rating" db:"rating"`
-	ReviewTitle        string    `json:"review_title,omitempty" db:"review_title"`
-	ReviewText         string    `json:"review_text,omitempty" db:"review_text"`
-	IsVerifiedPurchase bool      `json:"is_verified_purchase" db:"is_verified_purchase"`
-	IsPrivate          bool      `json:"is_private" db:"is_private"` // Privacy flag - defaults to false (public)
-	HelpfulCount       int       `json:"helpful_count" db:"helpful_count"`
-	CreatedAt          time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at" db:"updated_at"`
+	ID                 string           `json:"id" db:"id"`
+	ProductID          string           `json:"product_id" db:"product_id"`
+	UserID             string           `json:"user_id" db:"user_id"`
+	Rating             int              `json:"rating" db:"rating"`
+	ReviewTitle        string           `json:"review_title,omitempty" db:"review_title"`
+	ReviewText         string           `json:"review_text,omitempty" db:"review_text"`
+	IsVerifiedPurchase bool             `json:"is_verified_purchase" db:"is_verified_purchase"`
+	IsPrivate          bool             `json:"is_private" db:"is_private"` // Privacy flag - defaults to false (public)
+	ModerationStatus   ModerationStatus `json:"moderation_status" db:"moderation_status"`
+	ModerationNote     *string          `json:"moderation_note,omitempty" db:"moderation_note"`
+	ModeratedBy        *string          `json:"moderated_by,omitempty" db:"moderated_by"`
+	ModeratedAt        *time.Time       `json:"moderated_at,omitempty" db:"moderated_at"`
+	HelpfulCount       int              `json:"helpful_count" db:"helpful_count"`
+	CreatedAt          time.Time        `json:"created_at" db:"created_at"`
+	UpdatedAt          time.Time        `json:"updated_at" db:"updated_at"`
 
 	// Populated fields (not stored in DB)
 	Username   string  `json:"username,omitempty" db:"-"`
@@ -352,6 +364,11 @@ type ReviewCreate struct {
 
 type ReviewUpdatePrivacy struct {
 	IsPrivate bool `json:"is_private" binding:"required"`
+}
+
+type ReviewModerate struct {
+	Status ModerationStatus `json:"status" binding:"required,oneof=approved rejected"`
+	Note   string           `json:"note,omitempty"`
 }
 
 type SearchResponse struct {

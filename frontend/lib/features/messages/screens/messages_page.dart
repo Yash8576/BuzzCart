@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/services/api_service.dart';
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
@@ -11,7 +12,7 @@ class MessagesPage extends StatefulWidget {
 }
 
 class _MessagesPageState extends State<MessagesPage> {
-  // final ApiService _api = ApiService(); // Unused for now
+  late final ApiService _api;
   List<dynamic> _conversations = [];
   Map<String, dynamic>? _selectedConversation;
   List<dynamic> _messages = [];
@@ -22,6 +23,7 @@ class _MessagesPageState extends State<MessagesPage> {
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     _fetchConversations();
   }
 
@@ -34,45 +36,61 @@ class _MessagesPageState extends State<MessagesPage> {
   Future<void> _fetchConversations() async {
     try {
       setState(() => _loading = true);
-      // TODO: Implement getConversations API endpoint
-      final data = <dynamic>[];
-      setState(() {
-        _conversations = data;
-        _loading = false;
-      });
+      final data = await _api.getConversations();
+      if (mounted) {
+        setState(() {
+          _conversations = data;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
   Future<void> _fetchMessages(String conversationId) async {
     try {
-      // TODO: Implement getMessages API endpoint
-      final data = <dynamic>[];
-      setState(() => _messages = data);
+      final data = await _api.getMessages(conversationId);
+      if (mounted) {
+        setState(() => _messages = data);
+      }
     } catch (e) {
       // Handle error
+      debugPrint('Error fetching messages: $e');
     }
   }
 
   Future<void> _sendMessage() async {
     if (_messageController.text.trim().isEmpty || _selectedConversation == null) return;
 
-    // final message = _messageController.text;
+    final message = _messageController.text;
     _messageController.clear();
 
     setState(() => _sending = true);
 
     try {
-      // TODO: Implement sendMessage API endpoint
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Get receiver ID from conversation participants
+      final participants = _selectedConversation!['last_message']['receiver_id'] as String;
+      final receiverId = participants;
+      
+      await _api.sendMessage(
+        receiverId: receiverId,
+        content: message,
+      );
+      
       await _fetchMessages(_selectedConversation!['id']);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send message')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send message')),
+        );
+      }
     } finally {
-      setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+      }
     }
   }
 

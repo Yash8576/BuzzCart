@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import '../../../../core/providers/upload_content_provider.dart';
+import '../../../../core/services/api_service.dart';
 
 class UploadContentScreen extends StatefulWidget {
   const UploadContentScreen({super.key});
@@ -14,11 +15,13 @@ class UploadContentScreen extends StatefulWidget {
 class _UploadContentScreenState extends State<UploadContentScreen> {
   final ImagePicker _picker = ImagePicker();
   final TextEditingController _captionController = TextEditingController();
+  late final ApiService _api;
   bool _isUploading = false;
 
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     // Load state from provider
     final provider = context.read<UploadContentProvider>();
     _captionController.text = provider.caption;
@@ -61,14 +64,18 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       } else if (contentType == 'audio') {
         // For audio, we'll use a file picker or let user record
         // For now, showing a message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Audio upload coming soon!')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Audio upload coming soon!')),
+          );
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking media: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking media: $e')),
+        );
+      }
     }
   }
 
@@ -76,9 +83,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     final provider = context.read<UploadContentProvider>();
     
     if (provider.selectedFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a file to upload')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a file to upload')),
+        );
+      }
       return;
     }
 
@@ -87,27 +96,73 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     });
 
     try {
-      // TODO: Implement actual upload to backend
-      // Example:
-      // final response = await apiService.uploadContent(
-      //   file: provider.selectedFiles.first,
-      //   caption: provider.caption,
-      //   type: provider.selectedMediaType,
-      // );
-      
-      await Future.delayed(const Duration(seconds: 2)); // Simulated upload
-      
-      if (mounted) {
-        provider.clearAll(); // Clear state after successful upload
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Content uploaded successfully!')),
-        );
-        Navigator.pop(context);
+      final file = provider.selectedFiles.first;
+      final contentType = provider.selectedMediaType;
+      final caption = provider.caption;
+
+      if (contentType == 'photo') {
+        // Upload image
+        final result = await _api.uploadImage(file);
+        if (result['url'] != null) {
+          // Photo uploaded successfully
+          if (mounted) {
+            provider.clearAll();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Photo uploaded successfully!')),
+            );
+            Navigator.pop(context);
+          }
+        }
+      } else if (contentType == 'video') {
+        // Upload video and create video record
+        final result = await _api.uploadVideo(file);
+        if (result['url'] != null) {
+          final videoUrl = result['url'] as String;
+          
+          // Create video record
+          await _api.createVideo(
+            title: caption.isEmpty ? 'Untitled Video' : caption,
+            description: caption,
+            url: videoUrl,
+            thumbnail: videoUrl, // Using same URL for thumbnail for now
+          );
+          
+          if (mounted) {
+            provider.clearAll();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Video uploaded successfully!')),
+            );
+            Navigator.pop(context);
+          }
+        }
+      } else if (contentType == 'reel') {
+        // Upload video and create reel record
+        final result = await _api.uploadVideo(file);
+        if (result['url'] != null) {
+          final videoUrl = result['url'] as String;
+          
+          // Create reel record
+          await _api.createReel(
+            url: videoUrl,
+            thumbnail: videoUrl, // Using same URL for thumbnail for now
+            caption: caption,
+          );
+          
+          if (mounted) {
+            provider.clearAll();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Reel uploaded successfully!')),
+            );
+            Navigator.pop(context);
+          }
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Upload failed: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {

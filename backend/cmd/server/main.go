@@ -75,7 +75,27 @@ func main() {
 			products.PUT("/:product_id", middleware.Auth(cfg.JWTSecret), handlers.UpdateProduct(db))
 			products.DELETE("/:product_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteProduct(db))
 			products.GET("/seller/:seller_id", handlers.GetSellerProducts(db))
+
+			// Product review routes
+			products.POST("/:product_id/reviews", middleware.Auth(cfg.JWTSecret), handlers.CreateReview(db))
+			products.GET("/:product_id/reviews", handlers.GetProductReviews(db))
 		}
+
+		// Review routes
+		reviews := api.Group("/reviews")
+		{
+			reviews.GET("/:review_id", handlers.GetReview(db))
+			reviews.PUT("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.UpdateReview(db))
+			reviews.DELETE("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteReview(db))
+			reviews.PATCH("/:review_id/privacy", middleware.Auth(cfg.JWTSecret), handlers.UpdateReviewPrivacy(db))
+
+			// Moderation routes (admin only)
+			reviews.POST("/:review_id/moderate", middleware.Auth(cfg.JWTSecret), handlers.ModerateReview(db))
+			reviews.GET("/pending", middleware.Auth(cfg.JWTSecret), handlers.GetPendingReviews(db))
+		}
+
+		// User review routes
+		api.GET("/users/:user_id/reviews", handlers.GetUserReviews(db))
 
 		// Video routes
 		videos := api.Group("/videos")
