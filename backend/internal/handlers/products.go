@@ -1,14 +1,20 @@
 package handlers
 
 import (
+	"buzzcart/internal/cache"
 	"buzzcart/internal/models"
+	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 func CreateProduct(db *sql.DB) gin.HandlerFunc {
@@ -338,6 +344,9 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 		// Update product rating and review count
 		updateProductRating(db, req.ProductID)
 
+		// Invalidate cache for ranked reviews
+		invalidateReviewCache(req.ProductID)
+
 		// Get user info for response
 		db.QueryRow("SELECT name, avatar FROM users WHERE id = $1", userID).Scan(&review.Username, &review.UserAvatar)
 
@@ -372,9 +381,11 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 				`SELECT pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
 						pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
 						pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
-						u.name, u.avatar
+						u.name, u.avatar,
+						CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
 				 FROM product_ratings pr
 				 JOIN users u ON pr.user_id = u.id
+				 LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
 				 WHERE pr.product_id = $1 
 				 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
 				 ORDER BY pr.created_at DESC`,
@@ -404,20 +415,180 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 		var reviews []models.Review
 		for rows.Next() {
 			var review models.Review
-			err := rows.Scan(
-				&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
-				&review.IsVerifiedPurchase, &review.IsPrivate, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
-				&review.Username, &review.UserAvatar,
-			)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
-				return
+			if userID != "" {
+				err := rows.Scan(
+					&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
+					&review.IsVerifiedPurchase, &review.IsPrivate, &review.ModerationStatus, &review.ModerationNote,
+					&review.ModeratedBy, &review.ModeratedAt, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
+					&review.Username, &review.UserAvatar, &review.HasVoted,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
+					return
+				}
+			} else {
+				err := rows.Scan(
+					&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
+					&review.IsVerifiedPurchase, &review.IsPrivate, &review.ModerationStatus, &review.ModerationNote,
+					&review.ModeratedBy, &review.ModeratedAt, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
+					&review.Username, &review.UserAvatar,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
+					return
+				}
+				review.HasVoted = false
 			}
 			reviews = append(reviews, review)
 		}
 
 		if reviews == nil {
 			reviews = []models.Review{}
+		}
+
+		c.JSON(http.StatusOK, reviews)
+	}
+}
+
+// GetProductReviewsRanked retrieves reviews for a product ranked by relationship to the current user
+// Ranking logic: Direct followers (weight: 1.0) → Mutual follows (0.7) → Following (0.5) → Public (0.3)
+// Results are cached in Redis for 5 minutes
+func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		productID := c.Param("product_id")
+		userID := c.GetString("user_id")
+
+		// Create cache key based on product and user
+		cacheKey := fmt.Sprintf("ranked_reviews:%s:%s", productID, userID)
+
+		// Try to get from cache
+		if cachedData, err := cache.Get(cacheKey); err == nil {
+			var reviews []models.Review
+			if err := json.Unmarshal([]byte(cachedData), &reviews); err == nil {
+				c.JSON(http.StatusOK, reviews)
+				return
+			}
+		} else if err != redis.Nil {
+			// Log error but continue to fetch from DB
+			log.Printf("Redis get error: %v", err)
+		}
+
+		// Check if product exists
+		var productExists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", productID).Scan(&productExists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify product"})
+			return
+		}
+		if !productExists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
+		var rows *sql.Rows
+
+		if userID != "" {
+			// Authenticated user - rank reviews based on relationship
+			rows, err = db.Query(
+				`SELECT 
+					pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+					pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+					pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+					u.name, u.avatar,
+					CASE
+						-- Mutual follows: both users follow each other (weight: 0.7)
+						WHEN uf_author_follows_user.follower_id IS NOT NULL 
+							AND uf_user_follows_author.follower_id IS NOT NULL
+						THEN 0.7
+						-- Direct followers: review author follows current user (weight: 1.0)
+						WHEN uf_author_follows_user.follower_id IS NOT NULL
+						THEN 1.0
+						-- Following: current user follows review author (weight: 0.5)
+						WHEN uf_user_follows_author.follower_id IS NOT NULL
+						THEN 0.5
+						-- Public: no relationship (weight: 0.3)
+						ELSE 0.3
+					END as relationship_weight,
+					CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
+				FROM product_ratings pr
+				JOIN users u ON pr.user_id = u.id
+				LEFT JOIN user_follows uf_author_follows_user 
+					ON uf_author_follows_user.follower_id = pr.user_id 
+					AND uf_author_follows_user.following_id = $2
+				LEFT JOIN user_follows uf_user_follows_author 
+					ON uf_user_follows_author.follower_id = $2 
+					AND uf_user_follows_author.following_id = pr.user_id
+				LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
+				WHERE pr.product_id = $1 
+				AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+				ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.created_at DESC`,
+				productID, userID,
+			)
+		} else {
+			// Unauthenticated user - show only approved public reviews, sorted by helpful_count
+			rows, err = db.Query(
+				`SELECT 
+					pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+					pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+					pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+					u.name, u.avatar
+				FROM product_ratings pr
+				JOIN users u ON pr.user_id = u.id
+				WHERE pr.product_id = $1 
+				AND pr.moderation_status = 'approved' 
+				AND pr.is_private = false
+				ORDER BY pr.helpful_count DESC, pr.created_at DESC`,
+				productID,
+			)
+		}
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reviews"})
+			return
+		}
+		defer rows.Close()
+
+		var reviews []models.Review
+		for rows.Next() {
+			var review models.Review
+			var relationshipWeight *float64 // For authenticated users only
+
+			if userID != "" {
+				err := rows.Scan(
+					&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
+					&review.IsVerifiedPurchase, &review.IsPrivate, &review.ModerationStatus, &review.ModerationNote,
+					&review.ModeratedBy, &review.ModeratedAt, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
+					&review.Username, &review.UserAvatar, &relationshipWeight, &review.HasVoted,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
+					return
+				}
+			} else {
+				err := rows.Scan(
+					&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
+					&review.IsVerifiedPurchase, &review.IsPrivate, &review.ModerationStatus, &review.ModerationNote,
+					&review.ModeratedBy, &review.ModeratedAt, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
+					&review.Username, &review.UserAvatar,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
+					return
+				}
+				review.HasVoted = false
+			}
+			reviews = append(reviews, review)
+		}
+
+		if reviews == nil {
+			reviews = []models.Review{}
+		}
+
+		// Cache the results for 5 minutes
+		if reviewsJSON, err := json.Marshal(reviews); err == nil {
+			if err := cache.Set(cacheKey, string(reviewsJSON), 5*time.Minute); err != nil {
+				log.Printf("Redis set error: %v", err)
+			}
 		}
 
 		c.JSON(http.StatusOK, reviews)
@@ -508,6 +679,9 @@ func UpdateReview(db *sql.DB) gin.HandlerFunc {
 		// Update product rating if rating changed
 		updateProductRating(db, review.ProductID)
 
+		// Invalidate cache for ranked reviews
+		invalidateReviewCache(review.ProductID)
+
 		// Fetch updated review
 		err = db.QueryRow(
 			`SELECT pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
@@ -564,6 +738,9 @@ func DeleteReview(db *sql.DB) gin.HandlerFunc {
 
 		// Update product rating and review count
 		updateProductRating(db, productID)
+
+		// Invalidate cache for ranked reviews
+		invalidateReviewCache(productID)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Review deleted successfully"})
 	}
@@ -730,6 +907,9 @@ func ModerateReview(db *sql.DB) gin.HandlerFunc {
 			updateProductRating(db, productID)
 		}
 
+		// Invalidate cache for ranked reviews
+		invalidateReviewCache(productID)
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":           "Review moderated successfully",
 			"moderation_status": req.Status,
@@ -795,6 +975,113 @@ func GetPendingReviews(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
+// MarkReviewHelpful allows users to mark a review as helpful
+func MarkReviewHelpful(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		reviewID := c.Param("review_id")
+
+		// Check if review exists and is public/approved
+		var review models.Review
+		err := db.QueryRow(
+			`SELECT id, product_id, user_id, is_private, moderation_status, helpful_count 
+			 FROM product_ratings WHERE id = $1`,
+			reviewID,
+		).Scan(&review.ID, &review.ProductID, &review.UserID, &review.IsPrivate, &review.ModerationStatus, &review.HelpfulCount)
+
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Review not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch review"})
+			return
+		}
+
+		// Users cannot vote on their own reviews
+		if review.UserID == userID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot mark your own review as helpful"})
+			return
+		}
+
+		// Only approved public reviews can be marked helpful
+		if review.ModerationStatus != models.ModerationApproved || review.IsPrivate {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This review is not available for voting"})
+			return
+		}
+
+		// Check if user already voted
+		var voteExists bool
+		err = db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM review_helpful_votes WHERE review_id = $1 AND user_id = $2)`,
+			reviewID, userID,
+		).Scan(&voteExists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check vote status"})
+			return
+		}
+
+		if voteExists {
+			// Remove vote (toggle off)
+			_, err = db.Exec(
+				`DELETE FROM review_helpful_votes WHERE review_id = $1 AND user_id = $2`,
+				reviewID, userID,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove helpful vote"})
+				return
+			}
+
+			// Decrement helpful_count
+			err = db.QueryRow(
+				`UPDATE product_ratings SET helpful_count = helpful_count - 1 WHERE id = $1 RETURNING helpful_count`,
+				reviewID,
+			).Scan(&review.HelpfulCount)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update helpful count"})
+				return
+			}
+
+			// Invalidate cache for ranked reviews
+			invalidateReviewCache(review.ProductID)
+
+			c.JSON(http.StatusOK, gin.H{
+				"message":       "Helpful vote removed",
+				"helpful_count": review.HelpfulCount,
+				"voted":         false,
+			})
+		} else {
+			// Add vote
+			_, err = db.Exec(
+				`INSERT INTO review_helpful_votes (review_id, user_id, voted_at) VALUES ($1, $2, $3)`,
+				reviewID, userID, time.Now(),
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add helpful vote"})
+				return
+			}
+
+			// Increment helpful_count
+			err = db.QueryRow(
+				`UPDATE product_ratings SET helpful_count = helpful_count + 1 WHERE id = $1 RETURNING helpful_count`,
+				reviewID,
+			).Scan(&review.HelpfulCount)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update helpful count"})
+				// Invalidate cache for ranked reviews
+				invalidateReviewCache(review.ProductID)
+
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"message":       "Review marked as helpful",
+				"helpful_count": review.HelpfulCount,
+				"voted":         true,
+			})
+		}
+	}
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -827,4 +1114,28 @@ func updateProductRating(db *sql.DB, productID string) error {
 	)
 
 	return err
+}
+
+// invalidateReviewCache invalidates all cached ranked reviews for a product
+// This should be called whenever reviews are created, updated, deleted, or voted on
+func invalidateReviewCache(productID string) {
+	// Pattern to match all cached reviews for this product (for all users)
+	pattern := fmt.Sprintf("ranked_reviews:%s:*", productID)
+
+	// Use Redis SCAN to find and delete all matching keys
+	rdb := cache.GetClient()
+	if rdb == nil {
+		return
+	}
+
+	ctx := context.Background()
+	iter := rdb.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		if err := rdb.Del(ctx, iter.Val()).Err(); err != nil {
+			log.Printf("Failed to delete cache key %s: %v", iter.Val(), err)
+		}
+	}
+	if err := iter.Err(); err != nil {
+		log.Printf("Error scanning cache keys: %v", err)
+	}
 }

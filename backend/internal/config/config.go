@@ -10,6 +10,7 @@ type Config struct {
 	JWTSecret    string
 	Port         string
 	OpenAIAPIKey string
+	RedisURL     string
 	MinIO        MinIOConfig
 }
 
@@ -27,6 +28,7 @@ func Load() *Config {
 		JWTSecret:    getEnv("JWT_SECRET", "buzz-social-cart-secret-key-2024"),
 		Port:         getEnv("PORT", "8000"),
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
+		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		MinIO: MinIOConfig{
 			Endpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
 			AccessKey: getEnv("MINIO_ACCESS_KEY", "minioadmin"),

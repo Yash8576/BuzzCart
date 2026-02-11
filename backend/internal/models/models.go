@@ -352,6 +352,7 @@ type Review struct {
 	// Populated fields (not stored in DB)
 	Username   string  `json:"username,omitempty" db:"-"`
 	UserAvatar *string `json:"user_avatar,omitempty" db:"-"`
+	HasVoted   bool    `json:"has_voted" db:"-"` // Whether current user voted this review as helpful
 }
 
 type ReviewCreate struct {

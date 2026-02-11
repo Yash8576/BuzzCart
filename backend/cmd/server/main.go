@@ -1,6 +1,7 @@
 package main
 
 import (
+	"buzzcart/internal/cache"
 	"buzzcart/internal/config"
 	"buzzcart/internal/database"
 	"buzzcart/internal/handlers"
@@ -28,6 +29,14 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Disconnect()
+
+	// Initialize Redis connection
+	if err := cache.InitRedis(cfg.RedisURL); err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v (caching disabled)", err)
+	} else {
+		log.Println("Successfully connected to Redis")
+		defer cache.Close()
+	}
 
 	// Initialize MinIO storage
 	if err := storage.InitializeStorage(cfg); err != nil {
@@ -88,6 +97,7 @@ func main() {
 			reviews.PUT("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.UpdateReview(db))
 			reviews.DELETE("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteReview(db))
 			reviews.PATCH("/:review_id/privacy", middleware.Auth(cfg.JWTSecret), handlers.UpdateReviewPrivacy(db))
+			reviews.POST("/:review_id/helpful", middleware.Auth(cfg.JWTSecret), handlers.MarkReviewHelpful(db))
 
 			// Moderation routes (admin only)
 			reviews.POST("/:review_id/moderate", middleware.Auth(cfg.JWTSecret), handlers.ModerateReview(db))
