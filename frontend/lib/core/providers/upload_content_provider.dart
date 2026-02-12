@@ -6,11 +6,21 @@ class UploadContentProvider extends ChangeNotifier {
   final List<File> _selectedFiles = [];
   String _caption = '';
   bool _hasUnsavedWork = false;
+  VoidCallback? _onUploadSuccess;
 
   String get selectedMediaType => _selectedMediaType;
   List<File> get selectedFiles => List.unmodifiable(_selectedFiles);
   String get caption => _caption;
   bool get hasUnsavedWork => _hasUnsavedWork;
+
+  void setOnUploadSuccess(VoidCallback? callback) {
+    _onUploadSuccess = callback;
+  }
+
+  void notifyUploadSuccess() {
+    _onUploadSuccess?.call();
+    notifyListeners();
+  }
 
   void setMediaType(String type) {
     _selectedMediaType = type;

@@ -378,3 +378,76 @@ type SearchResponse struct {
 	Reels    []Reel    `json:"reels"`
 	Users    []User    `json:"users"`
 }
+
+// ============================================================================
+// FEED & POST MODELS (Instagram-Style Feed System)
+// ============================================================================
+
+type Post struct {
+	ID           string    `json:"id" db:"id"`
+	UserID       string    `json:"user_id" db:"user_id"`
+	MediaID      string    `json:"media_id" db:"media_id"`
+	Caption      string    `json:"caption" db:"caption"`
+	MediaType    string    `json:"media_type" db:"media_type"` // photo, video, reel
+	MediaURL     string    `json:"media_url" db:"media_url"`
+	ThumbnailURL *string   `json:"thumbnail_url,omitempty" db:"thumbnail_url"`
+	IsPrivate    bool      `json:"is_private" db:"is_private"`
+	Visibility   string    `json:"visibility" db:"visibility"` // followers, public, close_friends
+	LikeCount    int       `json:"like_count" db:"like_count"`
+	CommentCount int       `json:"comment_count" db:"comment_count"`
+	ShareCount   int       `json:"share_count" db:"share_count"`
+	ViewCount    int       `json:"view_count" db:"view_count"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+
+	// Populated fields (joined from users table, not stored in posts)
+	AuthorName     string  `json:"author_name" db:"author_name"`
+	AuthorAvatar   *string `json:"author_avatar,omitempty" db:"author_avatar"`
+	AuthorVerified bool    `json:"author_verified" db:"author_verified"`
+	IsLiked        bool    `json:"is_liked" db:"-"`     // Whether current user liked this post
+	IsFollowing    bool    `json:"is_following" db:"-"` // Whether current user follows the author
+}
+
+type PostCreate struct {
+	MediaID     string   `json:"media_id" binding:"required"`
+	Caption     string   `json:"caption,omitempty"`
+	Visibility  string   `json:"visibility" binding:"omitempty,oneof=followers public close_friends"`
+	TaggedUsers []string `json:"tagged_users,omitempty"`
+	Hashtags    []string `json:"hashtags,omitempty"`
+}
+
+type FeedResponse struct {
+	Posts      []Post  `json:"posts"`
+	NextCursor *string `json:"next_cursor,omitempty"` // For cursor-based pagination
+	HasMore    bool    `json:"has_more"`
+}
+
+type PostLike struct {
+	ID        string    `json:"id" db:"id"`
+	PostID    string    `json:"post_id" db:"post_id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+type PostComment struct {
+	ID              string    `json:"id" db:"id"`
+	PostID          string    `json:"post_id" db:"post_id"`
+	UserID          string    `json:"user_id" db:"user_id"`
+	ParentCommentID *string   `json:"parent_comment_id,omitempty" db:"parent_comment_id"`
+	CommentText     string    `json:"comment_text" db:"comment_text"`
+	LikeCount       int       `json:"like_count" db:"like_count"`
+	IsPinned        bool      `json:"is_pinned" db:"is_pinned"`
+	IsDeleted       bool      `json:"is_deleted" db:"is_deleted"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+
+	// Populated fields
+	Username   string  `json:"username,omitempty" db:"username"`
+	UserAvatar *string `json:"user_avatar,omitempty" db:"user_avatar"`
+}
+
+type PostCommentCreate struct {
+	PostID          string  `json:"post_id" binding:"required"`
+	ParentCommentID *string `json:"parent_comment_id,omitempty"`
+	CommentText     string  `json:"comment_text" binding:"required,min=1"`
+}

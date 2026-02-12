@@ -79,16 +79,27 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 			CreatedAt:     time.Now(),
 		}
 
-		productsJSON, _ := json.Marshal(reel.Products)
+		// Insert into content_items table
 		_, err = db.Exec(
-			`INSERT INTO reels (id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at) 
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			reel.ID, reel.URL, reel.Thumbnail, reel.Caption, reel.Views, reel.Likes,
-			reel.CreatorID, reel.CreatorName, reel.CreatorAvatar, productsJSON, reel.CreatedAt,
+			`INSERT INTO content_items (id, creator_id, content_type, title, description, video_url, thumbnail_url, view_count, like_count, created_at) 
+			 VALUES ($1, $2, 'reel', $3, $4, $5, $6, $7, $8, $9)`,
+			reel.ID, reel.CreatorID, reel.Caption, reel.Caption, reel.URL, reel.Thumbnail,
+			reel.Views, reel.Likes, reel.CreatedAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reel"})
 			return
+		}
+
+		// Also insert into user_media for profile gallery
+		_, err = db.Exec(
+			`INSERT INTO user_media (user_id, media_type, media_url, thumbnail_url, caption, content_id) 
+			 VALUES ($1, 'reel', $2, $3, $4, $5)`,
+			userID, reel.URL, reel.Thumbnail, reel.Caption, reel.ID,
+		)
+		if err != nil {
+			// Log but don't fail the request
+			c.Writer.Header().Add("X-Media-Gallery-Error", "Failed to add to media gallery")
 		}
 
 		c.JSON(http.StatusOK, reel)

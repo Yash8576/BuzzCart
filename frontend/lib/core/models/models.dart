@@ -312,3 +312,190 @@ class FeedItem {
     );
   }
 }
+
+// ============================================================================
+// INSTAGRAM-STYLE POST MODELS
+// ============================================================================
+
+class PostModel {
+  final String id;
+  final String userId;
+  final String mediaId;
+  final String caption;
+  final String mediaType; // 'photo', 'video', 'reel'
+  final String mediaUrl;
+  final String? thumbnailUrl;
+  final bool isPrivate;
+  final String visibility; // 'followers', 'public', 'close_friends'
+  final int likeCount;
+  final int commentCount;
+  final int shareCount;
+  final int viewCount;
+  final String createdAt;
+  final String updatedAt;
+  
+  // Author info (populated from join)
+  final String authorName;
+  final String? authorAvatar;
+  final bool authorVerified;
+  
+  // User interaction state
+  final bool isLiked;
+  final bool isFollowing;
+
+  PostModel({
+    required this.id,
+    required this.userId,
+    required this.mediaId,
+    required this.caption,
+    required this.mediaType,
+    required this.mediaUrl,
+    this.thumbnailUrl,
+    required this.isPrivate,
+    required this.visibility,
+    this.likeCount = 0,
+    this.commentCount = 0,
+    this.shareCount = 0,
+    this.viewCount = 0,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.authorName,
+    this.authorAvatar,
+    this.authorVerified = false,
+    this.isLiked = false,
+    this.isFollowing = false,
+  });
+
+  factory PostModel.fromJson(Map<String, dynamic> json) {
+    return PostModel(
+      id: json['id'] as String,
+      userId: json['user_id'] as String,
+      mediaId: json['media_id'] as String,
+      caption: json['caption'] as String? ?? '',
+      mediaType: json['media_type'] as String,
+      mediaUrl: json['media_url'] as String,
+      thumbnailUrl: json['thumbnail_url'] as String?,
+      isPrivate: json['is_private'] as bool? ?? false,
+      visibility: json['visibility'] as String? ?? 'followers',
+      likeCount: json['like_count'] as int? ?? 0,
+      commentCount: json['comment_count'] as int? ?? 0,
+      shareCount: json['share_count'] as int? ?? 0,
+      viewCount: json['view_count'] as int? ?? 0,
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+      authorName: json['author_name'] as String,
+      authorAvatar: json['author_avatar'] as String?,
+      authorVerified: json['author_verified'] as bool? ?? false,
+      isLiked: json['is_liked'] as bool? ?? false,
+      isFollowing: json['is_following'] as bool? ?? false,
+    );
+  }
+
+  bool get isPhoto => mediaType == 'photo';
+  bool get isVideo => mediaType == 'video' || mediaType == 'reel';
+
+  PostModel copyWith({
+    bool? isLiked,
+    int? likeCount,
+    int? commentCount,
+    bool? isFollowing,
+  }) {
+    return PostModel(
+      id: id,
+      userId: userId,
+      mediaId: mediaId,
+      caption: caption,
+      mediaType: mediaType,
+      mediaUrl: mediaUrl,
+      thumbnailUrl: thumbnailUrl,
+      isPrivate: isPrivate,
+      visibility: visibility,
+      likeCount: likeCount ?? this.likeCount,
+      commentCount: commentCount ?? this.commentCount,
+      shareCount: shareCount,
+      viewCount: viewCount,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      authorName: authorName,
+      authorAvatar: authorAvatar,
+      authorVerified: authorVerified,
+      isLiked: isLiked ?? this.isLiked,
+      isFollowing: isFollowing ?? this.isFollowing,
+    );
+  }
+}
+
+class FeedResponse {
+  final List<PostModel> posts;
+  final String? nextCursor;
+  final bool hasMore;
+
+  FeedResponse({
+    required this.posts,
+    this.nextCursor,
+    this.hasMore = false,
+  });
+
+  factory FeedResponse.fromJson(Map<String, dynamic> json) {
+    return FeedResponse(
+      posts: (json['posts'] as List?)
+              ?.map((p) => PostModel.fromJson(p as Map<String, dynamic>))
+              .toList() ??
+          [],
+      nextCursor: json['next_cursor'] as String?,
+      hasMore: json['has_more'] as bool? ?? false,
+    );
+  }
+}
+
+class MediaItem {
+  final String id;
+  final String mediaType;
+  final String mediaUrl;
+  final String? thumbnailUrl;
+  final String? caption;
+  final int viewCount;
+  final int likeCount;
+  final int commentCount;
+  final String createdAt;
+
+  MediaItem({
+    required this.id,
+    required this.mediaType,
+    required this.mediaUrl,
+    this.thumbnailUrl,
+    this.caption,
+    this.viewCount = 0,
+    this.likeCount = 0,
+    this.commentCount = 0,
+    required this.createdAt,
+  });
+
+  factory MediaItem.fromJson(Map<String, dynamic> json) {
+    return MediaItem(
+      id: json['id'] as String,
+      mediaType: json['media_type'] as String,
+      mediaUrl: json['media_url'] as String,
+      thumbnailUrl: json['thumbnail_url'] as String?,
+      caption: json['caption'] as String?,
+      viewCount: json['view_count'] as int? ?? 0,
+      likeCount: json['like_count'] as int? ?? 0,
+      commentCount: json['comment_count'] as int? ?? 0,
+      createdAt: json['created_at'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'media_type': mediaType,
+      'media_url': mediaUrl,
+      'thumbnail_url': thumbnailUrl,
+      'caption': caption,
+      'view_count': viewCount,
+      'like_count': likeCount,
+      'comment_count': commentCount,
+      'created_at': createdAt,
+    };
+  }
+}

@@ -4,6 +4,7 @@ import (
 	"buzzcart/internal/models"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 func GetCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
+
+		// Log the user_id for debugging
+		fmt.Printf("GetCart - user_id from context: %s\n", userID)
+
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
 
 		var itemsJSON []byte
 		var updatedAt time.Time
@@ -28,7 +37,8 @@ func GetCart(db *sql.DB) gin.HandlerFunc {
 			})
 			return
 		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch cart"})
+			fmt.Printf("GetCart - Database error: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch cart: %v", err)})
 			return
 		}
 

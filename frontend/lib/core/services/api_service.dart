@@ -152,6 +152,183 @@ class ApiService {
     }
   }
 
+  Future<UserModel> getUser(String userId) async {
+    try {
+      final response = await _dio.get('/users/$userId');
+      return UserModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // ============================================================================
+  // INSTAGRAM-STYLE FEED & POST APIs
+  // ============================================================================
+
+  /// Get followers feed (posts from people you follow)
+  /// Uses cursor-based pagination for infinite scroll
+  Future<FeedResponse> getFollowersFeed({
+    String? cursor,
+    int limit = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'limit': limit,
+      };
+      if (cursor != null) {
+        queryParams['cursor'] = cursor;
+      }
+
+      final response = await _dio.get(
+        '/feed/followers',
+        queryParameters: queryParams,
+      );
+
+      return FeedResponse.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Get discovery feed (ranked public posts)
+  /// Uses pull model  with engagement-based ranking
+  Future<FeedResponse> getDiscoveryFeed({
+    String? cursor,
+    int limit = 20,
+    bool excludeFollowing = false,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'limit': limit,
+      };
+      if (cursor != null) {
+        queryParams['cursor'] = cursor;
+      }
+      if (excludeFollowing) {
+        queryParams['exclude_following'] = 'true';
+      }
+
+      final response = await _dio.get(
+        '/feed/discovery',
+        queryParameters: queryParams,
+      );
+
+      return FeedResponse.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Get posts from a specific user (for profile gallery)
+  Future<FeedResponse> getUserPosts({
+    required String userId,
+    String? cursor,
+    int limit = 20,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'limit': limit,
+      };
+      if (cursor != null) {
+        queryParams['cursor'] = cursor;
+      }
+
+      final response = await _dio.get(
+        '/feed/user/$userId',
+        queryParameters: queryParams,
+      );
+
+      return FeedResponse.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Create a new post (requires mediaId from uploaded media)
+  Future<Map<String, dynamic>> createPost({
+    required String mediaId,
+    String? caption,
+    String visibility = 'followers',
+    List<String>? taggedUsers,
+    List<String>? hashtags,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'media_id': mediaId,
+      };
+      if (caption != null && caption.isNotEmpty) {
+        data['caption'] = caption;
+      }
+      data['visibility'] = visibility;
+      if (taggedUsers != null && taggedUsers.isNotEmpty) {
+        data['tagged_users'] = taggedUsers;
+      }
+      if (hashtags != null && hashtags.isNotEmpty) {
+        data['hashtags'] = hashtags;
+      }
+
+      final response = await _dio.post('/posts', data: data);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Like a post
+  Future<void> likePost(String postId) async {
+    try {
+      await _dio.post('/posts/$postId/like');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Unlike a post
+  Future<void> unlikePost(String postId) async {
+    try {
+      await _dio.delete('/posts/$postId/like');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Upload photo with option to create post automatically
+  Future<Map<String, dynamic>> uploadPhoto({
+    required File imageFile,
+    String? caption,
+    bool createPost = false,
+    String visibility = 'followers',
+  }) async {
+    try {
+      // Ensure token is loaded
+      await ensureTokenLoaded();
+
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(
+          imageFile.path,
+          filename: imageFile.path.split('/').last,
+        ),
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+        'create_post': createPost.toString(),
+        if (createPost) 'visibility': visibility,
+      });
+
+      final response = await _dio.post(
+        '/upload/user-photo',
+        data: formData,
+        options: Options(
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
+      );
+
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<UserModel> updateProfile(Map<String, dynamic> data) async {
     try {
       final response = await _dio.put('/auth/profile', data: data);
@@ -431,6 +608,42 @@ class ApiService {
 
       final response = await _dio.post('/upload/product-image', data: formData);
       return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Upload user photo with caption (saves to user_media table)
+  Future<Map<String, dynamic>> uploadUserPhoto(File file, {String? caption}) async {
+    try {
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+        if (caption != null && caption.isNotEmpty) 'caption': caption,
+      });
+
+      final response = await _dio.post('/upload/user-photo', data: formData);
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Get user media for profile gallery
+  Future<List<MediaItem>> getUserMedia(String userId, {String? type, int limit = 50}) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'limit': limit.toString(),
+        if (type != null) 'type': type,
+      };
+      
+      final response = await _dio.get(
+        '/users/$userId/media',
+        queryParameters: queryParams,
+      );
+      return (response.data as List)
+          .map((item) => MediaItem.fromJson(item as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       rethrow;
     }

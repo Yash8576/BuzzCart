@@ -139,21 +139,47 @@ func main() {
 		// Upload routes
 		upload := api.Group("/upload")
 		{
-			// Public upload endpoints
-			upload.POST("/image", handlers.UploadImageHandler)
+			upload.POST("/image", middleware.Auth(cfg.JWTSecret), handlers.UploadImageHandler(db))
 			upload.POST("/video", handlers.UploadVideoHandler)
 			upload.POST("/product-image", handlers.UploadProductImageHandler)
 
-			// Protected upload endpoints (require authentication)
+			upload.POST("/user-photo", middleware.Auth(cfg.JWTSecret), handlers.UploadUserPhotoHandler(db))
 			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler)
 			upload.DELETE("/:objectName", middleware.Auth(cfg.JWTSecret), handlers.DeleteFileHandler)
 		}
+
+		// User media routes
+		api.GET("/users/:user_id/media", handlers.GetUserMedia(db))
 
 		// Follow routes
 		api.POST("/follow/:user_id", middleware.Auth(cfg.JWTSecret), handlers.FollowUser(db))
 		api.POST("/unfollow/:user_id", middleware.Auth(cfg.JWTSecret), handlers.UnfollowUser(db))
 
-		// Feed routes
+		// Feed routes (Instagram-style)
+		feed := api.Group("/feed")
+		{
+			// Followers feed (requires auth) - pre-computed feed from user_feeds table
+			feed.GET("/followers", middleware.Auth(cfg.JWTSecret), handlers.GetFollowersFeed(db))
+
+			// Discovery feed (optional auth) - ranked public posts
+			feed.GET("/discovery", handlers.GetDiscoveryFeed(db))
+
+			// User profile feed - specific user's posts
+			feed.GET("/user/:user_id", handlers.GetUserPosts(db))
+		}
+
+		// Post routes (Instagram-style posts)
+		posts := api.Group("/posts")
+		{
+			// Create a post (requires auth)
+			posts.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreatePost(db))
+
+			// Like/Unlike a post
+			posts.POST("/:post_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikePost(db))
+			posts.DELETE("/:post_id/like", middleware.Auth(cfg.JWTSecret), handlers.UnlikePost(db))
+		}
+
+		// Legacy feed routes (backward compatibility)
 		api.GET("/feed", handlers.GetFeed(db))
 		api.GET("/discover", handlers.GetDiscover(db))
 

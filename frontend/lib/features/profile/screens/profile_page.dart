@@ -16,6 +16,7 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final ApiService _api = ApiService();
   late TabController _tabController;
+  List<dynamic> _photos = [];
   List<dynamic> _videos = [];
   List<dynamic> _reels = [];
   List<dynamic> _products = [];
@@ -24,7 +25,7 @@ class _ProfilePageState extends State<ProfilePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this); // Changed from 3 to 4
     _fetchUserContent();
   }
 
@@ -37,15 +38,20 @@ class _ProfilePageState extends State<ProfilePage>
   Future<void> _fetchUserContent() async {
     try {
       setState(() => _loading = true);
+      final user = context.read<AuthProvider>().user;
+      if (user == null) return;
+      
       final results = await Future.wait([
+        _api.getUserMedia(user.id, type: 'photo'),
         _api.getVideos(),
         _api.getReels(),
         _api.getProducts(),
       ]);
       setState(() {
-        _videos = results[0];
-        _reels = results[1];
-        _products = results[2];
+        _photos = results[0];
+        _videos = results[1];
+        _reels = results[2];
+        _products = results[3];
         _loading = false;
       });
     } catch (e) {
@@ -222,6 +228,7 @@ class _ProfilePageState extends State<ProfilePage>
               TabBar(
                 controller: _tabController,
                 tabs: const [
+                  Tab(icon: Icon(Icons.photo_library), text: 'Photos'),
                   Tab(icon: Icon(Icons.video_library), text: 'Videos'),
                   Tab(icon: Icon(Icons.movie), text: 'Reels'),
                   Tab(icon: Icon(Icons.shopping_bag), text: 'Products'),
@@ -233,6 +240,7 @@ class _ProfilePageState extends State<ProfilePage>
             child: TabBarView(
               controller: _tabController,
               children: [
+                _buildPhotosGrid(),
                 _buildVideosGrid(),
                 _buildReelsGrid(),
                 _buildProductsGrid(),
@@ -241,6 +249,59 @@ class _ProfilePageState extends State<ProfilePage>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPhotosGrid() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_photos.isEmpty) {
+      return const Center(child: Text('No photos yet'));
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 1,
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: _photos.length,
+      itemBuilder: (context, index) {
+        final photo = _photos[index];
+        return InkWell(
+          onTap: () {
+            // Show full screen photo
+            showDialog(
+              context: context,
+              builder: (context) => Dialog(
+                backgroundColor: Colors.transparent,
+                child: Stack(
+                  children: [
+                    Center(
+                      child: Image.network(
+                        photo['media_url'] ?? '',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    Positioned(
+                      top: 40,
+                      right: 20,
+                      child: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+          child: Image.network(
+            photo['media_url'] ?? '',
+            fit: BoxFit.cover,
+          ),
+        );
+      },
     );
   }
 

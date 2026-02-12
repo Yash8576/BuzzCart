@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:io';
 import '../../../../core/providers/upload_content_provider.dart';
 import '../../../../core/services/api_service.dart';
@@ -101,16 +102,15 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       final caption = provider.caption;
 
       if (contentType == 'photo') {
-        // Upload image
         final result = await _api.uploadImage(file);
         if (result['url'] != null) {
-          // Photo uploaded successfully
           if (mounted) {
+            provider.notifyUploadSuccess();
             provider.clearAll();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Photo uploaded successfully!')),
             );
-            Navigator.pop(context);
+            context.go('/');
           }
         }
       } else if (contentType == 'video') {
@@ -118,11 +118,13 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         final result = await _api.uploadVideo(file);
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
+          final title = caption.isEmpty ? 'Untitled Video' : caption;
+          final description = caption.isEmpty ? 'No description' : caption;
           
           // Create video record
           await _api.createVideo(
-            title: caption.isEmpty ? 'Untitled Video' : caption,
-            description: caption,
+            title: title,
+            description: description,
             url: videoUrl,
             thumbnail: videoUrl, // Using same URL for thumbnail for now
           );
@@ -132,7 +134,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Video uploaded successfully!')),
             );
-            Navigator.pop(context);
+            context.go('/');
           }
         }
       } else if (contentType == 'reel') {
@@ -153,7 +155,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Reel uploaded successfully!')),
             );
-            Navigator.pop(context);
+            context.go('/');
           }
         }
       }

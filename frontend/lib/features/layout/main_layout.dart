@@ -17,6 +17,7 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  bool _hasInitializedCart = false;
   
   final List<_NavItem> _navItems = [
     _NavItem(path: '/', icon: Icons.home, label: 'Home'),
@@ -37,6 +38,18 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _updateActivity();
+    _initializeCart();
+  }
+  
+  void _initializeCart() {
+    if (!_hasInitializedCart) {
+      _hasInitializedCart = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          context.read<CartProvider>().fetchCart();
+        }
+      });
+    }
   }
 
   @override
@@ -57,15 +70,6 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       key: 'last_activity',
       value: DateTime.now().toIso8601String(),
     );
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Fetch cart when layout mounts
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CartProvider>().fetchCart();
-    });
   }
 
   int _getCurrentIndex() {
