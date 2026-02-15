@@ -127,6 +127,41 @@ class ProductModel {
   }
 }
 
+class NetworkPurchaseModel {
+  final String productId;
+  final String productTitle;
+  final String productImage;
+  final double productPrice;
+  final String buyerId;
+  final String buyerName;
+  final String? buyerAvatar;
+  final String purchaseDate;
+
+  NetworkPurchaseModel({
+    required this.productId,
+    required this.productTitle,
+    required this.productImage,
+    required this.productPrice,
+    required this.buyerId,
+    required this.buyerName,
+    this.buyerAvatar,
+    required this.purchaseDate,
+  });
+
+  factory NetworkPurchaseModel.fromJson(Map<String, dynamic> json) {
+    return NetworkPurchaseModel(
+      productId: json['product_id'] as String,
+      productTitle: json['product_title'] as String,
+      productImage: json['product_image'] as String? ?? '',
+      productPrice: (json['product_price'] as num).toDouble(),
+      buyerId: json['buyer_id'] as String,
+      buyerName: json['buyer_name'] as String,
+      buyerAvatar: json['buyer_avatar'] as String?,
+      purchaseDate: json['purchase_date'] as String,
+    );
+  }
+}
+
 class VideoModel {
   final String id;
   final String title;
@@ -496,6 +531,90 @@ class MediaItem {
       'like_count': likeCount,
       'comment_count': commentCount,
       'created_at': createdAt,
+    };
+  }
+}
+
+class ReviewModel {
+  final String id;
+  final String productId;
+  final String userId;
+  final int rating;
+  final String? reviewTitle;
+  final String? reviewText;
+  final bool isVerifiedPurchase;
+  final bool isPrivate;
+  final String moderationStatus;
+  final int helpfulCount;
+  final String createdAt;
+  final String updatedAt;
+  final String? username;
+  final String? userAvatar;
+  final bool hasVoted;
+  final bool isFollowing;
+  final List<String> images;
+
+  ReviewModel({
+    required this.id,
+    required this.productId,
+    required this.userId,
+    required this.rating,
+    this.reviewTitle,
+    this.reviewText,
+    this.isVerifiedPurchase = false,
+    this.isPrivate = false,
+    this.moderationStatus = 'pending',
+    this.helpfulCount = 0,
+    required this.createdAt,
+    required this.updatedAt,
+    this.username,
+    this.userAvatar,
+    this.hasVoted = false,
+    this.isFollowing = false,
+    this.images = const [],
+  });
+
+  factory ReviewModel.fromJson(Map<String, dynamic> json) {
+    return ReviewModel(
+      id: json['id'] as String,
+      productId: json['product_id'] as String,
+      userId: json['user_id'] as String,
+      rating: json['rating'] as int,
+      reviewTitle: json['review_title'] as String?,
+      reviewText: json['review_text'] as String?,
+      isVerifiedPurchase: json['is_verified_purchase'] as bool? ?? false,
+      isPrivate: json['is_private'] as bool? ?? false,
+      moderationStatus: json['moderation_status'] as String? ?? 'pending',
+      helpfulCount: json['helpful_count'] as int? ?? 0,
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String,
+      username: json['username'] as String?,
+      userAvatar: json['user_avatar'] as String?,
+      hasVoted: json['has_voted'] as bool? ?? false,
+      isFollowing: json['is_following'] as bool? ?? false,
+      images: List<String>.from(json['images'] as List? ?? []),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'product_id': productId,
+      'user_id': userId,
+      'rating': rating,
+      'review_title': reviewTitle,
+      'review_text': reviewText,
+      'is_verified_purchase': isVerifiedPurchase,
+      'is_private': isPrivate,
+      'moderation_status': moderationStatus,
+      'helpful_count': helpfulCount,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      'username': username,
+      'user_avatar': userAvatar,
+      'has_voted': hasVoted,
+      'is_following': isFollowing,
+      'images': images,
     };
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../widgets/network_purchases_section.dart';
 
 class ShopScreen extends StatelessWidget {
   const ShopScreen({super.key});
@@ -22,6 +23,9 @@ class ShopScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
+          // What your network bought
+          const NetworkPurchasesSection(),
+          
           // Categories
           SizedBox(
             height: 60,

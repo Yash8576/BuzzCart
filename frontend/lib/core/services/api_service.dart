@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:image_picker/image_picker.dart';
 import '../config/app_config.dart';
 import '../models/models.dart';
 
@@ -377,6 +378,21 @@ class ApiService {
     }
   }
 
+  Future<List<NetworkPurchaseModel>> getNetworkPurchases({int limit = 10}) async {
+    try {
+      final response = await _dio.get('/products/network-purchases', queryParameters: {
+        'limit': limit,
+      });
+      return (response.data as List)
+          .map((item) => NetworkPurchaseModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      // Return empty list if endpoint not implemented yet
+      debugPrint('Network purchases API not available: $e');
+      return [];
+    }
+  }
+
   // Videos APIs
   Future<List<VideoModel>> getVideos() async {
     try {
@@ -644,6 +660,85 @@ class ApiService {
       return (response.data as List)
           .map((item) => MediaItem.fromJson(item as Map<String, dynamic>))
           .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Review APIs
+  Future<List<ReviewModel>> getProductReviews(String productId, {int limit = 50}) async {
+    try {
+      final response = await _dio.get(
+        '/products/$productId/reviews',
+        queryParameters: {'limit': limit},
+      );
+      return (response.data as List)
+          .map((item) => ReviewModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ReviewModel> createReview({
+    required String productId,
+    required int rating,
+    String? reviewTitle,
+    String? reviewText,
+    bool isPrivate = false,
+    List<String>? imageUrls,
+  }) async {
+    try {
+      final response = await _dio.post('/reviews', data: {
+        'product_id': productId,
+        'rating': rating,
+        if (reviewTitle != null && reviewTitle.isNotEmpty) 'review_title': reviewTitle,
+        if (reviewText != null && reviewText.isNotEmpty) 'review_text': reviewText,
+        'is_private': isPrivate,
+        if (imageUrls != null && imageUrls.isNotEmpty) 'images': imageUrls,
+      });
+      return ReviewModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<String> uploadReviewImage(XFile file) async {
+    try {
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+      });
+
+      final response = await _dio.post('/upload/review-image', data: formData);
+      return response.data['url'] as String;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> markReviewHelpful(String reviewId) async {
+    try {
+      await _dio.post('/reviews/$reviewId/helpful');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> unmarkReviewHelpful(String reviewId) async {
+    try {
+      await _dio.delete('/reviews/$reviewId/helpful');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ReviewModel> updateReviewPrivacy(String reviewId, bool isPrivate) async {
+    try {
+      final response = await _dio.patch('/reviews/$reviewId/privacy', data: {
+        'is_private': isPrivate,
+      });
+      return ReviewModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       rethrow;
     }
