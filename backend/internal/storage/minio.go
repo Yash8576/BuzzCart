@@ -15,19 +15,21 @@ import (
 
 // MinIOClient wraps the MinIO client with configuration
 type MinIOClient struct {
-	client   *minio.Client
-	bucket   string
-	endpoint string
-	useSSL   bool
+	client         *minio.Client
+	bucket         string
+	endpoint       string
+	publicEndpoint string
+	useSSL         bool
 }
 
 // MinIOConfig holds the configuration for MinIO
 type MinIOConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool
-	Bucket    string
+	Endpoint       string
+	PublicEndpoint string
+	AccessKey      string
+	SecretKey      string
+	UseSSL         bool
+	Bucket         string
 }
 
 // NewMinIOClient creates a new MinIO client
@@ -42,10 +44,11 @@ func NewMinIOClient(config MinIOConfig) (*MinIOClient, error) {
 	}
 
 	client := &MinIOClient{
-		client:   minioClient,
-		bucket:   config.Bucket,
-		endpoint: config.Endpoint,
-		useSSL:   config.UseSSL,
+		client:         minioClient,
+		bucket:         config.Bucket,
+		endpoint:       config.Endpoint,
+		publicEndpoint: config.PublicEndpoint,
+		useSSL:         config.UseSSL,
 	}
 
 	// Ensure bucket exists
@@ -170,7 +173,7 @@ func (m *MinIOClient) GetPublicURL(objectName string) string {
 	if m.useSSL {
 		protocol = "https"
 	}
-	return fmt.Sprintf("%s://%s/%s/%s", protocol, m.endpoint, m.bucket, objectName)
+	return fmt.Sprintf("%s://%s/%s/%s", protocol, m.publicEndpoint, m.bucket, objectName)
 }
 
 // GetPresignedURL generates a presigned URL for temporary access (expires in 7 days by default)

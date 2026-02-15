@@ -308,18 +308,20 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		mediaType := c.Query("type")
 		limit := c.DefaultQuery("limit", "50")
 
+		// Query from user_media table
 		query := `
-			SELECT ci.id, ci.content_type, ci.video_url, ci.thumbnail_url, ci.title, 
-			       ci.view_count, ci.like_count, ci.comment_count, ci.created_at
-			FROM content_items ci
-			WHERE ci.creator_id = $1 AND ci.is_published = TRUE
+			SELECT um.id, um.media_type, um.media_url, um.thumbnail_url, um.caption, 
+			       COALESCE(um.view_count, 0), COALESCE(um.like_count, 0), COALESCE(um.comment_count, 0), um.created_at
+			FROM user_media um
+			WHERE um.user_id = $1
 		`
 
 		args := []interface{}{userID}
 
-		if requestingUserID != userID {
+		// Privacy check: if requesting user is different, check if profile is private
+		if requestingUserID != userID && requestingUserID != "" {
 			query += ` AND (
-				NOT EXISTS (SELECT 1 FROM user_profiles WHERE user_id = ci.creator_id AND privacy_mode = 'private')
+				NOT EXISTS (SELECT 1 FROM users WHERE id = um.user_id AND privacy_profile = 'PRIVATE')
 				OR EXISTS (SELECT 1 FROM user_follows WHERE follower_id = $2 AND following_id = $1)
 			)`
 			args = append(args, requestingUserID)
@@ -327,12 +329,12 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 
 		argIndex := len(args) + 1
 		if mediaType != "" {
-			query += fmt.Sprintf(" AND ci.content_type = $%d", argIndex)
+			query += fmt.Sprintf(" AND um.media_type = $%d", argIndex)
 			args = append(args, mediaType)
 			argIndex++
 		}
 
-		query += fmt.Sprintf(" ORDER BY ci.created_at DESC LIMIT $%d", argIndex)
+		query += fmt.Sprintf(" ORDER BY um.created_at DESC LIMIT $%d", argIndex)
 		args = append(args, limit)
 
 		rows, err := db.Query(query, args...)

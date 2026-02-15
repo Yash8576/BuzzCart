@@ -5,12 +5,14 @@ class UploadContentProvider extends ChangeNotifier {
   String _selectedMediaType = 'photo';
   final List<File> _selectedFiles = [];
   String _caption = '';
+  String _visibility = 'public'; // 'public', 'followers', 'close_friends'
   bool _hasUnsavedWork = false;
   VoidCallback? _onUploadSuccess;
 
   String get selectedMediaType => _selectedMediaType;
   List<File> get selectedFiles => List.unmodifiable(_selectedFiles);
   String get caption => _caption;
+  String get visibility => _visibility;
   bool get hasUnsavedWork => _hasUnsavedWork;
 
   void setOnUploadSuccess(VoidCallback? callback) {
@@ -48,10 +50,17 @@ class UploadContentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setVisibility(String visibility) {
+    _visibility = visibility;
+    _hasUnsavedWork = true;
+    notifyListeners();
+  }
+
   void clearAll() {
     _selectedMediaType = 'photo';
     _selectedFiles.clear();
     _caption = '';
+    _visibility = 'public';
     _hasUnsavedWork = false;
     notifyListeners();
   }

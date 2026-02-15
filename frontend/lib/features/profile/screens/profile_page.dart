@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/models/models.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -16,10 +17,10 @@ class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final ApiService _api = ApiService();
   late TabController _tabController;
-  List<dynamic> _photos = [];
-  List<dynamic> _videos = [];
-  List<dynamic> _reels = [];
-  List<dynamic> _products = [];
+  List<MediaItem> _photos = [];
+  List<MediaItem> _videos = [];
+  List<MediaItem> _reels = [];
+  List<ProductModel> _products = [];
   bool _loading = true;
 
   @override
@@ -36,27 +37,50 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _fetchUserContent() async {
-    try {
-      setState(() => _loading = true);
-      final user = context.read<AuthProvider>().user;
-      if (user == null) return;
-      
-      final results = await Future.wait([
-        _api.getUserMedia(user.id, type: 'photo'),
-        _api.getVideos(),
-        _api.getReels(),
-        _api.getProducts(),
-      ]);
-      setState(() {
-        _photos = results[0];
-        _videos = results[1];
-        _reels = results[2];
-        _products = results[3];
-        _loading = false;
-      });
-    } catch (e) {
+    print('🔄 Fetching user content...');
+    setState(() => _loading = true);
+    
+    final user = context.read<AuthProvider>().user;
+    if (user == null) {
+      print('❌ No user found');
       setState(() => _loading = false);
+      return;
     }
+    
+    print('👤 Fetching content for user: ${user.id}');
+    
+    // Fetch each type independently to prevent one failure from blocking others
+    final photos = await _api.getUserMedia(user.id, type: 'photo').catchError((e) {
+      print('❌ Error fetching photos: $e');
+      return <MediaItem>[];
+    });
+    
+    final videos = await _api.getUserMedia(user.id, type: 'video').catchError((e) {
+      print('❌ Error fetching videos: $e');
+      return <MediaItem>[];
+    });
+    
+    final reels = await _api.getUserMedia(user.id, type: 'reel').catchError((e) {
+      print('❌ Error fetching reels: $e');
+      return <MediaItem>[];
+    });
+    
+    final products = await _api.getSellerProducts(user.id).catchError((e) {
+      print('❌ Error fetching products: $e');
+      return <ProductModel>[];
+    });
+    
+    print('✅ Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
+    
+    setState(() {
+      _photos = photos;
+      _videos = videos;
+      _reels = reels;
+      _products = products;
+      _loading = false;
+    });
+    
+    print('✨ State updated - Photos count: ${_photos.length}');
   }
 
   Future<void> _showEditProfileDialog() async {
@@ -253,10 +277,26 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildPhotosGrid() {
+    print('🎨 Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_photos.isEmpty) {
-      return const Center(child: Text('No photos yet'));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('No photos yet'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _fetchUserContent,
+              child: const Text('Refresh'),
+            ),
+          ],
+        ),
+      );
     }
+    print('📸 Rendering ${_photos.length} photos');
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -268,6 +308,7 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _photos.length,
       itemBuilder: (context, index) {
         final photo = _photos[index];
+        print('🖼️ Building photo $index: ${photo.mediaUrl}');
         return InkWell(
           onTap: () {
             // Show full screen photo
@@ -279,8 +320,14 @@ class _ProfilePageState extends State<ProfilePage>
                   children: [
                     Center(
                       child: Image.network(
-                        photo['media_url'] ?? '',
+                        photo.mediaUrl,
                         fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          print('❌ Error loading fullscreen image: $error');
+                          return const Center(
+                            child: Icon(Icons.broken_image, size: 64, color: Colors.white),
+                          );
+                        },
                       ),
                     ),
                     Positioned(
@@ -297,8 +344,34 @@ class _ProfilePageState extends State<ProfilePage>
             );
           },
           child: Image.network(
-            photo['media_url'] ?? '',
+            photo.mediaUrl,
             fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              print('❌ Error loading thumbnail image: $error');
+              return Container(
+                color: Colors.grey[300],
+                child: const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                    SizedBox(height: 4),
+                    Text('Error', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  ],
+                ),
+              );
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                print('✅ Thumbnail loaded: ${photo.mediaUrl}');
+                return child;
+              }
+              return Container(
+                color: Colors.grey[200],
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              );
+            },
           ),
         );
       },
@@ -322,13 +395,19 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (context, index) {
         final video = _videos[index];
         return InkWell(
-          onTap: () => context.go('/videos/${video['id']}'),
+          onTap: () => context.go('/videos/${video.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [
               Image.network(
-                video['thumbnail'] ?? '',
+                video.thumbnailUrl ?? video.mediaUrl,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.video_library, size: 48),
+                  );
+                },
               ),
               const Center(
                 child: Icon(Icons.play_circle_fill,
@@ -363,8 +442,14 @@ class _ProfilePageState extends State<ProfilePage>
             fit: StackFit.expand,
             children: [
               Image.network(
-                reel['thumbnail'] ?? '',
+                reel.thumbnailUrl ?? reel.mediaUrl,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.video_camera_back, size: 36),
+                  );
+                },
               ),
               const Center(
                 child: Icon(Icons.play_circle_fill,
@@ -394,15 +479,21 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (context, index) {
         final product = _products[index];
         return InkWell(
-          onTap: () => context.go('/shop/${product['id']}'),
+          onTap: () => context.go('/shop/${product.id}'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Image.network(
-                  product['images']?[0] ?? '',
+                  product.images.isNotEmpty ? product.images[0] : '',
                   fit: BoxFit.cover,
                   width: double.infinity,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.shopping_bag, size: 48),
+                    );
+                  },
                 ),
               ),
               Padding(
@@ -411,13 +502,13 @@ class _ProfilePageState extends State<ProfilePage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      product['title'] ?? '',
+                      product.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12),
                     ),
                     Text(
-                      '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
+                      '\$${product.price.toStringAsFixed(2)}',
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 12,

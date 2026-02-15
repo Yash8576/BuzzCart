@@ -39,7 +39,12 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
   Future<void> _loadUserMedia() async {
     final authProvider = context.read<AuthProvider>();
-    if (authProvider.user == null) return;
+    if (authProvider.user == null) {
+      print('❌ No user found in auth provider');
+      return;
+    }
+
+    print('🔄 Loading user media for: ${authProvider.user!.id}');
 
     setState(() {
       _isLoadingMedia = true;
@@ -53,17 +58,30 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         limit: 100,
       );
       
+      print('✅ Received ${media.length} media items');
+      
       if (mounted) {
         setState(() {
           _mediaItems = media;
           _isLoadingMedia = false;
         });
+        print('✨ State updated with ${_mediaItems.length} items');
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      print('❌ Error loading user media: $e');
+      print('📚 Stack trace: $stackTrace');
       if (mounted) {
         setState(() {
           _isLoadingMedia = false;
         });
+        // Show error to user
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load photos: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
@@ -186,6 +204,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   Widget _buildPhotosGrid() {
+    print('🎨 Building photos grid - Loading: $_isLoadingMedia, Items: ${_mediaItems.length}');
+    
     if (_isLoadingMedia) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -201,11 +221,17 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
               'No photos yet',
               style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadUserMedia,
+              child: const Text('Refresh'),
+            ),
           ],
         ),
       );
     }
 
+    print('📸 Rendering ${_mediaItems.length} photos');
     return GridView.builder(
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -216,19 +242,33 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       itemCount: _mediaItems.length,
       itemBuilder: (context, index) {
         final item = _mediaItems[index];
+        print('🖼️ Building image $index: ${item.mediaUrl}');
         return GestureDetector(
           onTap: () {},
           child: Image.network(
             item.mediaUrl,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
+              print('❌ Error loading image ${item.mediaUrl}: $error');
               return Container(
                 color: Colors.grey[300],
-                child: const Icon(Icons.broken_image, color: Colors.grey),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.broken_image, color: Colors.grey),
+                    Text(
+                      'Error',
+                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
               );
             },
             loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
+              if (loadingProgress == null) {
+                print('✅ Image loaded successfully: ${item.mediaUrl}');
+                return child;
+              }
               return Container(
                 color: Colors.grey[200],
                 child: const Center(

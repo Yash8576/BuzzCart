@@ -14,11 +14,12 @@ var (
 // InitializeStorage initializes the MinIO client with the given configuration
 func InitializeStorage(cfg *config.Config) error {
 	minioConfig := MinIOConfig{
-		Endpoint:  cfg.MinIO.Endpoint,
-		AccessKey: cfg.MinIO.AccessKey,
-		SecretKey: cfg.MinIO.SecretKey,
-		UseSSL:    cfg.MinIO.UseSSL,
-		Bucket:    cfg.MinIO.Bucket,
+		Endpoint:       cfg.MinIO.Endpoint,
+		PublicEndpoint: cfg.MinIO.PublicEndpoint,
+		AccessKey:      cfg.MinIO.AccessKey,
+		SecretKey:      cfg.MinIO.SecretKey,
+		UseSSL:         cfg.MinIO.UseSSL,
+		Bucket:         cfg.MinIO.Bucket,
 	}
 
 	client, err := NewMinIOClient(minioConfig)

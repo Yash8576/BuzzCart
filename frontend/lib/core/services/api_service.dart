@@ -369,6 +369,19 @@ class ApiService {
     }
   }
 
+  Future<List<ProductModel>> getSellerProducts(String sellerId) async {
+    try {
+      final response = await _dio.get('/products/seller/$sellerId');
+      return (response.data as List)
+          .map((item) => ProductModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      // Return empty list if no products found
+      debugPrint('Error fetching seller products: $e');
+      return [];
+    }
+  }
+
   Future<ProductModel> getProduct(String id) async {
     try {
       final response = await _dio.get('/products/$id');
@@ -653,15 +666,52 @@ class ApiService {
         if (type != null) 'type': type,
       };
       
+      print('🔍 Fetching user media for user: $userId, type: $type');
+      
       final response = await _dio.get(
         '/users/$userId/media',
         queryParameters: queryParams,
       );
-      return (response.data as List)
-          .map((item) => MediaItem.fromJson(item as Map<String, dynamic>))
+      
+      print('✅ Response received: ${response.statusCode}');
+      print('📦 Response data type: ${response.data.runtimeType}');
+      print('📦 Response data: ${response.data}');
+      
+      if (response.data == null) {
+        print('⚠️ Response data is null');
+        return [];
+      }
+      
+      if (response.data is! List) {
+        print('❌ Response data is not a List: ${response.data.runtimeType}');
+        return [];
+      }
+      
+      final List<MediaItem> items = (response.data as List)
+          .map((item) {
+            try {
+              print('📄 Parsing item: $item');
+              return MediaItem.fromJson(item as Map<String, dynamic>);
+            } catch (e) {
+              print('❌ Error parsing media item: $e');
+              print('❌ Item data: $item');
+              return null;
+            }
+          })
+          .whereType<MediaItem>() // Filter out null values
           .toList();
-    } catch (e) {
-      rethrow;
+      
+      print('✨ Successfully parsed ${items.length} media items');
+      for (var item in items) {
+        print('   - ${item.mediaType}: ${item.mediaUrl}');
+      }
+      
+      return items;
+    } catch (e, stackTrace) {
+      print('❌ Error in getUserMedia: $e');
+      print('📚 Stack trace: $stackTrace');
+      // Return empty list instead of rethrowing to prevent blocking other data
+      return [];
     }
   }
 

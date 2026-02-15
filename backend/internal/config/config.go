@@ -15,11 +15,12 @@ type Config struct {
 }
 
 type MinIOConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	UseSSL    bool
-	Bucket    string
+	Endpoint       string
+	PublicEndpoint string
+	AccessKey      string
+	SecretKey      string
+	UseSSL         bool
+	Bucket         string
 }
 
 func Load() *Config {
@@ -30,11 +31,12 @@ func Load() *Config {
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		MinIO: MinIOConfig{
-			Endpoint:  getEnv("MINIO_ENDPOINT", "localhost:9000"),
-			AccessKey: getEnv("MINIO_ACCESS_KEY", "minioadmin"),
-			SecretKey: getEnv("MINIO_SECRET_KEY", "minioadmin123"),
-			UseSSL:    getEnvBool("MINIO_USE_SSL", false),
-			Bucket:    getEnv("MINIO_BUCKET", "buzzcart-media"),
+			Endpoint:       getEnv("MINIO_ENDPOINT", "localhost:9000"),
+			PublicEndpoint: getEnv("MINIO_PUBLIC_ENDPOINT", "localhost:9000"),
+			AccessKey:      getEnv("MINIO_ACCESS_KEY", "minioadmin"),
+			SecretKey:      getEnv("MINIO_SECRET_KEY", "minioadmin123"),
+			UseSSL:         getEnvBool("MINIO_USE_SSL", false),
+			Bucket:         getEnv("MINIO_BUCKET", "buzzcart-media"),
 		},
 	}
 }

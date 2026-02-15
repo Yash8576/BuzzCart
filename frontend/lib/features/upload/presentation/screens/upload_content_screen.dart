@@ -102,13 +102,25 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       final caption = provider.caption;
 
       if (contentType == 'photo') {
-        final result = await _api.uploadImage(file);
-        if (result['url'] != null) {
+        // Use uploadPhoto which saves to user_media and creates a post
+        final result = await _api.uploadPhoto(
+          imageFile: file,
+          caption: caption,
+          createPost: true,
+          visibility: provider.visibility,
+        );
+        if (result['success'] == true) {
           if (mounted) {
             provider.notifyUploadSuccess();
             provider.clearAll();
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Photo uploaded successfully!')),
+              SnackBar(
+                content: Text(
+                  result['post_created'] == true 
+                    ? 'Photo posted successfully!'
+                    : 'Photo uploaded successfully!'
+                ),
+              ),
             );
             context.go('/');
           }
@@ -409,6 +421,66 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                     alignLabelWithHint: true,
                   ),
                 ),
+
+                const SizedBox(height: 20),
+
+                // Visibility selector (for photos)
+                if (provider.selectedMediaType == 'photo')
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Who can see this?',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Column(
+                            children: [
+                              RadioListTile<String>(
+                                title: const Text('Public'),
+                                subtitle: const Text('Everyone can see this'),
+                                value: 'public',
+                                groupValue: provider.visibility,
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    provider.setVisibility(value);
+                                  }
+                                },
+                              ),
+                              RadioListTile<String>(
+                                title: const Text('Followers'),
+                                subtitle: const Text('Only your followers'),
+                                value: 'followers',
+                                groupValue: provider.visibility,
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    provider.setVisibility(value);
+                                  }
+                                },
+                              ),
+                              RadioListTile<String>(
+                                title: const Text('Close Friends'),
+                                subtitle: const Text('Your close friends only'),
+                                value: 'close_friends',
+                                groupValue: provider.visibility,
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    provider.setVisibility(value);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
                 const SizedBox(height: 20),
 
