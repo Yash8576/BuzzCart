@@ -183,8 +183,8 @@ func main() {
 		api.GET("/feed", handlers.GetFeed(db))
 		api.GET("/discover", handlers.GetDiscover(db))
 
-		// Search route
-		api.GET("/search", handlers.Search(db))
+		// Search route (with optional auth to exclude current user from results)
+		api.GET("/search", middleware.OptionalAuth(cfg.JWTSecret), handlers.Search(db))
 
 		// Message routes
 		messages := api.Group("/messages")

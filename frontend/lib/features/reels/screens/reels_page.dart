@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
+import '../../../core/utils/url_helper.dart';
 
 class ReelsPage extends StatefulWidget {
   const ReelsPage({super.key});
@@ -118,7 +119,7 @@ class _ReelCardState extends State<_ReelCard> {
       children: [
         // Video placeholder
         Image.network(
-          widget.reel['thumbnail'] ?? '',
+          UrlHelper.getPlatformUrl(widget.reel['thumbnail']),
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) => Container(
             color: Colors.black,
@@ -190,7 +191,7 @@ class _ReelCardState extends State<_ReelCard> {
                   CircleAvatar(
                     radius: 20,
                     backgroundImage: widget.reel['creator_avatar'] != null
-                        ? NetworkImage(widget.reel['creator_avatar'])
+                        ? NetworkImage(UrlHelper.getPlatformUrl(widget.reel['creator_avatar']))
                         : null,
                     child: widget.reel['creator_avatar'] == null
                         ? Text(widget.reel['creator_name']?[0] ?? 'U')
@@ -244,10 +245,16 @@ class _ReelCardState extends State<_ReelCard> {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: Image.network(
-                                  product['images']?[0] ?? '',
+                                  UrlHelper.getPlatformUrl(product['images']?[0]),
                                   width: 32,
                                   height: 32,
                                   fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    width: 32,
+                                    height: 32,
+                                    color: Colors.grey[300],
+                                    child: const Icon(Icons.image, size: 16),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),

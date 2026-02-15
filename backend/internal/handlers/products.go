@@ -77,10 +77,25 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 
 func GetProducts(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := db.Query(
-			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products ORDER BY created_at DESC LIMIT 20`,
-		)
+		category := c.Query("category")
+
+		var rows *sql.Rows
+		var err error
+
+		if category != "" {
+			// Case-insensitive category filtering
+			rows, err = db.Query(
+				`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+				 FROM products WHERE category ILIKE $1 ORDER BY created_at DESC LIMIT 20`,
+				category,
+			)
+		} else {
+			rows, err = db.Query(
+				`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
+				 FROM products ORDER BY created_at DESC LIMIT 20`,
+			)
+		}
+
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 			return

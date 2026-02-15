@@ -667,12 +667,23 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Get current user ID to exclude from search results
+		currentUserID := c.GetString("user_id")
+
 		searchPattern := "%" + query + "%"
 
-		// Search products
+		// Search products (case-insensitive search in title, description, category, and tags)
 		productRows, _ := db.Query(
 			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products WHERE title ILIKE $1 OR description ILIKE $1 LIMIT 10`,
+			 FROM products 
+			 WHERE title ILIKE $1 
+			    OR description ILIKE $1 
+			    OR category ILIKE $1
+			    OR EXISTS (
+			        SELECT 1 FROM unnest(tags) AS tag 
+			        WHERE tag ILIKE $1
+			    )
+			 ORDER BY created_at DESC LIMIT 10`,
 			searchPattern,
 		)
 		var products []models.Product
@@ -689,10 +700,18 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Search videos
+		// Search videos from user_media table (case-insensitive caption search)
 		videoRows, _ := db.Query(
-			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM videos WHERE title ILIKE $1 OR description ILIKE $1 LIMIT 10`,
+			`SELECT um.id, COALESCE(um.caption, '') as title, COALESCE(um.caption, '') as description, 
+			        um.media_url, COALESCE(um.thumbnail_url, um.media_url) as thumbnail, 
+			        COALESCE(um.duration_seconds, 0) as duration, 
+			        COALESCE(um.view_count, 0) as views, COALESCE(um.like_count, 0) as likes,
+			        um.user_id, u.name as creator_name, u.avatar as creator_avatar,
+			        '[]'::jsonb as products, um.created_at
+			 FROM user_media um
+			 JOIN users u ON um.user_id = u.id
+			 WHERE um.media_type = 'video' AND (um.caption ILIKE $1)
+			 ORDER BY um.created_at DESC LIMIT 10`,
 			searchPattern,
 		)
 		var videos []models.Video
@@ -714,10 +733,17 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Search reels
+		// Search reels from user_media table (case-insensitive caption search)
 		reelRows, _ := db.Query(
-			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM reels WHERE caption ILIKE $1 LIMIT 10`,
+			`SELECT um.id, um.media_url, COALESCE(um.thumbnail_url, um.media_url) as thumbnail, 
+			        COALESCE(um.caption, '') as caption, 
+			        COALESCE(um.view_count, 0) as views, COALESCE(um.like_count, 0) as likes,
+			        um.user_id, u.name as creator_name, u.avatar as creator_avatar,
+			        '[]'::jsonb as products, um.created_at
+			 FROM user_media um
+			 JOIN users u ON um.user_id = u.id
+			 WHERE um.media_type = 'reel' AND (um.caption ILIKE $1)
+			 ORDER BY um.created_at DESC LIMIT 10`,
 			searchPattern,
 		)
 		var reels []models.Reel
@@ -738,14 +764,37 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Search users
-		userRows, _ := db.Query(
-			`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
-			 FROM users WHERE name ILIKE $1 OR bio ILIKE $1 LIMIT 10`,
-			searchPattern,
-		)
+		// Search users (case-insensitive search in name, username, email, and bio)
+		// Exclude the current logged-in user from results (if authenticated)
+		var userRows *sql.Rows
+		var err error
+		if currentUserID != "" {
+			userRows, err = db.Query(
+				`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
+				 FROM users 
+				 WHERE (name ILIKE $1 
+				    OR COALESCE(username, '') ILIKE $1
+				    OR email ILIKE $1 
+				    OR COALESCE(bio, '') ILIKE $1)
+				    AND id != $2
+				 LIMIT 10`,
+				searchPattern, currentUserID,
+			)
+		} else {
+			userRows, err = db.Query(
+				`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
+				 FROM users 
+				 WHERE name ILIKE $1 
+				    OR COALESCE(username, '') ILIKE $1
+				    OR email ILIKE $1 
+				    OR COALESCE(bio, '') ILIKE $1
+				 LIMIT 10`,
+				searchPattern,
+			)
+		}
+
 		var users []models.User
-		if userRows != nil {
+		if userRows != nil && err == nil {
 			defer userRows.Close()
 			for userRows.Next() {
 				var user models.User

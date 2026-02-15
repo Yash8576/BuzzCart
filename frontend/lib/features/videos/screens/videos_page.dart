@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
+import '../../../core/utils/url_helper.dart';
 
 class VideosPage extends StatefulWidget {
   final String? videoId;
@@ -102,7 +103,7 @@ class _VideosPageState extends State<VideosPage> {
                 children: [
                   Center(
                     child: Image.network(
-                      video['thumbnail'] ?? '',
+                      UrlHelper.getPlatformUrl(video['thumbnail']),
                       fit: BoxFit.contain,
                       errorBuilder: (_, __, ___) => const Icon(
                         Icons.play_circle_outline,
@@ -132,7 +133,7 @@ class _VideosPageState extends State<VideosPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       backgroundImage: video['creator_avatar'] != null
-                          ? NetworkImage(video['creator_avatar'])
+                          ? NetworkImage(UrlHelper.getPlatformUrl(video['creator_avatar']))
                           : null,
                       child: video['creator_avatar'] == null
                           ? Text(video['creator_name']?[0] ?? 'U')
@@ -196,9 +197,13 @@ class _VideosPageState extends State<VideosPage> {
                                         child: ClipRRect(
                                           borderRadius: BorderRadius.circular(8),
                                           child: Image.network(
-                                            product['images']?[0] ?? '',
+                                            UrlHelper.getPlatformUrl(product['images']?[0]),
                                             fit: BoxFit.cover,
                                             width: double.infinity,
+                                            errorBuilder: (_, __, ___) => Container(
+                                              color: Colors.grey[300],
+                                              child: const Icon(Icons.image),
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -288,7 +293,7 @@ class _VideosPageState extends State<VideosPage> {
                               fit: StackFit.expand,
                               children: [
                                 Image.network(
-                                  video['thumbnail'] ?? '',
+                                  UrlHelper.getPlatformUrl(video['thumbnail']),
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => Container(
                                     color: Colors.black,

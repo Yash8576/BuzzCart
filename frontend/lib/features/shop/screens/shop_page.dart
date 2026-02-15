@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
+import '../../../core/utils/url_helper.dart';
 
 class ShopPage extends StatefulWidget {
   final String? productId;
@@ -131,8 +132,12 @@ class _ShopPageState extends State<ShopPage> {
                           itemCount: images.length,
                           onPageChanged: (index) => setState(() => _currentImageIndex = index),
                           itemBuilder: (context, index) => Image.network(
-                            images[index],
+                            UrlHelper.getPlatformUrl(images[index]),
                             fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.image, size: 64),
+                            ),
                           ),
                         ),
                         if (images.length > 1)
@@ -284,7 +289,7 @@ class _ShopPageState extends State<ShopPage> {
                       children: [
                         Expanded(
                           child: Image.network(
-                            product['images']?[0] ?? '',
+                            UrlHelper.getPlatformUrl(product['images']?[0]),
                             fit: BoxFit.cover,
                             width: double.infinity,
                             errorBuilder: (_, __, ___) => Container(

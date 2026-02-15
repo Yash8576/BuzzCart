@@ -5,9 +5,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/models/models.dart';
+import '../../../core/utils/url_helper.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final String? userId;
+  
+  const ProfilePage({super.key, this.userId});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -22,6 +25,7 @@ class _ProfilePageState extends State<ProfilePage>
   List<MediaItem> _reels = [];
   List<ProductModel> _products = [];
   bool _loading = true;
+  Map<String, dynamic>? _profileUser;
 
   @override
   void initState() {
@@ -40,32 +44,57 @@ class _ProfilePageState extends State<ProfilePage>
     print('🔄 Fetching user content...');
     setState(() => _loading = true);
     
-    final user = context.read<AuthProvider>().user;
-    if (user == null) {
+    final currentUser = context.read<AuthProvider>().user;
+    if (currentUser == null) {
       print('❌ No user found');
       setState(() => _loading = false);
       return;
     }
     
-    print('👤 Fetching content for user: ${user.id}');
+    // Determine which user profile to fetch
+    final targetUserId = widget.userId ?? currentUser.id;
+    final isOwnProfile = targetUserId == currentUser.id;
+    
+    print('👤 Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
+    
+    // If viewing another user's profile, fetch their user info
+    if (!isOwnProfile && widget.userId != null) {
+      try {
+        final userModel = await _api.getUser(widget.userId!);
+        _profileUser = {
+          'id': userModel.id,
+          'name': userModel.name,
+          'avatar': userModel.avatar,
+          'bio': userModel.bio,
+          'privacy_profile': userModel.privacyProfile.toLowerCase(),
+          'followers_count': userModel.followersCount,
+          'following_count': userModel.followingCount,
+        };
+        print('✅ Fetched profile user: ${_profileUser?['name']}');
+      } catch (e) {
+        print('❌ Error fetching user profile: $e');
+        setState(() => _loading = false);
+        return;
+      }
+    }
     
     // Fetch each type independently to prevent one failure from blocking others
-    final photos = await _api.getUserMedia(user.id, type: 'photo').catchError((e) {
+    final photos = await _api.getUserMedia(targetUserId, type: 'photo').catchError((e) {
       print('❌ Error fetching photos: $e');
       return <MediaItem>[];
     });
     
-    final videos = await _api.getUserMedia(user.id, type: 'video').catchError((e) {
+    final videos = await _api.getUserMedia(targetUserId, type: 'video').catchError((e) {
       print('❌ Error fetching videos: $e');
       return <MediaItem>[];
     });
     
-    final reels = await _api.getUserMedia(user.id, type: 'reel').catchError((e) {
+    final reels = await _api.getUserMedia(targetUserId, type: 'reel').catchError((e) {
       print('❌ Error fetching reels: $e');
       return <MediaItem>[];
     });
     
-    final products = await _api.getSellerProducts(user.id).catchError((e) {
+    final products = await _api.getSellerProducts(targetUserId).catchError((e) {
       print('❌ Error fetching products: $e');
       return <ProductModel>[];
     });
@@ -131,14 +160,26 @@ class _ProfilePageState extends State<ProfilePage>
 
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AuthProvider>().user;
+    final currentUser = context.watch<AuthProvider>().user;
 
-    if (user == null) {
+    if (currentUser == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Profile')),
         body: const Center(
           child: Text('Please log in to view your profile'),
         ),
+      );
+    }
+
+    // Use profile user if viewing someone else's profile, otherwise use logged-in user
+    final displayUser = _profileUser;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser.id;
+    
+    // If loading and no profile user data yet
+    if (_loading && displayUser == null && !isOwnProfile) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Profile')),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -161,10 +202,11 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ),
             actions: [
-              IconButton(
-                icon: const Icon(Icons.settings),
-                onPressed: () => context.go('/settings'),
-              ),
+              if (isOwnProfile)
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  onPressed: () => context.go('/settings'),
+                ),
             ],
           ),
           SliverToBoxAdapter(
@@ -177,12 +219,14 @@ class _ProfilePageState extends State<ProfilePage>
                     backgroundColor: Theme.of(context).scaffoldBackgroundColor,
                     child: CircleAvatar(
                       radius: 46,
-                      backgroundImage: user.avatar != null
-                          ? NetworkImage(user.avatar!)
+                      backgroundImage: (isOwnProfile ? currentUser.avatar : displayUser?['avatar']) != null
+                          ? NetworkImage(UrlHelper.getPlatformUrl(isOwnProfile ? currentUser.avatar : displayUser?['avatar']))
                           : null,
-                      child: user.avatar == null
+                      child: (isOwnProfile ? currentUser.avatar : displayUser?['avatar']) == null
                           ? Text(
-                              user.name.isNotEmpty ? user.name[0].toUpperCase() : 'U',
+                              (isOwnProfile ? currentUser.name : displayUser?['name'] ?? '').toString().isNotEmpty 
+                                  ? (isOwnProfile ? currentUser.name : displayUser?['name']).toString()[0].toUpperCase() 
+                                  : 'U',
                               style: const TextStyle(fontSize: 32),
                             )
                           : null,
@@ -190,19 +234,21 @@ class _ProfilePageState extends State<ProfilePage>
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    user.name,
+                    isOwnProfile ? currentUser.name : (displayUser?['name'] ?? ''),
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (user.bio != null && user.bio!.isNotEmpty)
+                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) != null && 
+                      (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString().isNotEmpty)
                     const SizedBox(height: 8),
-                  if (user.bio != null && user.bio!.isNotEmpty)
+                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) != null && 
+                      (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 32),
                       child: Text(
-                        user.bio!,
+                        (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString(),
                         textAlign: TextAlign.center,
                         style: const TextStyle(color: Colors.grey),
                       ),
@@ -214,8 +260,18 @@ class _ProfilePageState extends State<ProfilePage>
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                         _StatItem(label: 'Posts', count: _videos.length + _reels.length),
-                        _StatItem(label: 'Followers', count: user.followersCount),
-                        _StatItem(label: 'Following', count: user.followingCount),
+                        _StatItem(
+                          label: 'Followers', 
+                          count: isOwnProfile 
+                              ? currentUser.followersCount 
+                              : (displayUser?['followers_count'] ?? 0)
+                        ),
+                        _StatItem(
+                          label: 'Following', 
+                          count: isOwnProfile 
+                              ? currentUser.followingCount 
+                              : (displayUser?['following_count'] ?? 0)
+                        ),
                       ],
                     ),
                   ),
@@ -224,21 +280,44 @@ class _ProfilePageState extends State<ProfilePage>
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Row(
                       children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _showEditProfileDialog,
-                            icon: const Icon(Icons.edit),
-                            label: const Text('Edit Profile'),
+                        if (isOwnProfile) ...[
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _showEditProfileDialog,
+                              icon: const Icon(Icons.edit),
+                              label: const Text('Edit Profile'),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.share),
-                            label: const Text('Share'),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {},
+                              icon: const Icon(Icons.share),
+                              label: const Text('Share'),
+                            ),
                           ),
-                        ),
+                        ] else ...[
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                // TODO: Implement follow functionality
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Follow functionality coming soon!')),
+                                );
+                              },
+                              icon: const Icon(Icons.person_add),
+                              label: const Text('Follow'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {},
+                              icon: const Icon(Icons.message),
+                              label: const Text('Message'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -278,7 +357,35 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildPhotosGrid() {
     print('🎨 Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
+    
+    final currentUser = context.read<AuthProvider>().user;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    
     if (_loading) return const Center(child: CircularProgressIndicator());
+    
+    // Show private account message if not own profile and account is private and no content
+    if (!isOwnProfile && isPrivate && _photos.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'This Account is Private',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Follow this account to see their photos',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+    
     if (_photos.isEmpty) {
       return Center(
         child: Column(
@@ -287,11 +394,13 @@ class _ProfilePageState extends State<ProfilePage>
             const Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey),
             const SizedBox(height: 16),
             const Text('No photos yet'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _fetchUserContent,
-              child: const Text('Refresh'),
-            ),
+            if (isOwnProfile) ...[
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchUserContent,
+                child: const Text('Refresh'),
+              ),
+            ],
           ],
         ),
       );
@@ -320,7 +429,7 @@ class _ProfilePageState extends State<ProfilePage>
                   children: [
                     Center(
                       child: Image.network(
-                        photo.mediaUrl,
+                        UrlHelper.getPlatformUrl(photo.mediaUrl),
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {
                           print('❌ Error loading fullscreen image: $error');
@@ -344,7 +453,7 @@ class _ProfilePageState extends State<ProfilePage>
             );
           },
           child: Image.network(
-            photo.mediaUrl,
+            UrlHelper.getPlatformUrl(photo.mediaUrl),
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
               print('❌ Error loading thumbnail image: $error');
@@ -379,7 +488,34 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildVideosGrid() {
+    final currentUser = context.read<AuthProvider>().user;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    
     if (_loading) return const Center(child: CircularProgressIndicator());
+    
+    // Show private account message if not own profile and account is private and no content
+    if (!isOwnProfile && isPrivate && _videos.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'This Account is Private',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Follow this account to see their videos',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+    
     if (_videos.isEmpty) {
       return const Center(child: Text('No videos yet'));
     }
@@ -400,7 +536,7 @@ class _ProfilePageState extends State<ProfilePage>
             fit: StackFit.expand,
             children: [
               Image.network(
-                video.thumbnailUrl ?? video.mediaUrl,
+                UrlHelper.getPlatformUrl(video.thumbnailUrl ?? video.mediaUrl),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
@@ -421,7 +557,34 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildReelsGrid() {
+    final currentUser = context.read<AuthProvider>().user;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    
     if (_loading) return const Center(child: CircularProgressIndicator());
+    
+    // Show private account message if not own profile and account is private and no content
+    if (!isOwnProfile && isPrivate && _reels.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              'This Account is Private',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Follow this account to see their reels',
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+    
     if (_reels.isEmpty) {
       return const Center(child: Text('No reels yet'));
     }
@@ -442,7 +605,7 @@ class _ProfilePageState extends State<ProfilePage>
             fit: StackFit.expand,
             children: [
               Image.network(
-                reel.thumbnailUrl ?? reel.mediaUrl,
+                UrlHelper.getPlatformUrl(reel.thumbnailUrl ?? reel.mediaUrl),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
@@ -485,7 +648,7 @@ class _ProfilePageState extends State<ProfilePage>
             children: [
               Expanded(
                 child: Image.network(
-                  product.images.isNotEmpty ? product.images[0] : '',
+                  UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
                   fit: BoxFit.cover,
                   width: double.infinity,
                   errorBuilder: (context, error, stackTrace) {

@@ -115,6 +115,13 @@ GoRouter createAppRouter(AuthProvider authProvider) {
           builder: (context, state) => const ProfilePage(),
         ),
         GoRoute(
+          path: '/profile/:userId',
+          builder: (context, state) {
+            final userId = state.pathParameters['userId']!;
+            return ProfilePage(userId: userId);
+          },
+        ),
+        GoRoute(
           path: '/messages',
           builder: (context, state) => const MessagesPage(),
         ),

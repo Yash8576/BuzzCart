@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/utils/url_helper.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -23,6 +25,7 @@ class _SearchPageState extends State<SearchPage>
   };
   bool _loading = false;
   bool _searched = false;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -32,9 +35,28 @@ class _SearchPageState extends State<SearchPage>
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    // Cancel previous timer
+    _debounce?.cancel();
+
+    // If query is empty, clear results immediately
+    if (query.trim().isEmpty) {
+      _clearSearch();
+      return;
+    }
+
+    // Set debounce timer for 500ms
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      _performSearch();
+    });
+    
+    setState(() {}); // Update UI for clear button
   }
 
   Future<void> _performSearch() async {
@@ -108,7 +130,7 @@ class _SearchPageState extends State<SearchPage>
                 ),
               ),
               onSubmitted: (_) => _performSearch(),
-              onChanged: (value) => setState(() {}),
+              onChanged: _onSearchChanged,
             ),
           ),
         ),
@@ -207,6 +229,17 @@ class _SearchPageState extends State<SearchPage>
           ),
         if (_results['products']!.isNotEmpty)
           const SizedBox(height: 24),
+        if (_results['users']!.isNotEmpty)
+          const Text(
+            'Users',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        if (_results['users']!.isNotEmpty)
+          const SizedBox(height: 12),
+        if (_results['users']!.isNotEmpty)
+          ...(_results['users']!.take(3).map((user) => _UserCard(user: user))),
+        if (_results['users']!.isNotEmpty)
+          const SizedBox(height: 24),
         if (_results['videos']!.isNotEmpty)
           const Text(
             'Videos',
@@ -268,8 +301,12 @@ class _SearchPageState extends State<SearchPage>
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.network(
-                  reel['thumbnail'] ?? '',
+                  UrlHelper.getPlatformUrl(reel['thumbnail']),
                   fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.videocam),
+                  ),
                 ),
               ),
               const Center(
@@ -288,20 +325,40 @@ class _SearchPageState extends State<SearchPage>
       itemCount: _results['users']!.length,
       itemBuilder: (context, index) {
         final user = _results['users']![index];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundImage:
-                user['avatar'] != null ? NetworkImage(user['avatar']) : null,
-            child: user['avatar'] == null ? Text(user['name']?[0] ?? 'U') : null,
-          ),
-          title: Text(user['name'] ?? ''),
-          subtitle: Text(user['bio'] ?? ''),
-          trailing: ElevatedButton(
-            onPressed: () {},
-            child: const Text('Follow'),
-          ),
-        );
+        return _UserCard(user: user);
       },
+    );
+  }
+}
+
+class _UserCard extends StatelessWidget {
+  final Map<String, dynamic> user;
+
+  const _UserCard({required this.user});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: () => context.go('/profile/${user['id']}'),
+        leading: CircleAvatar(
+          backgroundImage:
+              user['avatar'] != null && user['avatar'].toString().isNotEmpty
+                  ? NetworkImage(UrlHelper.getPlatformUrl(user['avatar']))
+                  : null,
+          child: user['avatar'] == null || user['avatar'].toString().isEmpty
+              ? Text((user['name'] ?? 'U')[0].toUpperCase())
+              : null,
+        ),
+        title: Text(user['name'] ?? ''),
+        subtitle: Text(
+          user['bio'] ?? '',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.chevron_right),
+      ),
     );
   }
 }
@@ -322,7 +379,7 @@ class _ProductCard extends StatelessWidget {
           children: [
             Expanded(
               child: Image.network(
-                product['images']?[0] ?? '',
+                UrlHelper.getPlatformUrl(product['images']?[0]),
                 fit: BoxFit.cover,
                 width: double.infinity,
                 errorBuilder: (_, __, ___) => Container(
@@ -385,8 +442,12 @@ class _VideoCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: Image.network(
-                      video['thumbnail'] ?? '',
+                      UrlHelper.getPlatformUrl(video['thumbnail']),
                       fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey[300],
+                        child: const Icon(Icons.play_arrow),
+                      ),
                     ),
                   ),
                   const Center(

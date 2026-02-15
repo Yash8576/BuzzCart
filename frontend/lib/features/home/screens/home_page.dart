@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/models/models.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
+import '../../../core/utils/url_helper.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -147,7 +148,7 @@ class _HomePageState extends State<HomePage> {
                         : AppColors.lightMuted,
                     child: product.images.isNotEmpty
                         ? CachedNetworkImage(
-                            imageUrl: product.images[0],
+                            imageUrl: UrlHelper.getPlatformUrl(product.images[0]),
                             fit: BoxFit.cover,
                             placeholder: (context, url) => Container(
                               color: isDark
@@ -239,7 +240,7 @@ class _HomePageState extends State<HomePage> {
               height: double.infinity,
               color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
               child: CachedNetworkImage(
-                imageUrl: video.thumbnail,
+                imageUrl: UrlHelper.getPlatformUrl(video.thumbnail),
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
@@ -349,7 +350,7 @@ class _HomePageState extends State<HomePage> {
               height: double.infinity,
               color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
               child: CachedNetworkImage(
-                imageUrl: reel.thumbnail,
+                imageUrl: UrlHelper.getPlatformUrl(reel.thumbnail),
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
