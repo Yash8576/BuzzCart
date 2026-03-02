@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/services/api_service.dart';
-import '../../../../core/theme/app_colors.dart';
 
 /// Instagram-style profile gallery with 3-column grid layout
 /// Supports infinite scroll with cursor-based pagination
@@ -127,7 +126,7 @@ class _ProfileGalleryWidgetState extends State<ProfileGalleryWidget> {
             children: [
               const Icon(Icons.error_outline, size: 64, color: Colors.grey),
               const SizedBox(height: 16),
-              Text('Failed to load posts', textAlign: TextAlign.center),
+              const Text('Failed to load posts', textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _loadPosts,
@@ -281,7 +280,7 @@ class _GridItem extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: const Icon(
@@ -300,7 +299,7 @@ class _GridItem extends StatelessWidget {
                 onTap: onTap,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withValues(alpha: 0.3),
                   ),
                   child: Center(
                     child: Row(

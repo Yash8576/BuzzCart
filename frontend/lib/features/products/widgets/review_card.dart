@@ -144,7 +144,7 @@ class ReviewCard extends StatelessWidget {
                     ),
                     borderRadius: BorderRadius.circular(20),
                     color: review.hasVoted
-                        ? AppColors.electricBlue.withOpacity(0.1)
+                        ? AppColors.electricBlue.withValues(alpha: 0.1)
                         : Colors.transparent,
                   ),
                   child: Row(
@@ -249,9 +249,9 @@ class ReviewCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

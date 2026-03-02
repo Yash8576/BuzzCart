@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"buzzcart/internal/cache"
+	"buzzcart/internal/database"
 	"buzzcart/internal/models"
 	"context"
 	"database/sql"
@@ -23,17 +24,27 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 
 		var req models.ProductCreate
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			log.Printf("[CreateProduct] Invalid request from user %s: %v", userID, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request data"})
 			return
 		}
 
+		// Create context with timeout
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
 		// Get user info
 		var user models.User
-		err := db.QueryRow("SELECT id, name, email, avatar, bio, followers_count, following_count, created_at FROM users WHERE id = $1", userID).Scan(
+		err := db.QueryRowContext(ctx, "SELECT id, name, email, avatar, bio, followers_count, following_count, created_at FROM users WHERE id = $1", userID).Scan(
 			&user.ID, &user.Name, &user.Email, &user.Avatar, &user.Bio, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 		)
-		if err != nil {
+		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		if err != nil {
+			log.Printf("[CreateProduct] Database error fetching user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
 
@@ -60,17 +71,19 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 			product.Tags = []string{}
 		}
 
-		_, err = db.Exec(
+		_, err = db.ExecContext(ctx,
 			`INSERT INTO products (id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at) 
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			product.ID, product.Title, product.Description, product.Price, pq.Array(product.Images), product.Category, pq.Array(product.Tags),
 			product.SellerID, product.SellerName, product.Rating, product.ReviewsCount, product.Views, product.CreatedAt,
 		)
 		if err != nil {
+			log.Printf("[CreateProduct] Failed to insert product for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
 			return
 		}
 
+		log.Printf("[CreateProduct] Product %s created successfully by user %s", product.ID, userID)
 		c.JSON(http.StatusOK, product)
 	}
 }
@@ -810,7 +823,8 @@ func GetUserReviews(db *sql.DB) gin.HandlerFunc {
 			var review models.Review
 			err := rows.Scan(
 				&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
-				&review.IsVerifiedPurchase, &review.IsPrivate, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
+				&review.IsVerifiedPurchase, &review.IsPrivate, &review.ModerationStatus, &review.ModerationNote,
+				&review.ModeratedBy, &review.ModeratedAt, &review.HelpfulCount, &review.CreatedAt, &review.UpdatedAt,
 				&review.Username, &review.UserAvatar,
 			)
 			if err != nil {

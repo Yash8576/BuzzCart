@@ -141,8 +141,8 @@ class _NetworkPurchaseCard extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      AppColors.electricBlue.withOpacity(0.3),
-                      AppColors.electricBlue.withOpacity(0.1),
+                      AppColors.electricBlue.withValues(alpha: 0.3),
+                      AppColors.electricBlue.withValues(alpha: 0.1),
                     ],
                   ),
                 ),

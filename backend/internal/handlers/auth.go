@@ -5,6 +5,7 @@ import (
 	"buzzcart/internal/models"
 	"buzzcart/internal/utils"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -192,7 +193,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 			if argCount > 1 {
 				query += ", "
 			}
-			query += "name = $" + string(rune(argCount+'0'))
+			query += fmt.Sprintf("name = $%d", argCount)
 			args = append(args, *req.Name)
 			argCount++
 		}
@@ -200,7 +201,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 			if argCount > 1 {
 				query += ", "
 			}
-			query += "bio = $" + string(rune(argCount+'0'))
+			query += fmt.Sprintf("bio = $%d", argCount)
 			args = append(args, *req.Bio)
 			argCount++
 		}
@@ -208,13 +209,13 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 			if argCount > 1 {
 				query += ", "
 			}
-			query += "avatar = $" + string(rune(argCount+'0'))
+			query += fmt.Sprintf("avatar = $%d", argCount)
 			args = append(args, *req.Avatar)
 			argCount++
 		}
 
 		if len(args) > 0 {
-			query += " WHERE id = $" + string(rune(argCount+'0'))
+			query += fmt.Sprintf(" WHERE id = $%d", argCount)
 			args = append(args, userID)
 
 			_, err := db.Exec(query, args...)

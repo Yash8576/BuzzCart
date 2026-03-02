@@ -26,7 +26,7 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
   int _rating = 0;
   bool _isPrivate = false;
   bool _submitting = false;
-  List<XFile> _selectedImages = [];
+  final List<XFile> _selectedImages = [];
   static const int _maxImages = 5;
 
   @override
@@ -39,7 +39,7 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
   Future<void> _pickImage(ImageSource source) async {
     if (_selectedImages.length >= _maxImages) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Maximum $_maxImages images allowed')),
+        const SnackBar(content: Text('Maximum $_maxImages images allowed')),
       );
       return;
     }
@@ -282,7 +282,7 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
                     onChanged: (value) {
                       setState(() => _isPrivate = value);
                     },
-                    activeColor: AppColors.electricBlue,
+                    activeThumbColor: AppColors.electricBlue,
                     contentPadding: EdgeInsets.zero,
                   ),
                   const SizedBox(height: 24),
@@ -403,7 +403,7 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
             onTap: () => _removeImage(index),
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
+                color: Colors.black.withValues(alpha: 0.6),
                 shape: BoxShape.circle,
               ),
               padding: const EdgeInsets.all(4),

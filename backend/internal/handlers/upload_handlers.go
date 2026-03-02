@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"buzzcart/internal/database"
 	"buzzcart/internal/storage"
+	"buzzcart/internal/utils"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -21,47 +24,55 @@ func UploadImageHandler(db *sql.DB) gin.HandlerFunc {
 
 		file, header, err := c.Request.FormFile("image")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "No file uploaded",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
 			return
 		}
 		defer file.Close()
+
+		// Validate image
+		if err := utils.ValidateImage(header); err != nil {
+			log.Printf("[UploadImage] Validation failed for user %s: %v", userID, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
 		folder := c.DefaultQuery("folder", "images")
 		storageClient := storage.GetStorageClient()
 		url, err := storageClient.UploadFile(file, header, folder)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to upload file: %v", err),
-			})
+			log.Printf("[UploadImage] Storage upload failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
 			return
 		}
 
+		// Create context with timeout
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
 		var privacyMode string
-		err = db.QueryRow("SELECT privacy_mode FROM user_profiles WHERE user_id = $1", userID).Scan(&privacyMode)
+		err = db.QueryRowContext(ctx, "SELECT privacy_mode FROM user_profiles WHERE user_id = $1", userID).Scan(&privacyMode)
 		if err != nil {
 			privacyMode = "public"
 		}
 
 		contentID := uuid.New().String()
-		_, err = db.Exec(
+		_, err = db.ExecContext(ctx,
 			`INSERT INTO content_items (id, creator_id, content_type, video_url, is_published, created_at, published_at)
 			 VALUES ($1, $2, 'photo', $3, TRUE, $4, $5)`,
 			contentID, userID, url, time.Now(), time.Now(),
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to save to database: %v", err),
-			})
+			log.Printf("[UploadImage] Database insert failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save to database"})
 			return
 		}
 
 		var followerCount int
 		if privacyMode == "public" {
-			db.QueryRow("SELECT COUNT(*) FROM user_follows WHERE following_id = $1", userID).Scan(&followerCount)
+			db.QueryRowContext(ctx, "SELECT COUNT(*) FROM user_follows WHERE following_id = $1", userID).Scan(&followerCount)
 		}
 
+		log.Printf("[UploadImage] Image uploaded successfully for user %s: %s", userID, contentID)
 		c.JSON(http.StatusOK, gin.H{
 			"success":        true,
 			"url":            url,
@@ -85,12 +96,17 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		// Get the file from the form
 		file, header, err := c.Request.FormFile("image")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "No file uploaded",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
 			return
 		}
 		defer file.Close()
+
+		// Validate image
+		if err := utils.ValidateImage(header); err != nil {
+			log.Printf("[UploadUserPhoto] Validation failed for user %s: %v", userID, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
 		// Get caption and create_post flag from form data
 		caption := c.PostForm("caption")
@@ -101,23 +117,25 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		storageClient := storage.GetStorageClient()
 		url, err := storageClient.UploadFile(file, header, "user-photos")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to upload file: %v", err),
-			})
+			log.Printf("[UploadUserPhoto] Storage upload failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
 			return
 		}
 
+		// Create context with timeout
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
 		// Save to user_media table
 		mediaID := uuid.New().String()
-		_, err = db.Exec(
+		_, err = db.ExecContext(ctx,
 			`INSERT INTO user_media (id, user_id, media_type, media_url, caption) 
 			 VALUES ($1, $2, 'photo', $3, $4)`,
 			mediaID, userID, url, caption,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to save photo to database: %v", err),
-			})
+			log.Printf("[UploadUserPhoto] Database insert failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save photo to database"})
 			return
 		}
 
@@ -127,21 +145,21 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		if createPost {
 			// Get user's privacy profile
 			var privacyProfile string
-			err := db.QueryRow("SELECT privacy_profile FROM users WHERE id = $1", userID).Scan(&privacyProfile)
+			err := db.QueryRowContext(ctx, "SELECT privacy_profile FROM users WHERE id = $1", userID).Scan(&privacyProfile)
 			if err == nil {
 				isPrivate := privacyProfile == "private"
 				pID := uuid.New().String()
 				postID = &pID
 
 				// Create post
-				_, err = db.Exec(
+				_, err = db.ExecContext(ctx,
 					`INSERT INTO posts (id, user_id, media_id, caption, media_type, media_url, is_private, visibility, created_at)
 					 VALUES ($1, $2, $3, $4, 'photo', $5, $6, $7, $8)`,
 					*postID, userID, mediaID, caption, url, isPrivate, visibility, time.Now(),
 				)
 				if err == nil {
 					// Fan out to followers
-					db.QueryRow("SELECT fanout_post_to_followers($1, $2)", *postID, userID).Scan(&followerCount)
+					db.QueryRowContext(ctx, "SELECT fanout_post_to_followers($1, $2)", *postID, userID).Scan(&followerCount)
 				}
 			}
 		}
@@ -169,12 +187,17 @@ func UploadVideoHandler(c *gin.Context) {
 	// Get the file from the form
 	file, header, err := c.Request.FormFile("video")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "No file uploaded",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
 		return
 	}
 	defer file.Close()
+
+	// Validate video
+	if err := utils.ValidateVideo(header); err != nil {
+		log.Printf("[UploadVideo] Validation failed: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Get folder from query param (optional)
 	folder := c.DefaultQuery("folder", "videos")
@@ -183,12 +206,12 @@ func UploadVideoHandler(c *gin.Context) {
 	storageClient := storage.GetStorageClient()
 	url, err := storageClient.UploadFile(file, header, folder)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to upload file: %v", err),
-		})
+		log.Printf("[UploadVideo] Storage upload failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload video"})
 		return
 	}
 
+	log.Printf("[UploadVideo] Video uploaded successfully: %s", url)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"url":     url,
@@ -202,23 +225,28 @@ func UploadProductImageHandler(c *gin.Context) {
 	// Get the file from the form
 	file, header, err := c.Request.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "No file uploaded",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
 		return
 	}
 	defer file.Close()
+
+	// Validate image
+	if err := utils.ValidateImage(header); err != nil {
+		log.Printf("[UploadProductImage] Validation failed: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Upload to MinIO in products folder
 	storageClient := storage.GetStorageClient()
 	url, err := storageClient.UploadFile(file, header, "products")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to upload file: %v", err),
-		})
+		log.Printf("[UploadProductImage] Storage upload failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload product image"})
 		return
 	}
 
+	log.Printf("[UploadProductImage] Product image uploaded successfully: %s", url)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"url":     url,
@@ -228,44 +256,60 @@ func UploadProductImageHandler(c *gin.Context) {
 
 // UploadAvatarHandler handles user avatar uploads
 // Example endpoint: POST /api/upload/avatar
-func UploadAvatarHandler(c *gin.Context) {
-	// Get the file from the form
-	file, header, err := c.Request.FormFile("avatar")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "No file uploaded",
+func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get the file from the form
+		file, header, err := c.Request.FormFile("avatar")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+			return
+		}
+		defer file.Close()
+
+		// Get user ID from context (set by auth middleware)
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		// Validate avatar
+		if err := utils.ValidateAvatar(header); err != nil {
+			log.Printf("[UploadAvatar] Validation failed for user %s: %v", userID, err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Upload to MinIO in avatars folder
+		storageClient := storage.GetStorageClient()
+		url, err := storageClient.UploadFile(file, header, "avatars")
+		if err != nil {
+			log.Printf("[UploadAvatar] Storage upload failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload avatar"})
+			return
+		}
+
+		// Create context with timeout
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
+		// Update user avatar URL in database
+		_, err = db.ExecContext(ctx, "UPDATE users SET avatar = $1, updated_at = $2 WHERE id = $3", url, time.Now(), userID)
+		if err != nil {
+			// Try to delete the uploaded file on database error
+			_ = storageClient.DeleteFile(url)
+			log.Printf("[UploadAvatar] Database update failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user profile"})
+			return
+		}
+
+		log.Printf("[UploadAvatar] Avatar updated successfully for user %s", userID)
+		c.JSON(http.StatusOK, gin.H{
+			"success":    true,
+			"avatar_url": url,
+			"message":    "Avatar updated successfully",
 		})
-		return
 	}
-	defer file.Close()
-
-	// Get user ID from context (set by auth middleware)
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "User not authenticated",
-		})
-		return
-	}
-
-	// Upload to MinIO in avatars folder
-	storageClient := storage.GetStorageClient()
-	url, err := storageClient.UploadFile(file, header, "avatars")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": fmt.Sprintf("Failed to upload file: %v", err),
-		})
-		return
-	}
-
-	// TODO: Update user avatar URL in database
-	_ = userID // Use this to update the database
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"url":     url,
-		"message": "Avatar uploaded successfully",
-	})
 }
 
 // DeleteFileHandler handles file deletion from MinIO
@@ -308,6 +352,9 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		mediaType := c.Query("type")
 		limit := c.DefaultQuery("limit", "50")
 
+		// Create context with timeout
+		ctx, cancel := database.NewContext()
+		defer cancel()
 		// Query from user_media table
 		query := `
 			SELECT um.id, um.media_type, um.media_url, um.thumbnail_url, um.caption, 
@@ -334,11 +381,12 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 			argIndex++
 		}
 
-		query += fmt.Sprintf(" ORDER BY um.created_at DESC LIMIT $%d", argIndex)
+		query += " ORDER BY um.created_at DESC LIMIT $" + fmt.Sprint(argIndex)
 		args = append(args, limit)
 
-		rows, err := db.Query(query, args...)
+		rows, err := db.QueryContext(ctx, query, args...)
 		if err != nil {
+			log.Printf("[GetUserMedia] Database query failed for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch media"})
 			return
 		}
@@ -376,6 +424,7 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 			media = []MediaItem{}
 		}
 
+		log.Printf("[GetUserMedia] Retrieved %d media items for user %s", len(media), userID)
 		c.JSON(http.StatusOK, media)
 	}
 }

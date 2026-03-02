@@ -40,11 +40,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   Future<void> _loadUserMedia() async {
     final authProvider = context.read<AuthProvider>();
     if (authProvider.user == null) {
-      print('❌ No user found in auth provider');
+      debugPrint('No user found in auth provider');
       return;
     }
 
-    print('🔄 Loading user media for: ${authProvider.user!.id}');
+    debugPrint('Loading user media for: ${authProvider.user!.id}');
 
     setState(() {
       _isLoadingMedia = true;
@@ -58,18 +58,17 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         limit: 100,
       );
       
-      print('✅ Received ${media.length} media items');
+      debugPrint('Received ${media.length} media items');
       
       if (mounted) {
         setState(() {
           _mediaItems = media;
           _isLoadingMedia = false;
         });
-        print('✨ State updated with ${_mediaItems.length} items');
+        debugPrint('State updated with ${_mediaItems.length} items');
       }
-    } catch (e, stackTrace) {
-      print('❌ Error loading user media: $e');
-      print('📚 Stack trace: $stackTrace');
+    } catch (e) {
+      debugPrint('Error loading user media: $e');
       if (mounted) {
         setState(() {
           _isLoadingMedia = false;
@@ -204,7 +203,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   Widget _buildPhotosGrid() {
-    print('🎨 Building photos grid - Loading: $_isLoadingMedia, Items: ${_mediaItems.length}');
+    debugPrint('Building photos grid - Loading: $_isLoadingMedia, Items: ${_mediaItems.length}');
     
     if (_isLoadingMedia) {
       return const Center(child: CircularProgressIndicator());
@@ -231,7 +230,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       );
     }
 
-    print('📸 Rendering ${_mediaItems.length} photos');
+    debugPrint('Rendering ${_mediaItems.length} photos');
     return GridView.builder(
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -242,14 +241,14 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       itemCount: _mediaItems.length,
       itemBuilder: (context, index) {
         final item = _mediaItems[index];
-        print('🖼️ Building image $index: ${item.mediaUrl}');
+        debugPrint('Building image $index: ${item.mediaUrl}');
         return GestureDetector(
           onTap: () {},
           child: Image.network(
             item.mediaUrl,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
-              print('❌ Error loading image ${item.mediaUrl}: $error');
+              debugPrint('Error loading image ${item.mediaUrl}: $error');
               return Container(
                 color: Colors.grey[300],
                 child: Column(
@@ -266,7 +265,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
             },
             loadingBuilder: (context, child, loadingProgress) {
               if (loadingProgress == null) {
-                print('✅ Image loaded successfully: ${item.mediaUrl}');
+                debugPrint('Image loaded: ${item.mediaUrl}');
                 return child;
               }
               return Container(

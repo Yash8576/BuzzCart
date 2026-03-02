@@ -41,12 +41,12 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _fetchUserContent() async {
-    print('🔄 Fetching user content...');
+    debugPrint('Fetching user content...');
     setState(() => _loading = true);
     
     final currentUser = context.read<AuthProvider>().user;
     if (currentUser == null) {
-      print('❌ No user found');
+      debugPrint('No user found');
       setState(() => _loading = false);
       return;
     }
@@ -55,7 +55,7 @@ class _ProfilePageState extends State<ProfilePage>
     final targetUserId = widget.userId ?? currentUser.id;
     final isOwnProfile = targetUserId == currentUser.id;
     
-    print('👤 Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
+    debugPrint('Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
     
     // If viewing another user's profile, fetch their user info
     if (!isOwnProfile && widget.userId != null) {
@@ -70,9 +70,9 @@ class _ProfilePageState extends State<ProfilePage>
           'followers_count': userModel.followersCount,
           'following_count': userModel.followingCount,
         };
-        print('✅ Fetched profile user: ${_profileUser?['name']}');
+        debugPrint('Fetched profile user: ${_profileUser?['name']}');
       } catch (e) {
-        print('❌ Error fetching user profile: $e');
+        debugPrint('Error fetching user profile: $e');
         setState(() => _loading = false);
         return;
       }
@@ -80,26 +80,26 @@ class _ProfilePageState extends State<ProfilePage>
     
     // Fetch each type independently to prevent one failure from blocking others
     final photos = await _api.getUserMedia(targetUserId, type: 'photo').catchError((e) {
-      print('❌ Error fetching photos: $e');
+      debugPrint('Error fetching photos: $e');
       return <MediaItem>[];
     });
     
     final videos = await _api.getUserMedia(targetUserId, type: 'video').catchError((e) {
-      print('❌ Error fetching videos: $e');
+      debugPrint('Error fetching videos: $e');
       return <MediaItem>[];
     });
     
     final reels = await _api.getUserMedia(targetUserId, type: 'reel').catchError((e) {
-      print('❌ Error fetching reels: $e');
+      debugPrint('Error fetching reels: $e');
       return <MediaItem>[];
     });
     
     final products = await _api.getSellerProducts(targetUserId).catchError((e) {
-      print('❌ Error fetching products: $e');
+      debugPrint('Error fetching products: $e');
       return <ProductModel>[];
     });
     
-    print('✅ Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
+    debugPrint('Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
     
     setState(() {
       _photos = photos;
@@ -109,7 +109,7 @@ class _ProfilePageState extends State<ProfilePage>
       _loading = false;
     });
     
-    print('✨ State updated - Photos count: ${_photos.length}');
+    debugPrint('State updated - Photos count: ${_photos.length}');
   }
 
   Future<void> _showEditProfileDialog() async {
@@ -356,7 +356,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildPhotosGrid() {
-    print('🎨 Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
+    debugPrint('Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
     
     final currentUser = context.read<AuthProvider>().user;
     final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
@@ -405,7 +405,7 @@ class _ProfilePageState extends State<ProfilePage>
         ),
       );
     }
-    print('📸 Rendering ${_photos.length} photos');
+    debugPrint('Rendering ${_photos.length} photos');
     return GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -417,7 +417,7 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _photos.length,
       itemBuilder: (context, index) {
         final photo = _photos[index];
-        print('🖼️ Building photo $index: ${photo.mediaUrl}');
+        debugPrint('Building photo $index: ${photo.mediaUrl}');
         return InkWell(
           onTap: () {
             // Show full screen photo
@@ -432,7 +432,7 @@ class _ProfilePageState extends State<ProfilePage>
                         UrlHelper.getPlatformUrl(photo.mediaUrl),
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {
-                          print('❌ Error loading fullscreen image: $error');
+                          debugPrint('Error loading fullscreen image: $error');
                           return const Center(
                             child: Icon(Icons.broken_image, size: 64, color: Colors.white),
                           );
@@ -456,7 +456,7 @@ class _ProfilePageState extends State<ProfilePage>
             UrlHelper.getPlatformUrl(photo.mediaUrl),
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
-              print('❌ Error loading thumbnail image: $error');
+              debugPrint('Error loading thumbnail image: $error');
               return Container(
                 color: Colors.grey[300],
                 child: const Column(
@@ -471,7 +471,7 @@ class _ProfilePageState extends State<ProfilePage>
             },
             loadingBuilder: (context, child, loadingProgress) {
               if (loadingProgress == null) {
-                print('✅ Thumbnail loaded: ${photo.mediaUrl}');
+                debugPrint('Thumbnail loaded: ${photo.mediaUrl}');
                 return child;
               }
               return Container(

@@ -1,10 +1,14 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import 'dart:io';
 import '../../../../core/providers/upload_content_provider.dart';
 import '../../../../core/services/api_service.dart';
+import '../../../../core/utils/aspect_ratio_helper.dart';
 
 class UploadContentScreen extends StatefulWidget {
   const UploadContentScreen({super.key});
@@ -49,8 +53,18 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           maxHeight: 1920,
           imageQuality: 85,
         );
-        if (image != null) {
-          provider.addFile(File(image.path));
+        if (image != null && mounted) {
+          // Show loading indicator while preparing cropper
+          if (kIsWeb) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Preparing image cropper...'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+          // Crop the image before adding
+          await _cropImage(image.path, provider);
         }
       } else if (contentType == 'video' || contentType == 'reel') {
         final XFile? video = await _picker.pickVideo(
@@ -59,8 +73,14 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
               ? const Duration(seconds: 60) 
               : const Duration(minutes: 10),
         );
-        if (video != null) {
-          provider.addFile(File(video.path));
+        if (video != null && mounted) {
+          provider.addFile(video);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${contentType == 'reel' ? 'Reel' : 'Video'} selected successfully!'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
         }
       } else if (contentType == 'audio') {
         // For audio, we'll use a file picker or let user record
@@ -72,11 +92,142 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         }
       }
     } catch (e) {
+      debugPrint('Media Picker Error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking media: $e')),
+          SnackBar(
+            content: Text('Error picking media: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
+    }
+  }
+
+  Future<void> _cropImage(String imagePath, UploadContentProvider provider) async {
+    try {
+      final aspectRatio = AspectRatioHelper.getAspectRatioForType(
+        'photo',
+        photoRatio: provider.photoAspectRatio,
+      );
+
+      // Calculate aspect ratio values
+      final ratioX = aspectRatio.ratio >= 1 ? aspectRatio.ratio : 1.0;
+      final ratioY = aspectRatio.ratio < 1 ? (1.0 / aspectRatio.ratio) : 1.0;
+
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: imagePath,
+        aspectRatio: CropAspectRatio(
+          ratioX: ratioX,
+          ratioY: ratioY,
+        ),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Photo',
+            toolbarColor: Theme.of(context).primaryColor,
+            toolbarWidgetColor: Colors.white,
+            initAspectRatio: _getAndroidAspectRatio(provider.photoAspectRatio),
+            lockAspectRatio: true,
+            hideBottomControls: false,
+            showCropGrid: true,
+          ),
+          IOSUiSettings(
+            title: 'Crop Photo',
+            aspectRatioLockEnabled: true,
+            resetAspectRatioEnabled: false,
+            rectHeight: 400,
+            rectWidth: 400,
+          ),
+          WebUiSettings(
+            context: context,
+            presentStyle: WebPresentStyle.dialog,
+            size: const CropperSize(
+              width: 600,
+              height: 600,
+            ),
+          ),
+        ],
+      );
+
+      if (croppedFile != null) {
+        if (mounted) {
+          provider.addFile(XFile(croppedFile.path));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image cropped successfully!'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      } else {
+        // User cancelled cropping, use original image
+        if (mounted) {
+          final shouldUseOriginal = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Use Original Image?'),
+              content: const Text('Cropping was cancelled. Would you like to use the original image instead?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Use Original'),
+                ),
+              ],
+            ),
+          );
+
+          if (shouldUseOriginal == true && mounted) {
+            provider.addFile(XFile(imagePath));
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        // Detailed error logging and user-friendly message
+        debugPrint('Image Cropper Error: $e');
+        
+        final shouldUseOriginal = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Cropping Error'),
+            content: Text(
+              'Unable to crop image: ${e.toString()}\n\nWould you like to use the original image instead?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Use Original'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldUseOriginal == true && mounted) {
+          provider.addFile(XFile(imagePath));
+        }
+      }
+    }
+  }
+
+  CropAspectRatioPreset _getAndroidAspectRatio(String ratio) {
+    switch (ratio) {
+      case 'square':
+        return CropAspectRatioPreset.square;
+      case 'portrait':
+        return CropAspectRatioPreset.ratio4x3;
+      case 'landscape':
+        return CropAspectRatioPreset.ratio16x9;
+      default:
+        return CropAspectRatioPreset.square;
     }
   }
 
@@ -310,7 +461,149 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 20),
 
+                // Aspect Ratio Selector for Photos
+                if (provider.selectedMediaType == 'photo' && provider.selectedFiles.isEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.crop, size: 20, color: Theme.of(context).primaryColor),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Photo Format',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Choose your photo format (Instagram style)',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _AspectRatioButton(
+                                  ratio: 'square',
+                                  name: '1:1',
+                                  icon: Icons.crop_square,
+                                  description: 'Square',
+                                  isSelected: provider.photoAspectRatio == 'square',
+                                  onTap: () => provider.setPhotoAspectRatio('square'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _AspectRatioButton(
+                                  ratio: 'portrait',
+                                  name: '4:5',
+                                  icon: Icons.crop_portrait,
+                                  description: 'Portrait',
+                                  isSelected: provider.photoAspectRatio == 'portrait',
+                                  onTap: () => provider.setPhotoAspectRatio('portrait'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: _AspectRatioButton(
+                                  ratio: 'landscape',
+                                  name: '16:9',
+                                  icon: Icons.crop_landscape,
+                                  description: 'Landscape',
+                                  isSelected: provider.photoAspectRatio == 'landscape',
+                                  onTap: () => provider.setPhotoAspectRatio('landscape'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Reel Format Info
+                if (provider.selectedMediaType == 'reel')
+                  Card(
+                    color: Colors.purple.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.smartphone, color: Colors.purple.shade700),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Vertical Video Format (9:16)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.purple.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Perfect for Instagram Reels & Stories',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.purple.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                // Video Format Info
+                if (provider.selectedMediaType == 'video')
+                  Card(
+                    color: Colors.blue.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.video_library, color: Colors.blue.shade700),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Landscape Video Format (16:9)',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Standard widescreen format for longer videos',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 20),
 
                 // Preview area
@@ -331,39 +624,36 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  provider.removeFile(0);
-                                },
+                              Row(
+                                children: [
+                                  // Show aspect ratio for photos
+                                  if (provider.selectedMediaType == 'photo')
+                                    Chip(
+                                      label: Text(
+                                        AspectRatioHelper.photoAspectRatios[provider.photoAspectRatio]!.name,
+                                        style: const TextStyle(fontSize: 11),
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () {
+                                      provider.removeFile(0);
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                           const SizedBox(height: 12),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: provider.selectedMediaType == 'photo'
-                                ? Image.file(
-                                    provider.selectedFiles.first,
-                                    fit: BoxFit.cover,
-                                    height: 200,
-                                    width: double.infinity,
-                                  )
-                                : Container(
-                                    height: 200,
-                                    color: Colors.black,
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.play_circle_outline,
-                                        size: 64,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
+                          // Show preview with correct aspect ratio
+                          Center(
+                            child: _buildPreview(provider),
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            provider.selectedFiles.first.path.split('/').last,
+                            provider.selectedFiles.first.path.split('/').last.split('\\').last,
                             style: const TextStyle(fontSize: 12),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -440,42 +730,32 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          Column(
-                            children: [
-                              RadioListTile<String>(
-                                title: const Text('Public'),
-                                subtitle: const Text('Everyone can see this'),
-                                value: 'public',
-                                groupValue: provider.visibility,
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    provider.setVisibility(value);
-                                  }
-                                },
-                              ),
-                              RadioListTile<String>(
-                                title: const Text('Followers'),
-                                subtitle: const Text('Only your followers'),
-                                value: 'followers',
-                                groupValue: provider.visibility,
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    provider.setVisibility(value);
-                                  }
-                                },
-                              ),
-                              RadioListTile<String>(
-                                title: const Text('Close Friends'),
-                                subtitle: const Text('Your close friends only'),
-                                value: 'close_friends',
-                                groupValue: provider.visibility,
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    provider.setVisibility(value);
-                                  }
-                                },
-                              ),
-                            ],
+                          RadioGroup<String>(
+                            groupValue: provider.visibility,
+                            onChanged: (value) {
+                              if (value != null) {
+                                provider.setVisibility(value);
+                              }
+                            },
+                            child: const Column(
+                              children: [
+                                RadioListTile<String>(
+                                  title: Text('Public'),
+                                  subtitle: Text('Everyone can see this'),
+                                  value: 'public',
+                                ),
+                                RadioListTile<String>(
+                                  title: Text('Followers'),
+                                  subtitle: Text('Only your followers'),
+                                  value: 'followers',
+                                ),
+                                RadioListTile<String>(
+                                  title: Text('Close Friends'),
+                                  subtitle: Text('Your close friends only'),
+                                  value: 'close_friends',
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -511,6 +791,140 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildPreview(UploadContentProvider provider) {
+    final aspectRatio = AspectRatioHelper.getAspectRatioForType(
+      provider.selectedMediaType,
+      photoRatio: provider.photoAspectRatio,
+    );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: AspectRatio(
+        aspectRatio: aspectRatio.ratio,
+        child: provider.selectedMediaType == 'photo'
+            ? _buildImagePreview(provider.selectedFiles.first)
+            : Container(
+                color: Colors.black,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(
+                      Icons.play_circle_outline,
+                      size: 64,
+                      color: Colors.white,
+                    ),
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Chip(
+                        label: Text(
+                          aspectRatio.name,
+                          style: const TextStyle(fontSize: 11, color: Colors.white),
+                        ),
+                        backgroundColor: Colors.black54,
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    );
+  }
+
+  /// Build image preview that works on both web and mobile
+  Widget _buildImagePreview(XFile file) {
+    if (kIsWeb) {
+      // On web, XFile.path is a blob URL - use Image.network to load it
+      return Image.network(
+        file.path,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return FutureBuilder<Uint8List>(
+            future: file.readAsBytes(),
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return Image.memory(snapshot.data!, fit: BoxFit.cover);
+              }
+              return const Center(child: CircularProgressIndicator());
+            },
+          );
+        },
+      );
+    } else {
+      // On mobile, use File from dart:io
+      return Image.file(
+        File(file.path),
+        fit: BoxFit.cover,
+      );
+    }
+  }
+}
+
+// Aspect Ratio Selection Button Widget
+class _AspectRatioButton extends StatelessWidget {
+  final String ratio;
+  final String name;
+  final IconData icon;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _AspectRatioButton({
+    required this.ratio,
+    required this.name,
+    required this.icon,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          color: isSelected ? Theme.of(context).primaryColor.withValues(alpha: 0.1) : null,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 28,
+              color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade600,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              name,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              description,
+              style: TextStyle(
+                fontSize: 9,
+                color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

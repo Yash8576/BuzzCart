@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 func GetCart(db *sql.DB) gin.HandlerFunc {
@@ -81,9 +82,8 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 
 		// Get product details
 		var product models.Product
-		var imagesJSON []byte
 		err := db.QueryRow("SELECT id, title, price, images FROM products WHERE id = $1", req.ProductID).Scan(
-			&product.ID, &product.Title, &product.Price, &imagesJSON,
+			&product.ID, &product.Title, &product.Price, pq.Array(&product.Images),
 		)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
@@ -93,11 +93,9 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		var images []string
-		json.Unmarshal(imagesJSON, &images)
 		image := ""
-		if len(images) > 0 {
-			image = images[0]
+		if len(product.Images) > 0 {
+			image = product.Images[0]
 		}
 
 		cartItem := models.CartItem{

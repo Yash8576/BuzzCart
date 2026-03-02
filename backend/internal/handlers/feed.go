@@ -534,10 +534,14 @@ func UnlikePost(db *sql.DB) gin.HandlerFunc {
 
 func GetFeed(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get videos
+		// Get videos from content_items
 		videoRows, _ := db.Query(
-			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM videos ORDER BY created_at DESC LIMIT 20`,
+			`SELECT ci.id, ci.title, ci.description, ci.video_url, ci.thumbnail_url, ci.duration_seconds, 
+			        ci.view_count, ci.like_count, ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.content_type = 'video'
+			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		var videos []models.Video
 		if videoRows != nil {
@@ -558,10 +562,14 @@ func GetFeed(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Get reels
+		// Get reels from content_items
 		reelRows, _ := db.Query(
-			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM reels ORDER BY created_at DESC LIMIT 20`,
+			`SELECT ci.id, ci.video_url, ci.thumbnail_url, ci.description, ci.view_count, ci.like_count, 
+			        ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.content_type = 'reel'
+			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		var reels []models.Reel
 		if reelRows != nil {
@@ -597,10 +605,14 @@ func GetFeed(db *sql.DB) gin.HandlerFunc {
 
 func GetDiscover(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get trending videos
+		// Get trending videos from content_items
 		videoRows, _ := db.Query(
-			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM videos ORDER BY views DESC LIMIT 20`,
+			`SELECT ci.id, ci.title, ci.description, ci.video_url, ci.thumbnail_url, ci.duration_seconds, 
+			        ci.view_count, ci.like_count, ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.content_type = 'video'
+			 ORDER BY ci.view_count DESC LIMIT 20`,
 		)
 		var videos []models.Video
 		if videoRows != nil {

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -295,7 +294,7 @@ class ApiService {
 
   /// Upload photo with option to create post automatically
   Future<Map<String, dynamic>> uploadPhoto({
-    required File imageFile,
+    required XFile imageFile,
     String? caption,
     bool createPost = false,
     String visibility = 'followers',
@@ -304,10 +303,14 @@ class ApiService {
       // Ensure token is loaded
       await ensureTokenLoaded();
 
+      // Use bytes-based upload for cross-platform (web + mobile) support
+      final bytes = await imageFile.readAsBytes();
+      final fileName = imageFile.name;
+
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(
-          imageFile.path,
-          filename: imageFile.path.split('/').last,
+        'image': MultipartFile.fromBytes(
+          bytes,
+          filename: fileName,
         ),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
         'create_post': createPost.toString(),
@@ -600,11 +603,12 @@ class ApiService {
   }
 
   // Upload APIs
-  Future<Map<String, dynamic>> uploadImage(File file) async {
+  Future<Map<String, dynamic>> uploadImage(XFile file) async {
     try {
-      final fileName = file.path.split('/').last;
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName),
       });
 
       final response = await _dio.post('/upload/image', data: formData);
@@ -614,11 +618,12 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadVideo(File file) async {
+  Future<Map<String, dynamic>> uploadVideo(XFile file) async {
     try {
-      final fileName = file.path.split('/').last;
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
       final formData = FormData.fromMap({
-        'video': await MultipartFile.fromFile(file.path, filename: fileName),
+        'video': MultipartFile.fromBytes(bytes, filename: fileName),
       });
 
       final response = await _dio.post('/upload/video', data: formData);
@@ -628,11 +633,12 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadProductImage(File file) async {
+  Future<Map<String, dynamic>> uploadProductImage(XFile file) async {
     try {
-      final fileName = file.path.split('/').last;
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName),
       });
 
       final response = await _dio.post('/upload/product-image', data: formData);
@@ -643,11 +649,12 @@ class ApiService {
   }
 
   // Upload user photo with caption (saves to user_media table)
-  Future<Map<String, dynamic>> uploadUserPhoto(File file, {String? caption}) async {
+  Future<Map<String, dynamic>> uploadUserPhoto(XFile file, {String? caption}) async {
     try {
-      final fileName = file.path.split('/').last;
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
       });
 
@@ -666,50 +673,41 @@ class ApiService {
         if (type != null) 'type': type,
       };
       
-      print('🔍 Fetching user media for user: $userId, type: $type');
+      debugPrint('Fetching user media for user: $userId, type: $type');
       
       final response = await _dio.get(
         '/users/$userId/media',
         queryParameters: queryParams,
       );
       
-      print('✅ Response received: ${response.statusCode}');
-      print('📦 Response data type: ${response.data.runtimeType}');
-      print('📦 Response data: ${response.data}');
+      debugPrint('Response received: ${response.statusCode}');
       
       if (response.data == null) {
-        print('⚠️ Response data is null');
+        debugPrint('Response data is null');
         return [];
       }
       
       if (response.data is! List) {
-        print('❌ Response data is not a List: ${response.data.runtimeType}');
+        debugPrint('Response data is not a List: ${response.data.runtimeType}');
         return [];
       }
       
       final List<MediaItem> items = (response.data as List)
           .map((item) {
             try {
-              print('📄 Parsing item: $item');
               return MediaItem.fromJson(item as Map<String, dynamic>);
             } catch (e) {
-              print('❌ Error parsing media item: $e');
-              print('❌ Item data: $item');
+              debugPrint('Error parsing media item: $e');
               return null;
             }
           })
           .whereType<MediaItem>() // Filter out null values
           .toList();
       
-      print('✨ Successfully parsed ${items.length} media items');
-      for (var item in items) {
-        print('   - ${item.mediaType}: ${item.mediaUrl}');
-      }
-      
+      debugPrint('Parsed ${items.length} media items');
       return items;
-    } catch (e, stackTrace) {
-      print('❌ Error in getUserMedia: $e');
-      print('📚 Stack trace: $stackTrace');
+    } catch (e) {
+      debugPrint('Error in getUserMedia: $e');
       // Return empty list instead of rethrowing to prevent blocking other data
       return [];
     }
@@ -755,9 +753,10 @@ class ApiService {
 
   Future<String> uploadReviewImage(XFile file) async {
     try {
-      final fileName = file.path.split('/').last;
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': await MultipartFile.fromFile(file.path, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName),
       });
 
       final response = await _dio.post('/upload/review-image', data: formData);

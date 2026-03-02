@@ -103,5 +103,9 @@ Thumbs.db
 secrets/
 credentials/
 
+# Go binaries
+backend/bin/
+*.exe
+
 # Webapp subdirectory
 webapp/

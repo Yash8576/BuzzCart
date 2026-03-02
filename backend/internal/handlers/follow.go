@@ -18,9 +18,21 @@ func FollowUser(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Check if target user exists
+		var exists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", targetUserID).Scan(&exists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify user"})
+			return
+		}
+		if !exists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+
 		// Check if already following
 		var count int
-		err := db.QueryRow(
+		err = db.QueryRow(
 			"SELECT COUNT(*) FROM user_follows WHERE follower_id = $1 AND following_id = $2",
 			userID, targetUserID,
 		).Scan(&count)

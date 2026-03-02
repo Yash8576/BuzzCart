@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 
 class AddProductProvider extends ChangeNotifier {
   String _selectedMediaType = 'photo';
-  final List<File> _selectedFiles = [];
+  final List<XFile> _selectedFiles = [];
   String _productName = '';
   String _description = '';
   String _price = '';
@@ -11,7 +11,7 @@ class AddProductProvider extends ChangeNotifier {
   bool _hasUnsavedWork = false;
 
   String get selectedMediaType => _selectedMediaType;
-  List<File> get selectedFiles => List.unmodifiable(_selectedFiles);
+  List<XFile> get selectedFiles => List.unmodifiable(_selectedFiles);
   String get productName => _productName;
   String get description => _description;
   String get price => _price;
@@ -24,7 +24,7 @@ class AddProductProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void addFile(File file) {
+  void addFile(XFile file) {
     _selectedFiles.add(file);
     _hasUnsavedWork = true;
     notifyListeners();

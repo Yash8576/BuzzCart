@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:timeago/timeago.dart' as timeago;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/services/api_service.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../widgets/post_card.dart';
 
 /// Instagram-style feed screen with infinite scroll

@@ -111,8 +111,12 @@ func CreateVideo(db *sql.DB) gin.HandlerFunc {
 func GetVideos(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := db.Query(
-			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM videos ORDER BY created_at DESC LIMIT 20`,
+			`SELECT ci.id, ci.title, ci.description, ci.video_url, ci.thumbnail_url, ci.duration_seconds, 
+			        ci.view_count, ci.like_count, ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.content_type = 'video'
+			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch videos"})
@@ -155,8 +159,11 @@ func GetVideo(db *sql.DB) gin.HandlerFunc {
 		var video models.Video
 		var productsJSON []byte
 		err := db.QueryRow(
-			`SELECT id, title, description, url, thumbnail, duration, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM videos WHERE id = $1`, videoID,
+			`SELECT ci.id, ci.title, ci.description, ci.video_url, ci.thumbnail_url, ci.duration_seconds, 
+			        ci.view_count, ci.like_count, ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.id = $1 AND ci.content_type = 'video'`, videoID,
 		).Scan(
 			&video.ID, &video.Title, &video.Description, &video.URL, &video.Thumbnail, &video.Duration,
 			&video.Views, &video.Likes, &video.CreatorID, &video.CreatorName, &video.CreatorAvatar,
@@ -176,7 +183,7 @@ func GetVideo(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Increment views
-		db.Exec("UPDATE videos SET views = views + 1 WHERE id = $1", videoID)
+		db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", videoID)
 
 		c.JSON(http.StatusOK, video)
 	}
@@ -186,7 +193,7 @@ func LikeVideo(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		videoID := c.Param("video_id")
 
-		_, err := db.Exec("UPDATE videos SET likes = likes + 1 WHERE id = $1", videoID)
+		_, err := db.Exec("UPDATE content_items SET like_count = like_count + 1 WHERE id = $1 AND content_type = 'video'", videoID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to like video"})
 			return

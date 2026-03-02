@@ -1,5 +1,7 @@
-import 'dart:io';
 import '../config/app_config.dart';
+import 'url_helper_platform.dart'
+    if (dart.library.html) 'url_helper_web.dart'
+    if (dart.library.io) 'url_helper_io.dart';
 
 /// Helper class for handling cross-platform URLs
 class UrlHelper {
@@ -17,13 +19,8 @@ class UrlHelper {
       return url;
     }
 
-    // For Android emulator, replace localhost with 10.0.2.2
-    if (Platform.isAndroid) {
-      return url.replaceAll('localhost', '10.0.2.2');
-    }
-
-    // For other platforms, return as-is
-    return url;
+    // Use platform-specific URL conversion
+    return UrlHelperPlatform.convertUrl(url);
   }
 
   /// Gets the full storage URL for a media path

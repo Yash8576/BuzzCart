@@ -20,8 +20,22 @@ func SendMessage(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Create or get conversation ID
-		conversationID := uuid.New().String()
+		// Find existing conversation between these two users
+		var conversationID string
+		err := db.QueryRow(
+			`SELECT conversation_id FROM messages 
+			 WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) 
+			 LIMIT 1`,
+			userID, req.ReceiverID,
+		).Scan(&conversationID)
+
+		// If no existing conversation found, create a new ID
+		if err == sql.ErrNoRows {
+			conversationID = uuid.New().String()
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing conversation"})
+			return
+		}
 
 		message := models.Message{
 			ID:             uuid.New().String(),
@@ -34,7 +48,7 @@ func SendMessage(db *sql.DB) gin.HandlerFunc {
 			Read:           false,
 		}
 
-		_, err := db.Exec(
+		_, err = db.Exec(
 			`INSERT INTO messages (id, conversation_id, sender_id, receiver_id, content, product_id, created_at, read) 
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			message.ID, message.ConversationID, message.SenderID, message.ReceiverID,

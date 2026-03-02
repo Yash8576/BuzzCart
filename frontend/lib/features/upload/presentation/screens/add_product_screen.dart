@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
@@ -78,7 +79,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         if (images.isNotEmpty) {
           for (var image in images) {
             if (provider.selectedFiles.length < 5) {
-              provider.addFile(File(image.path));
+              provider.addFile(image);
             } else {
               break;
             }
@@ -93,7 +94,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         );
         
         if (video != null && provider.selectedFiles.length < 5) {
-          provider.addFile(File(video.path));
+          provider.addFile(video);
         }
       } else if (mediaType == 'audio') {
         if (mounted) {
@@ -370,7 +371,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                                         borderRadius: BorderRadius.circular(8),
                                         color: Colors.grey.shade200,
                                         image: provider.selectedMediaType == 'photo' ? DecorationImage(
-                                          image: FileImage(provider.selectedFiles[index]),
+                                          image: kIsWeb 
+                                              ? NetworkImage(provider.selectedFiles[index].path) as ImageProvider
+                                              : FileImage(File(provider.selectedFiles[index].path)),
                                           fit: BoxFit.cover,
                                         ) : null,
                                       ),

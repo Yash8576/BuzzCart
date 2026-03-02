@@ -109,8 +109,12 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 func GetReels(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := db.Query(
-			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM reels ORDER BY created_at DESC LIMIT 20`,
+			`SELECT ci.id, ci.video_url, ci.thumbnail_url, ci.description, ci.view_count, ci.like_count, 
+			        ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.content_type = 'reel'
+			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reels"})
@@ -152,8 +156,11 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 		var reel models.Reel
 		var productsJSON []byte
 		err := db.QueryRow(
-			`SELECT id, url, thumbnail, caption, views, likes, creator_id, creator_name, creator_avatar, products, created_at 
-			 FROM reels WHERE id = $1`, reelID,
+			`SELECT ci.id, ci.video_url, ci.thumbnail_url, ci.description, ci.view_count, ci.like_count, 
+			        ci.creator_id, u.name, u.avatar, '[]'::jsonb as products, ci.created_at 
+			 FROM content_items ci
+			 JOIN users u ON ci.creator_id = u.id
+			 WHERE ci.id = $1 AND ci.content_type = 'reel'`, reelID,
 		).Scan(
 			&reel.ID, &reel.URL, &reel.Thumbnail, &reel.Caption, &reel.Views, &reel.Likes,
 			&reel.CreatorID, &reel.CreatorName, &reel.CreatorAvatar, &productsJSON, &reel.CreatedAt,
@@ -172,7 +179,7 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Increment views
-		db.Exec("UPDATE reels SET views = views + 1 WHERE id = $1", reelID)
+		db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)
 
 		c.JSON(http.StatusOK, reel)
 	}
@@ -182,7 +189,7 @@ func LikeReel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 
-		_, err := db.Exec("UPDATE reels SET likes = likes + 1 WHERE id = $1", reelID)
+		_, err := db.Exec("UPDATE content_items SET like_count = like_count + 1 WHERE id = $1 AND content_type = 'reel'", reelID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to like reel"})
 			return

@@ -34,10 +34,16 @@ func InitializeStorage(cfg *config.Config) error {
 }
 
 // GetStorageClient returns the global MinIO client
-// Panics if storage is not initialized
+// Panics if storage is not initialized - this should never happen in production
+// as the server won't start without successful storage initialization
 func GetStorageClient() *MinIOClient {
 	if GlobalMinIOClient == nil {
-		panic("storage client not initialized - call InitializeStorage first")
+		log.Fatal("FATAL: Storage client accessed before initialization. Server misconfigured.")
 	}
 	return GlobalMinIOClient
+}
+
+// IsInitialized checks if storage client has been initialized
+func IsInitialized() bool {
+	return GlobalMinIOClient != nil
 }

@@ -484,7 +484,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected
-                ? color.withOpacity(0.15)
+                ? color.withValues(alpha: 0.15)
                 : (isDark ? Colors.grey[800] : Colors.grey[100]),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
@@ -565,7 +565,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
       selected: isSelected,
       onSelected: (_) => _changeSortOrder(value),
       backgroundColor: isDark ? Colors.grey[800] : Colors.white,
-      selectedColor: AppColors.electricBlue.withOpacity(0.2),
+      selectedColor: AppColors.electricBlue.withValues(alpha: 0.2),
       checkmarkColor: AppColors.electricBlue,
       labelStyle: TextStyle(
         color: isSelected

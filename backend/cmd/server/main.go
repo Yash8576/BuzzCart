@@ -8,7 +8,9 @@ import (
 	"buzzcart/internal/middleware"
 	"buzzcart/internal/storage"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -49,15 +51,58 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Create router
-	router := gin.Default()
+	// Create router with custom recovery
+	router := gin.New()
 
-	// CORS middleware
-	router.Use(middleware.CORS())
+	// Add middleware
+	router.Use(middleware.Recovery())        // Custom panic recovery
+	router.Use(middleware.RequestLogger())   // Structured request logging
+	router.Use(middleware.SecurityHeaders()) // Security headers
+	router.Use(middleware.CORS())            // CORS support
 
-	// Health check
+	// Enhanced health check endpoint
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		// Check database connectivity
+		dbStatus := "ok"
+		if err := db.Ping(); err != nil {
+			dbStatus = "error"
+			log.Printf("[Health] Database ping failed: %v", err)
+		}
+
+		// Check storage connectivity
+		storageStatus := "ok"
+		if !storage.IsInitialized() {
+			storageStatus = "error"
+		}
+
+		// Check cache connectivity
+		cacheStatus := "ok"
+		if cache.GetClient() != nil {
+			if err := cache.GetClient().Ping(c.Request.Context()).Err(); err != nil {
+				cacheStatus = "degraded"
+			}
+		} else {
+			cacheStatus = "disabled"
+		}
+
+		overallStatus := "healthy"
+		httpStatus := http.StatusOK
+		if dbStatus == "error" || storageStatus == "error" {
+			overallStatus = "unhealthy"
+			httpStatus = http.StatusServiceUnavailable
+		} else if cacheStatus == "degraded" {
+			overallStatus = "degraded"
+		}
+
+		c.JSON(httpStatus, gin.H{
+			"status":    overallStatus,
+			"timestamp": time.Now().Format(time.RFC3339),
+			"services": gin.H{
+				"database": dbStatus,
+				"storage":  storageStatus,
+				"cache":    cacheStatus,
+			},
+		})
 	})
 
 	// API routes
@@ -144,7 +189,7 @@ func main() {
 			upload.POST("/product-image", handlers.UploadProductImageHandler)
 
 			upload.POST("/user-photo", middleware.Auth(cfg.JWTSecret), handlers.UploadUserPhotoHandler(db))
-			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler)
+			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler(db))
 			upload.DELETE("/:objectName", middleware.Auth(cfg.JWTSecret), handlers.DeleteFileHandler)
 		}
 

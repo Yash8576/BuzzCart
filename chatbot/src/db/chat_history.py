@@ -4,7 +4,7 @@ from datetime import datetime
 import json
 import uuid
 
-from sqlalchemy import create_engine, Column, String, DateTime, JSON, Text
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -80,14 +80,14 @@ class ChatHistoryManager:
         try:
             async with self.SessionLocal() as session:
                 result = await session.execute(
-                    f"""
+                    text(f"""
                     SELECT id, conversation_id, user_id, user_message, 
                            bot_response, timestamp, metadata
                     FROM {settings.CHAT_HISTORY_TABLE}
                     WHERE conversation_id = :conv_id
                     ORDER BY timestamp DESC
                     LIMIT :limit
-                    """,
+                    """),
                     {"conv_id": conversation_id, "limit": limit}
                 )
                 rows = result.fetchall()
@@ -117,14 +117,14 @@ class ChatHistoryManager:
         try:
             async with self.SessionLocal() as session:
                 result = await session.execute(
-                    f"""
+                    text(f"""
                     SELECT id, conversation_id, user_id, user_message,
                            bot_response, timestamp, metadata
                     FROM {settings.CHAT_HISTORY_TABLE}
                     WHERE user_id = :user_id
                     ORDER BY timestamp DESC
                     LIMIT :limit
-                    """,
+                    """),
                     {"user_id": user_id, "limit": limit}
                 )
                 rows = result.fetchall()
@@ -150,10 +150,10 @@ class ChatHistoryManager:
         try:
             async with self.SessionLocal() as session:
                 await session.execute(
-                    f"""
+                    text(f"""
                     DELETE FROM {settings.CHAT_HISTORY_TABLE}
                     WHERE conversation_id = :conv_id
-                    """,
+                    """),
                     {"conv_id": conversation_id}
                 )
                 await session.commit()

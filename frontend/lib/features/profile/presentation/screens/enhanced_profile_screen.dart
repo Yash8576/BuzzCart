@@ -26,7 +26,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
   UserModel? _user;
   bool _loading = true;
   bool _isOwnProfile = false;
-  bool _isFollowing = false;
+  final bool _isFollowing = false;
 
   @override
   void initState() {
@@ -215,7 +215,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
                     margin: const EdgeInsets.only(top: 4),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppColors.electricBlue.withOpacity(0.1),
+                      color: AppColors.electricBlue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
@@ -241,7 +241,7 @@ class _EnhancedProfileScreenState extends State<EnhancedProfileScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _StatItem(label: 'Posts', value: '0'), // TODO: Get actual post count
+          const _StatItem(label: 'Posts', value: '0'), // TODO: Get actual post count
           _StatItem(
             label: 'Followers',
             value: _formatCount(_user!.followersCount),

@@ -1,20 +1,12 @@
 // Core application configuration
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'app_config_platform.dart'
+    if (dart.library.html) 'app_config_web.dart'
+    if (dart.library.io) 'app_config_io.dart';
 
 class AppConfig {
   // Get the appropriate base URL based on platform
   static String get _baseHost {
-    if (kIsWeb) {
-      // Web: Use localhost
-      return 'localhost';
-    } else if (Platform.isAndroid) {
-      // Android emulator: 10.0.2.2 maps to host machine's localhost
-      return '10.0.2.2';
-    } else {
-      // iOS simulator, macOS, Windows, Linux: Use localhost
-      return 'localhost';
-    }
+    return PlatformConfig.baseHost;
   }
 
   static const String _port = '8080';

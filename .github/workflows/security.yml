@@ -21,7 +21,7 @@ jobs:
     # Python dependencies
     - name: Python Security Scan
       run: |
-        cd flutter_backend
+        cd chatbot
         pip install safety
         safety check --json || echo "Vulnerabilities found"
 
@@ -51,7 +51,7 @@ jobs:
 
     - name: Run Bandit (Python security linter)
       run: |
-        cd flutter_backend
+        cd chatbot
         pip install bandit
         bandit -r . -f json -o bandit-report.json || echo "Issues found"
 
@@ -60,4 +60,4 @@ jobs:
       if: always()
       with:
         name: bandit-security-report
-        path: flutter_backend/bandit-report.json
+        path: chatbot/bandit-report.json

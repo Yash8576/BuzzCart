@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 import logging
 import os
 import uuid
