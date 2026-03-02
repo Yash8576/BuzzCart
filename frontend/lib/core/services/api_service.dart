@@ -322,11 +322,6 @@ class ApiService {
       final response = await _dio.post(
         '/upload/user-photo',
         data: formData,
-        options: Options(
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        ),
       );
 
       return response.data as Map<String, dynamic>;
