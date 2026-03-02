@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import '../config/app_config.dart';
 import '../models/models.dart';
@@ -311,6 +312,7 @@ class ApiService {
         'image': MultipartFile.fromBytes(
           bytes,
           filename: fileName,
+          contentType: _getImageMediaType(fileName),
         ),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
         'create_post': createPost.toString(),
@@ -608,7 +610,8 @@ class ApiService {
       final bytes = await file.readAsBytes();
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName,
+            contentType: _getImageMediaType(fileName)),
       });
 
       final response = await _dio.post('/upload/image', data: formData);
@@ -638,7 +641,8 @@ class ApiService {
       final bytes = await file.readAsBytes();
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName,
+            contentType: _getImageMediaType(fileName)),
       });
 
       final response = await _dio.post('/upload/product-image', data: formData);
@@ -654,7 +658,8 @@ class ApiService {
       final bytes = await file.readAsBytes();
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName,
+            contentType: _getImageMediaType(fileName)),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
       });
 
@@ -790,6 +795,30 @@ class ApiService {
       return ReviewModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       rethrow;
+    }
+  }
+
+  /// Returns the correct [MediaType] for an image file based on its extension.
+  /// Defaults to image/jpeg when the extension is unrecognised (e.g. cropped
+  /// temp files with no extension), ensuring the backend never receives the
+  /// Dio default of application/octet-stream.
+  MediaType _getImageMediaType(String filename) {
+    final ext = filename.toLowerCase().split('.').last;
+    switch (ext) {
+      case 'png':
+        return MediaType('image', 'png');
+      case 'gif':
+        return MediaType('image', 'gif');
+      case 'webp':
+        return MediaType('image', 'webp');
+      case 'heic':
+        return MediaType('image', 'heic');
+      case 'heif':
+        return MediaType('image', 'heif');
+      case 'jpg':
+      case 'jpeg':
+      default:
+        return MediaType('image', 'jpeg');
     }
   }
 }

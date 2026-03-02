@@ -69,14 +69,28 @@ func ValidateImage(header *multipart.FileHeader) error {
 		return fmt.Errorf("image file is empty")
 	}
 
-	// Check content type
+	// Check content type - skip validation for generic octet-stream (Dio/multipart default)
+	// when no explicit MIME type is set; rely on extension check instead
 	contentType := header.Header.Get("Content-Type")
-	if contentType != "" && !AllowedImageFormats[contentType] {
+	if contentType != "" && contentType != "application/octet-stream" && !AllowedImageFormats[contentType] {
 		return fmt.Errorf("unsupported image format: %s", contentType)
 	}
 
 	// Check file extension
 	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext == "" {
+		// No extension - infer from content type if available
+		if contentType == "image/jpeg" || contentType == "image/jpg" {
+			ext = ".jpg"
+		} else if contentType == "image/png" {
+			ext = ".png"
+		} else if contentType == "image/webp" {
+			ext = ".webp"
+		} else {
+			// Default allow - storage upload will handle actual content
+			return nil
+		}
+	}
 	if !AllowedImageExtensions[ext] {
 		return fmt.Errorf("unsupported image file extension: %s", ext)
 	}
@@ -95,9 +109,9 @@ func ValidateVideo(header *multipart.FileHeader) error {
 		return fmt.Errorf("video file is empty")
 	}
 
-	// Check content type
+	// Check content type - skip validation for generic octet-stream
 	contentType := header.Header.Get("Content-Type")
-	if contentType != "" && !AllowedVideoFormats[contentType] {
+	if contentType != "" && contentType != "application/octet-stream" && !AllowedVideoFormats[contentType] {
 		return fmt.Errorf("unsupported video format: %s", contentType)
 	}
 
@@ -121,9 +135,9 @@ func ValidateAvatar(header *multipart.FileHeader) error {
 		return fmt.Errorf("avatar file is empty")
 	}
 
-	// Check content type
+	// Check content type - skip validation for generic octet-stream
 	contentType := header.Header.Get("Content-Type")
-	if contentType != "" && !AllowedImageFormats[contentType] {
+	if contentType != "" && contentType != "application/octet-stream" && !AllowedImageFormats[contentType] {
 		return fmt.Errorf("unsupported avatar format: %s", contentType)
 	}
 

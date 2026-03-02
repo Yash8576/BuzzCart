@@ -17,6 +17,7 @@ dependencies:
   # Networking
   dio: ^5.4.0
   http: ^1.1.2
+  http_parser: ^4.0.0
 
   # Local Storage
   shared_preferences: ^2.2.2
