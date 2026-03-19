@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
@@ -47,13 +48,19 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     
     try {
       if (contentType == 'photo') {
-        final XFile? image = await _picker.pickImage(
-          source: source,
-          maxWidth: 1920,
-          maxHeight: 1920,
-          imageQuality: 85,
-        );
+        final XFile? image = source == ImageSource.gallery
+            ? await _pickPhotoFromGalleryWithCloudFallback()
+            : await _picker.pickImage(
+                source: source,
+                maxWidth: 1920,
+                maxHeight: 1920,
+                imageQuality: 85,
+              );
         if (image != null && mounted) {
+          final localImagePath = await _ensureLocalImagePath(image);
+          if (!mounted) {
+            return;
+          }
           // Show loading indicator while preparing cropper
           if (kIsWeb) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -64,7 +71,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             );
           }
           // Crop the image before adding
-          await _cropImage(image.path, provider);
+          await _cropImage(localImagePath, provider);
         }
       } else if (contentType == 'video' || contentType == 'reel') {
         final XFile? video = await _picker.pickVideo(
@@ -103,6 +110,64 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         );
       }
     }
+  }
+
+  Future<XFile?> _pickPhotoFromGalleryWithCloudFallback() async {
+    try {
+      final image = await _picker.pickImage(source: ImageSource.gallery);
+      if (image != null) return image;
+    } catch (_) {
+      // Fallback below.
+    }
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) {
+      return null;
+    }
+
+    final selected = result.files.first;
+    if (selected.path != null && selected.path!.isNotEmpty) {
+      return XFile(selected.path!);
+    }
+
+    if (selected.bytes == null) {
+      return null;
+    }
+
+    final tempDir = Directory.systemTemp;
+    final extension = _safeImageExtension(selected.name);
+    final tempPath = '${tempDir.path}${Platform.pathSeparator}cloud_upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final tempFile = File(tempPath);
+    await tempFile.writeAsBytes(selected.bytes!, flush: true);
+    return XFile(tempFile.path);
+  }
+
+  Future<String> _ensureLocalImagePath(XFile file) async {
+    final originalPath = file.path;
+    if (!kIsWeb && originalPath.isNotEmpty && File(originalPath).existsSync()) {
+      return originalPath;
+    }
+
+    final bytes = await file.readAsBytes();
+    final tempDir = Directory.systemTemp;
+    final extension = _safeImageExtension(file.name);
+    final tempPath = '${tempDir.path}${Platform.pathSeparator}upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final tempFile = File(tempPath);
+    await tempFile.writeAsBytes(bytes, flush: true);
+    return tempFile.path;
+  }
+
+  String _safeImageExtension(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'png';
+    if (lower.endsWith('.webp')) return 'webp';
+    if (lower.endsWith('.gif')) return 'gif';
+    return 'jpg';
   }
 
   Future<void> _cropImage(String imagePath, UploadContentProvider provider) async {
@@ -273,7 +338,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                 ),
               ),
             );
-            context.go('/');
+            context.go('/profile');
           }
         }
       } else if (contentType == 'video') {
@@ -297,7 +362,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Video uploaded successfully!')),
             );
-            context.go('/');
+            context.go('/profile');
           }
         }
       } else if (contentType == 'reel') {
@@ -318,7 +383,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Reel uploaded successfully!')),
             );
-            context.go('/');
+            context.go('/profile');
           }
         }
       }

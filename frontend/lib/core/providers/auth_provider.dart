@@ -11,16 +11,20 @@ class AuthProvider extends ChangeNotifier {
     ),
   );
   static const String _lastActivityKey = 'last_activity';
+  static const String _pendingAvatarPreviewPathKey =
+      'pending_avatar_preview_path';
   static const int _maxInactiveDays = 7;
   
   UserModel? _user;
   bool _isLoading = true;
   bool _isAuthenticated = false;
+  String? _pendingAvatarPreviewPath;
 
   UserModel? get user => _user;
   bool get isLoading => _isLoading;
   bool get isAuthenticated => _isAuthenticated;
   bool get isSeller => _user?.isSeller ?? false;
+  String? get pendingAvatarPreviewPath => _pendingAvatarPreviewPath;
 
   AuthProvider({required ApiService apiService}) : _api = apiService {
     _init();
@@ -33,6 +37,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       // Ensure token is loaded from storage first
       await _api.ensureTokenLoaded();
+      _pendingAvatarPreviewPath =
+          await _storage.read(key: _pendingAvatarPreviewPathKey);
       
       // Check if token exists
       final hasToken = await _api.hasToken();
@@ -40,6 +46,7 @@ class AuthProvider extends ChangeNotifier {
         debugPrint('No token found - user needs to login');
         _isAuthenticated = false;
         _user = null;
+        _pendingAvatarPreviewPath = null;
         _isLoading = false;
         notifyListeners();
         return;
@@ -56,8 +63,10 @@ class AuthProvider extends ChangeNotifier {
           debugPrint('Auto-logout due to inactivity ($daysSinceActivity days)');
           await _api.logout();
           await _storage.delete(key: _lastActivityKey);
+          await _storage.delete(key: _pendingAvatarPreviewPathKey);
           _isAuthenticated = false;
           _user = null;
+          _pendingAvatarPreviewPath = null;
           _isLoading = false;
           notifyListeners();
           return;
@@ -70,6 +79,10 @@ class AuthProvider extends ChangeNotifier {
         const Duration(seconds: 5),
         onTimeout: () => throw Exception('Request timeout'),
       );
+      if ((_user?.avatar ?? '').trim().isNotEmpty) {
+        _pendingAvatarPreviewPath = null;
+        await _storage.delete(key: _pendingAvatarPreviewPathKey);
+      }
       _isAuthenticated = true;
       await _updateLastActivity();
       debugPrint('User authenticated successfully: ${_user?.email}');
@@ -133,8 +146,10 @@ class AuthProvider extends ChangeNotifier {
   Future<void> logout() async {
     await _api.logout();
     await _storage.delete(key: _lastActivityKey);
+    await _storage.delete(key: _pendingAvatarPreviewPathKey);
     _user = null;
     _isAuthenticated = false;
+    _pendingAvatarPreviewPath = null;
     notifyListeners();
   }
 
@@ -145,5 +160,51 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       rethrow;
     }
+  }
+
+  Future<void> refreshUser({bool preserveAvatarIfMissing = false}) async {
+    try {
+      final previousUser = _user;
+      final fetchedUser = await _api.getMe();
+
+      final shouldPreserveAvatar = preserveAvatarIfMissing &&
+          previousUser != null &&
+          (previousUser.avatar ?? '').trim().isNotEmpty &&
+          (fetchedUser.avatar ?? '').trim().isEmpty;
+
+      _user = shouldPreserveAvatar
+          ? fetchedUser.copyWith(avatar: previousUser.avatar)
+          : fetchedUser;
+      if ((_user?.avatar ?? '').trim().isNotEmpty) {
+        _pendingAvatarPreviewPath = null;
+        await _storage.delete(key: _pendingAvatarPreviewPathKey);
+      }
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  void updateAvatarUrl(String? avatarUrl) {
+    if (_user == null) return;
+    _user = _user!.copyWith(
+      avatar: avatarUrl,
+      clearAvatar: avatarUrl == null || avatarUrl.trim().isEmpty,
+    );
+    if (avatarUrl == null || avatarUrl.trim().isEmpty) {
+      _pendingAvatarPreviewPath = null;
+      _storage.delete(key: _pendingAvatarPreviewPathKey);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setPendingAvatarPreviewPath(String? path) async {
+    _pendingAvatarPreviewPath = path;
+    if (path == null || path.trim().isEmpty) {
+      await _storage.delete(key: _pendingAvatarPreviewPathKey);
+    } else {
+      await _storage.write(key: _pendingAvatarPreviewPathKey, value: path);
+    }
+    notifyListeners();
   }
 }

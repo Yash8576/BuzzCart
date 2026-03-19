@@ -1,7 +1,13 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/theme/app_colors.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/models/models.dart';
@@ -19,12 +25,17 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage>
     with SingleTickerProviderStateMixin {
   final ApiService _api = ApiService();
+  final ImagePicker _picker = ImagePicker();
   late TabController _tabController;
   List<MediaItem> _photos = [];
   List<MediaItem> _videos = [];
   List<MediaItem> _reels = [];
   List<ProductModel> _products = [];
   bool _loading = true;
+  bool _isAvatarUpdating = false;
+  int _avatarVersion = 0;
+  String? _localAvatarPreviewPath;
+  Uint8List? _localAvatarPreviewBytes;
   Map<String, dynamic>? _profileUser;
 
   @override
@@ -66,6 +77,8 @@ class _ProfilePageState extends State<ProfilePage>
           'name': userModel.name,
           'avatar': userModel.avatar,
           'bio': userModel.bio,
+          'account_type': userModel.accountType,
+          'role': userModel.role,
           'privacy_profile': userModel.privacyProfile.toLowerCase(),
           'followers_count': userModel.followersCount,
           'following_count': userModel.followingCount,
@@ -158,9 +171,316 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  Future<void> _showAvatarEditOptions() async {
+    final authProvider = context.read<AuthProvider>();
+    final currentUser = authProvider.user;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    if (!isOwnProfile || currentUser == null || _isAvatarUpdating) {
+      return;
+    }
+
+    final hasAvatar = (_localAvatarPreviewPath != null &&
+            _previewPathExists(_localAvatarPreviewPath)) ||
+        _hasLocalPreviewBytes() ||
+        (authProvider.pendingAvatarPreviewPath != null &&
+            _previewPathExists(authProvider.pendingAvatarPreviewPath)) ||
+        (currentUser.avatar ?? '').trim().isNotEmpty;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                  child: Icon(
+                    Icons.edit,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Edit Profile Photo',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  leading: const Icon(Icons.photo_library),
+                  title: const Text('Choose from library'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickAndUploadAvatar();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.cloud_upload_outlined),
+                  title: const Text('Browse files (cloud apps)'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickFromCloudAndUploadAvatar();
+                  },
+                ),
+                ListTile(
+                  enabled: hasAvatar,
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Delete current photo'),
+                  onTap: hasAvatar
+                      ? () {
+                          Navigator.pop(context);
+                          _deleteCurrentAvatar();
+                        }
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final pickedImage = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
+
+      if (pickedImage == null || !mounted) {
+        return;
+      }
+      await _cropAndUploadAvatar(pickedImage);
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to update profile photo: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickFromCloudAndUploadAvatar() async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty || !mounted) {
+        return;
+      }
+
+      final selected = result.files.first;
+      XFile sourceFile;
+
+      if (selected.path != null && selected.path!.isNotEmpty) {
+        sourceFile = XFile(selected.path!);
+      } else if (selected.bytes != null) {
+        if (kIsWeb) {
+          sourceFile = XFile.fromData(
+            selected.bytes!,
+            name: selected.name,
+            mimeType: 'image/${_safeImageExtension(selected.name)}',
+          );
+        } else {
+          final tempDir = Directory.systemTemp;
+          final extension = _safeImageExtension(selected.name);
+          final tempPath =
+              '${tempDir.path}${Platform.pathSeparator}cloud_avatar_${DateTime.now().microsecondsSinceEpoch}.$extension';
+          final tempFile = File(tempPath);
+          await tempFile.writeAsBytes(selected.bytes!, flush: true);
+          sourceFile = XFile(tempFile.path);
+        }
+      } else {
+        if (mounted) {
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Unable to open selected cloud photo')),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      await _cropAndUploadAvatar(sourceFile);
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Cloud picker failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _cropAndUploadAvatar(XFile sourceImage) async {
+    final authProvider = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final primaryColor = Theme.of(context).primaryColor;
+
+    try {
+      final localImagePath = await _ensureLocalImagePath(sourceImage);
+      if (!mounted) {
+        return;
+      }
+
+      final croppedFile = await ImageCropper().cropImage(
+        sourcePath: localImagePath,
+        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Crop Avatar',
+            toolbarColor: primaryColor,
+            toolbarWidgetColor: Colors.white,
+            lockAspectRatio: true,
+            hideBottomControls: true,
+            showCropGrid: false,
+            cropStyle: CropStyle.circle,
+          ),
+          IOSUiSettings(
+            title: 'Crop Avatar',
+            aspectRatioLockEnabled: true,
+            resetAspectRatioEnabled: false,
+            cropStyle: CropStyle.circle,
+          ),
+          WebUiSettings(
+            context: context,
+            presentStyle: WebPresentStyle.dialog,
+            size: const CropperSize(width: 600, height: 600),
+          ),
+        ],
+      );
+
+      if (croppedFile == null || !mounted) {
+        return;
+      }
+
+      setState(() {
+        _isAvatarUpdating = true;
+        _localAvatarPreviewPath = croppedFile.path;
+        _localAvatarPreviewBytes = null;
+      });
+      final uploadBytes = await croppedFile.readAsBytes();
+      if (kIsWeb) {
+        setState(() {
+          _localAvatarPreviewBytes = uploadBytes;
+          _localAvatarPreviewPath = null;
+        });
+        await authProvider.setPendingAvatarPreviewPath(null);
+      } else {
+        await authProvider.setPendingAvatarPreviewPath(croppedFile.path);
+      }
+      final uploadResult = await _api.uploadImage(
+        XFile.fromData(
+          uploadBytes,
+          name: 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          mimeType: 'image/jpeg',
+        ),
+        folder: 'avatars',
+      );
+      debugPrint('[ProfileAvatar] uploadImage response: $uploadResult');
+
+      final avatarUrl = uploadResult['url']?.toString();
+      if (avatarUrl == null || avatarUrl.trim().isEmpty) {
+        throw Exception('Image upload succeeded but no URL was returned');
+      }
+
+      await authProvider.updateProfile({'avatar': avatarUrl});
+      await authProvider.setPendingAvatarPreviewPath(null);
+      setState(() {
+        _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+        _localAvatarPreviewBytes = null;
+      });
+
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Profile photo updated successfully')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[ProfileAvatar] Upload failed: $e');
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to update profile photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isAvatarUpdating = false);
+      }
+    }
+  }
+
+  Future<void> _deleteCurrentAvatar() async {
+    final authProvider = context.read<AuthProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      setState(() => _isAvatarUpdating = true);
+      await _api.deleteAvatar();
+      authProvider.updateAvatarUrl(null);
+      setState(() {
+        _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+        _localAvatarPreviewPath = null;
+        _localAvatarPreviewBytes = null;
+      });
+
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Profile photo removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to delete profile photo: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isAvatarUpdating = false);
+      }
+    }
+  }
+
+  Future<String> _ensureLocalImagePath(XFile file) async {
+    final originalPath = file.path;
+    if (originalPath.isNotEmpty && (kIsWeb || File(originalPath).existsSync())) {
+      return originalPath;
+    }
+
+    if (kIsWeb) {
+      throw Exception('Web image source is missing a usable path');
+    }
+
+    final bytes = await file.readAsBytes();
+    final tempDir = Directory.systemTemp;
+    final extension = _safeImageExtension(file.name);
+    final tempPath = '${tempDir.path}${Platform.pathSeparator}avatar_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final tempFile = File(tempPath);
+    await tempFile.writeAsBytes(bytes, flush: true);
+    return tempFile.path;
+  }
+
+  String _safeImageExtension(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.png')) return 'png';
+    if (lower.endsWith('.webp')) return 'webp';
+    if (lower.endsWith('.gif')) return 'gif';
+    return 'jpg';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final currentUser = context.watch<AuthProvider>().user;
+    final authProvider = context.watch<AuthProvider>();
+    final currentUser = authProvider.user;
 
     if (currentUser == null) {
       return Scaffold(
@@ -174,6 +494,34 @@ class _ProfilePageState extends State<ProfilePage>
     // Use profile user if viewing someone else's profile, otherwise use logged-in user
     final displayUser = _profileUser;
     final isOwnProfile = widget.userId == null || widget.userId == currentUser.id;
+    final isSellerProfile = isOwnProfile
+        ? currentUser.isSeller
+        : (displayUser?['account_type']?.toString().toLowerCase() == 'seller' ||
+            displayUser?['role']?.toString().toLowerCase() == 'seller');
+    final productsTabLabel = isSellerProfile ? 'Products' : 'Purchases';
+    final avatarRaw = (isOwnProfile ? currentUser.avatar : displayUser?['avatar'])?.toString();
+    final avatarUrl = avatarRaw != null && avatarRaw.trim().isNotEmpty ? avatarRaw : null;
+    final avatarBaseUrl = avatarUrl == null ? null : UrlHelper.getPlatformUrl(avatarUrl);
+    final avatarDisplayUrl = avatarBaseUrl == null
+        ? null
+        : '$avatarBaseUrl${avatarBaseUrl.contains('?') ? '&' : '?'}v=$_avatarVersion';
+    final providerPreviewPath = authProvider.pendingAvatarPreviewPath;
+    final hasLocalPreview =
+        _localAvatarPreviewPath != null && _previewPathExists(_localAvatarPreviewPath);
+    final hasProviderPreview =
+        providerPreviewPath != null && _previewPathExists(providerPreviewPath);
+    ImageProvider? avatarImageProvider;
+    if (_hasLocalPreviewBytes()) {
+      avatarImageProvider = MemoryImage(_localAvatarPreviewBytes!);
+    } else if (hasLocalPreview) {
+      avatarImageProvider = FileImage(File(_localAvatarPreviewPath!));
+    } else if (hasProviderPreview) {
+      avatarImageProvider = FileImage(File(providerPreviewPath));
+    } else if (avatarDisplayUrl != null) {
+      avatarImageProvider = NetworkImage(avatarDisplayUrl);
+    }
+    final isDesktop = MediaQuery.sizeOf(context).width >= 1024;
+    final postsCount = _photos.length + _videos.length + _reels.length;
     
     // If loading and no profile user data yet
     if (_loading && displayUser == null && !isOwnProfile) {
@@ -186,140 +534,214 @@ class _ProfilePageState extends State<ProfilePage>
     return Scaffold(
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            expandedHeight: 200,
-            pinned: true,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      AppColors.electricBlue.withAlpha(77),
-                      AppColors.neonPurple.withAlpha(77),
+          if (isDesktop)
+            SliverAppBar(
+              pinned: true,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+              foregroundColor: Theme.of(context).colorScheme.onSurface,
+              title: Text(
+                isOwnProfile ? 'Profile' : (displayUser?['name'] ?? 'Profile'),
+              ),
+              actions: [
+                if (isOwnProfile)
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    onPressed: () => context.go('/settings'),
+                  ),
+              ],
+            ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(16, isDesktop ? 12 : 2, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      GestureDetector(
+                        onLongPress: isOwnProfile ? _showAvatarEditOptions : null,
+                        child: SizedBox(
+                          width: 84,
+                          height: 84,
+                          child: Stack(
+                            children: [
+                              Container(
+                                width: 84,
+                                height: 84,
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).scaffoldBackgroundColor,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: ClipOval(
+                                  child: _buildAvatarImage(
+                                    imageProvider: avatarImageProvider,
+                                    fallbackText: (isOwnProfile
+                                                ? currentUser.name
+                                                : displayUser?['name'] ?? '')
+                                            .toString()
+                                            .isNotEmpty
+                                        ? (isOwnProfile
+                                                ? currentUser.name
+                                                : displayUser?['name'])
+                                            .toString()[0]
+                                            .toUpperCase()
+                                        : 'U',
+                                  ),
+                                ),
+                              ),
+                              if (isOwnProfile)
+                                Positioned(
+                                  right: 2,
+                                  bottom: 2,
+                                  child: Material(
+                                    color: Colors.grey.shade200,
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      onTap: _showAvatarEditOptions,
+                                      customBorder: const CircleBorder(),
+                                      child: const Padding(
+                                        padding: EdgeInsets.all(5),
+                                        child: Icon(
+                                          Icons.edit,
+                                          size: 13,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (_isAvatarUpdating)
+                                Positioned.fill(
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.35),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Center(
+                                      child: SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SizedBox(
+                          height: 84,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(6, 8, 0, 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  isOwnProfile
+                                      ? currentUser.name
+                                      : (displayUser?['name'] ?? ''),
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: _StatItem(
+                                        label: 'Posts',
+                                        count: postsCount,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: _StatItem(
+                                        label: 'Followers',
+                                        count: isOwnProfile
+                                            ? currentUser.followersCount
+                                            : (displayUser?['followers_count'] ?? 0),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: _StatItem(
+                                        label: 'Following',
+                                        count: isOwnProfile
+                                            ? currentUser.followingCount
+                                            : (displayUser?['following_count'] ?? 0),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                ),
-              ),
-            ),
-            actions: [
-              if (isOwnProfile)
-                IconButton(
-                  icon: const Icon(Icons.settings),
-                  onPressed: () => context.go('/settings'),
-                ),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: Transform.translate(
-              offset: const Offset(0, -50),
-              child: Column(
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-                    child: CircleAvatar(
-                      radius: 46,
-                      backgroundImage: (isOwnProfile ? currentUser.avatar : displayUser?['avatar']) != null
-                          ? NetworkImage(UrlHelper.getPlatformUrl(isOwnProfile ? currentUser.avatar : displayUser?['avatar']))
-                          : null,
-                      child: (isOwnProfile ? currentUser.avatar : displayUser?['avatar']) == null
-                          ? Text(
-                              (isOwnProfile ? currentUser.name : displayUser?['name'] ?? '').toString().isNotEmpty 
-                                  ? (isOwnProfile ? currentUser.name : displayUser?['name']).toString()[0].toUpperCase() 
-                                  : 'U',
-                              style: const TextStyle(fontSize: 32),
-                            )
-                          : null,
+                  const SizedBox(height: 12),
+                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) !=
+                          null &&
+                      (isOwnProfile ? currentUser.bio : displayUser?['bio'])
+                          .toString()
+                          .isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      (isOwnProfile ? currentUser.bio : displayUser?['bio'])
+                          .toString(),
+                      style: const TextStyle(color: Colors.grey),
                     ),
-                  ),
+                  ],
                   const SizedBox(height: 16),
-                  Text(
-                    isOwnProfile ? currentUser.name : (displayUser?['name'] ?? ''),
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) != null && 
-                      (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString().isNotEmpty)
-                    const SizedBox(height: 8),
-                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) != null && 
-                      (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 32),
-                      child: Text(
-                        (isOwnProfile ? currentUser.bio : displayUser?['bio']).toString(),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _StatItem(label: 'Posts', count: _videos.length + _reels.length),
-                        _StatItem(
-                          label: 'Followers', 
-                          count: isOwnProfile 
-                              ? currentUser.followersCount 
-                              : (displayUser?['followers_count'] ?? 0)
+                  Row(
+                    children: [
+                      if (isOwnProfile) ...[
+                        Expanded(
+                          child: _buildProfileActionButton(
+                            onPressed: _showEditProfileDialog,
+                            label: 'Edit Profile',
+                          ),
                         ),
-                        _StatItem(
-                          label: 'Following', 
-                          count: isOwnProfile 
-                              ? currentUser.followingCount 
-                              : (displayUser?['following_count'] ?? 0)
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _buildProfileActionButton(
+                            onPressed: () {},
+                            label: 'Share',
+                          ),
+                        ),
+                      ] else ...[
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              // TODO: Implement follow functionality
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Follow functionality coming soon!',
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.person_add),
+                            label: const Text('Follow'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {},
+                            icon: const Icon(Icons.message),
+                            label: const Text('Message'),
+                          ),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        if (isOwnProfile) ...[
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _showEditProfileDialog,
-                              icon: const Icon(Icons.edit),
-                              label: const Text('Edit Profile'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.share),
-                              label: const Text('Share'),
-                            ),
-                          ),
-                        ] else ...[
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                // TODO: Implement follow functionality
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Follow functionality coming soon!')),
-                                );
-                              },
-                              icon: const Icon(Icons.person_add),
-                              label: const Text('Follow'),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.message),
-                              label: const Text('Message'),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -330,11 +752,11 @@ class _ProfilePageState extends State<ProfilePage>
             delegate: _TabBarDelegate(
               TabBar(
                 controller: _tabController,
-                tabs: const [
-                  Tab(icon: Icon(Icons.photo_library), text: 'Photos'),
-                  Tab(icon: Icon(Icons.video_library), text: 'Videos'),
-                  Tab(icon: Icon(Icons.movie), text: 'Reels'),
-                  Tab(icon: Icon(Icons.shopping_bag), text: 'Products'),
+                tabs: [
+                  const Tab(text: 'Photos'),
+                  const Tab(text: 'Videos'),
+                  const Tab(text: 'Reels'),
+                  Tab(text: productsTabLabel),
                 ],
               ),
             ),
@@ -353,6 +775,52 @@ class _ProfilePageState extends State<ProfilePage>
         ],
       ),
     );
+  }
+
+  Widget _buildAvatarImage({
+    required ImageProvider? imageProvider,
+    required String fallbackText,
+  }) {
+    if (imageProvider == null) {
+      return Container(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+        alignment: Alignment.center,
+        child: Text(
+          fallbackText,
+          style: const TextStyle(fontSize: 28),
+        ),
+      );
+    }
+
+    return Image(
+      image: imageProvider,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      filterQuality: FilterQuality.high,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+          alignment: Alignment.center,
+          child: Text(
+            fallbackText,
+            style: const TextStyle(fontSize: 28),
+          ),
+        );
+      },
+    );
+  }
+
+  bool _previewPathExists(String? path) {
+    if (path == null || path.isEmpty || kIsWeb) {
+      return false;
+    }
+    return File(path).existsSync();
+  }
+
+  bool _hasLocalPreviewBytes() {
+    return _localAvatarPreviewBytes != null && _localAvatarPreviewBytes!.isNotEmpty;
   }
 
   Widget _buildPhotosGrid() {
@@ -686,6 +1154,37 @@ class _ProfilePageState extends State<ProfilePage>
       },
     );
   }
+
+  Widget _buildProfileActionButton({
+    required VoidCallback onPressed,
+    required String label,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SizedBox(
+      height: 30,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+        ),
+        child: Text(label),
+      ),
+    );
+  }
 }
 
 class _StatItem extends StatelessWidget {
@@ -697,17 +1196,22 @@ class _StatItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           count.toString(),
           style: const TextStyle(
-            fontSize: 20,
+            fontSize: 15,
             fontWeight: FontWeight.bold,
           ),
         ),
         Text(
           label,
-          style: const TextStyle(color: Colors.grey),
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );

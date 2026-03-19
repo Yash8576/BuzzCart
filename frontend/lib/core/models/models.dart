@@ -57,6 +57,41 @@ class UserModel {
     );
   }
 
+  UserModel copyWith({
+    String? id,
+    String? email,
+    String? name,
+    String? avatar,
+    bool clearAvatar = false,
+    String? bio,
+    int? followersCount,
+    int? followingCount,
+    String? accountType,
+    String? role,
+    String? status,
+    bool? isVerified,
+    String? phoneNumber,
+    String? privacyProfile,
+    String? createdAt,
+  }) {
+    return UserModel(
+      id: id ?? this.id,
+      email: email ?? this.email,
+      name: name ?? this.name,
+      avatar: clearAvatar ? null : (avatar ?? this.avatar),
+      bio: bio ?? this.bio,
+      followersCount: followersCount ?? this.followersCount,
+      followingCount: followingCount ?? this.followingCount,
+      accountType: accountType ?? this.accountType,
+      role: role ?? this.role,
+      status: status ?? this.status,
+      isVerified: isVerified ?? this.isVerified,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      privacyProfile: privacyProfile ?? this.privacyProfile,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,

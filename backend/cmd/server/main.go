@@ -190,6 +190,7 @@ func main() {
 
 			upload.POST("/user-photo", middleware.Auth(cfg.JWTSecret), handlers.UploadUserPhotoHandler(db))
 			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler(db))
+			upload.DELETE("/avatar", middleware.Auth(cfg.JWTSecret), handlers.DeleteAvatarHandler(db))
 			upload.DELETE("/:objectName", middleware.Auth(cfg.JWTSecret), handlers.DeleteFileHandler)
 		}
 

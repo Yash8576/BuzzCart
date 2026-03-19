@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +26,8 @@ func UploadImageHandler(db *sql.DB) gin.HandlerFunc {
 
 		file, header, err := c.Request.FormFile("image")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+			log.Printf("[UploadImage] FormFile error for user %s: %v (Content-Type=%q)", userID, err, c.Request.Header.Get("Content-Type"))
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded: " + err.Error()})
 			return
 		}
 		defer file.Close()
@@ -93,13 +96,22 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Debug: log incoming request details
+		incomingCT := c.Request.Header.Get("Content-Type")
+		log.Printf("[UploadUserPhoto] user=%s Content-Type=%q ContentLength=%d",
+			userID, incomingCT, c.Request.ContentLength)
+
 		// Get the file from the form
 		file, header, err := c.Request.FormFile("image")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+			log.Printf("[UploadUserPhoto] FormFile error for user %s: %v (Content-Type was %q)", userID, err, incomingCT)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded: " + err.Error()})
 			return
 		}
 		defer file.Close()
+
+		log.Printf("[UploadUserPhoto] Got file: name=%q size=%d header-ct=%q",
+			header.Filename, header.Size, header.Header.Get("Content-Type"))
 
 		// Validate image
 		if err := utils.ValidateImage(header); err != nil {
@@ -310,6 +322,85 @@ func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {
 			"message":    "Avatar updated successfully",
 		})
 	}
+}
+
+// DeleteAvatarHandler removes the current user's avatar from both database and MinIO.
+// Example endpoint: DELETE /api/upload/avatar
+func DeleteAvatarHandler(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
+		var avatarURL sql.NullString
+		err := db.QueryRowContext(ctx, "SELECT avatar FROM users WHERE id = $1", userID).Scan(&avatarURL)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		if err != nil {
+			log.Printf("[DeleteAvatar] Failed to fetch avatar for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch current avatar"})
+			return
+		}
+
+		if avatarURL.Valid && avatarURL.String != "" {
+			storageClient := storage.GetStorageClient()
+			objectName := extractObjectNameFromMediaURL(avatarURL.String)
+			if objectName != "" {
+				if err := storageClient.DeleteFile(objectName); err != nil {
+					// Keep deletion resilient: if file is already gone, profile image still gets cleared.
+					log.Printf("[DeleteAvatar] Failed deleting MinIO object %q for user %s: %v", objectName, userID, err)
+				}
+			}
+		}
+
+		_, err = db.ExecContext(ctx, "UPDATE users SET avatar = NULL, updated_at = $1 WHERE id = $2", time.Now(), userID)
+		if err != nil {
+			log.Printf("[DeleteAvatar] Failed to clear avatar in DB for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear avatar"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Avatar deleted successfully",
+		})
+	}
+}
+
+func extractObjectNameFromMediaURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if !strings.Contains(raw, "://") {
+		return strings.TrimPrefix(raw, "/")
+	}
+
+	parsedURL, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+
+	trimmedPath := strings.TrimPrefix(parsedURL.Path, "/")
+	if trimmedPath == "" {
+		return ""
+	}
+
+	pathParts := strings.Split(trimmedPath, "/")
+	if len(pathParts) <= 1 {
+		return ""
+	}
+
+	// URLs are formatted as /<bucket>/<objectName>; object name is the remainder.
+	return strings.Join(pathParts[1:], "/")
 }
 
 // DeleteFileHandler handles file deletion from MinIO

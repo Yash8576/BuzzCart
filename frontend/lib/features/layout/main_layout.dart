@@ -341,6 +341,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     final cart = context.watch<CartProvider>().cart;
     final location = GoRouterState.of(context).matchedLocation;
     final isHomePage = location == '/';
+    final isProfilePage = location.startsWith('/profile');
 
     return SafeArea(
       bottom: false,
@@ -452,6 +453,11 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                   ),
                 ),
           const Spacer(),
+          if (isProfilePage)
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () => context.go('/settings'),
+            ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.go('/search'),

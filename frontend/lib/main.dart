@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/auth_provider.dart';
@@ -23,18 +24,16 @@ void main() async {
         ChangeNotifierProvider<ThemeProvider>(
           create: (_) => ThemeProvider(),
         ),
-        ChangeNotifierProxyProvider<ApiService, AuthProvider>(
+        ChangeNotifierProvider<AuthProvider>(
           create: (context) => AuthProvider(
             apiService: context.read<ApiService>(),
           ),
-          update: (_, api, __) => AuthProvider(apiService: api),
           lazy: false,  // Initialize immediately to load token
         ),
-        ChangeNotifierProxyProvider<ApiService, CartProvider>(
+        ChangeNotifierProvider<CartProvider>(
           create: (context) => CartProvider(
             apiService: context.read<ApiService>(),
           ),
-          update: (_, api, __) => CartProvider(apiService: api),
         ),
         ChangeNotifierProvider<UploadContentProvider>(
           create: (_) => UploadContentProvider(),
@@ -48,21 +47,33 @@ void main() async {
   );
 }
 
-class BuzzSocialCartApp extends StatelessWidget {
+class BuzzSocialCartApp extends StatefulWidget {
   const BuzzSocialCartApp({super.key});
+
+  @override
+  State<BuzzSocialCartApp> createState() => _BuzzSocialCartAppState();
+}
+
+class _BuzzSocialCartAppState extends State<BuzzSocialCartApp> {
+  GoRouter? _router;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _router ??= createAppRouter(context.read<AuthProvider>());
+  }
 
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-    final authProvider = context.watch<AuthProvider>();
-    
+
     return MaterialApp.router(
       title: 'BuzzCart - Social Commerce',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
       themeMode: themeProvider.themeMode,
-      routerConfig: createAppRouter(authProvider),
+      routerConfig: _router!,
     );
   }
 }

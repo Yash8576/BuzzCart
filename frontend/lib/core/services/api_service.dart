@@ -21,10 +21,11 @@ class ApiService {
     _dio = Dio(BaseOptions(
       baseUrl: AppConfig.apiBaseUrl,
       connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      receiveTimeout: const Duration(seconds: 60),
+      // Do NOT set Content-Type here. Dio sets it automatically:
+      // - 'application/json' for Map/JSON data
+      // - 'multipart/form-data; boundary=...' for FormData
+      // A static value here conflicts with FormData uploads.
     ));
 
     // Add interceptors
@@ -40,7 +41,12 @@ class ApiService {
         return handler.next(options);
       },
       onError: (error, handler) {
-        debugPrint('API Error: ${error.message}');
+        debugPrint('API Error [${error.response?.statusCode}]: ${error.message}');
+        if (error.response != null) {
+          debugPrint('  Response body: ${error.response!.data}');
+          debugPrint('  Request URL: ${error.requestOptions.uri}');
+          debugPrint('  Request headers: ${error.requestOptions.headers}');
+        }
         return handler.next(error);
       },
     ));
@@ -307,6 +313,7 @@ class ApiService {
       // Use bytes-based upload for cross-platform (web + mobile) support
       final bytes = await imageFile.readAsBytes();
       final fileName = imageFile.name;
+      debugPrint('[uploadPhoto] fileName=$fileName, size=${bytes.length}, mime=${_getImageMediaType(fileName)}');
 
       final formData = FormData.fromMap({
         'image': MultipartFile.fromBytes(
@@ -322,10 +329,57 @@ class ApiService {
       final response = await _dio.post(
         '/upload/user-photo',
         data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
       );
 
       return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      debugPrint('[uploadPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      rethrow;
     } catch (e) {
+      debugPrint('[uploadPhoto] Unexpected error: $e');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadAvatar(XFile file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final fileName = file.name;
+      debugPrint('[uploadAvatar] fileName=$fileName, size=${bytes.length}');
+
+      final formData = FormData.fromMap({
+        'avatar': MultipartFile.fromBytes(
+          bytes,
+          filename: fileName,
+          contentType: _getImageMediaType(fileName),
+        ),
+      });
+
+      final response = await _dio.post(
+        '/upload/avatar',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
+
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      debugPrint('[uploadAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteAvatar() async {
+    try {
+      await _dio.delete('/upload/avatar');
+    } on DioException catch (e) {
+      debugPrint('[deleteAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -600,18 +654,30 @@ class ApiService {
   }
 
   // Upload APIs
-  Future<Map<String, dynamic>> uploadImage(XFile file) async {
+  Future<Map<String, dynamic>> uploadImage(XFile file, {String? folder}) async {
     try {
       final bytes = await file.readAsBytes();
+      debugPrint('[uploadImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
         'image': MultipartFile.fromBytes(bytes, filename: fileName,
             contentType: _getImageMediaType(fileName)),
       });
 
-      final response = await _dio.post('/upload/image', data: formData);
+      final response = await _dio.post(
+        '/upload/image',
+        data: formData,
+        queryParameters: {
+          if (folder != null && folder.isNotEmpty) 'folder': folder,
+        },
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
       return response.data as Map<String, dynamic>;
-    } catch (e) {
+    } on DioException catch (e) {
+      debugPrint('[uploadImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -634,15 +700,24 @@ class ApiService {
   Future<Map<String, dynamic>> uploadProductImage(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
+      debugPrint('[uploadProductImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
         'image': MultipartFile.fromBytes(bytes, filename: fileName,
             contentType: _getImageMediaType(fileName)),
       });
 
-      final response = await _dio.post('/upload/product-image', data: formData);
+      final response = await _dio.post(
+        '/upload/product-image',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
       return response.data as Map<String, dynamic>;
-    } catch (e) {
+    } on DioException catch (e) {
+      debugPrint('[uploadProductImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -651,6 +726,7 @@ class ApiService {
   Future<Map<String, dynamic>> uploadUserPhoto(XFile file, {String? caption}) async {
     try {
       final bytes = await file.readAsBytes();
+      debugPrint('[uploadUserPhoto] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
         'image': MultipartFile.fromBytes(bytes, filename: fileName,
@@ -658,9 +734,17 @@ class ApiService {
         if (caption != null && caption.isNotEmpty) 'caption': caption,
       });
 
-      final response = await _dio.post('/upload/user-photo', data: formData);
+      final response = await _dio.post(
+        '/upload/user-photo',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
       return response.data as Map<String, dynamic>;
-    } catch (e) {
+    } on DioException catch (e) {
+      debugPrint('[uploadUserPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -754,14 +838,24 @@ class ApiService {
   Future<String> uploadReviewImage(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
+      debugPrint('[uploadReviewImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName),
+        'image': MultipartFile.fromBytes(bytes, filename: fileName,
+            contentType: _getImageMediaType(fileName)),
       });
 
-      final response = await _dio.post('/upload/review-image', data: formData);
+      final response = await _dio.post(
+        '/upload/review-image',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
       return response.data['url'] as String;
-    } catch (e) {
+    } on DioException catch (e) {
+      debugPrint('[uploadReviewImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
