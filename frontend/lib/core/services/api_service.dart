@@ -75,6 +75,11 @@ class ApiService {
     await _loadToken();
   }
 
+  Future<String?> getAuthToken() async {
+    await _loadToken();
+    return _token;
+  }
+
   // Check if user has a token (is potentially logged in)
   Future<bool> hasToken() async {
     await _loadToken();
@@ -593,20 +598,81 @@ class ApiService {
     }
   }
 
-  // Messages APIs
-  Future<List<dynamic>> getConversations() async {
+  // Follow APIs
+  Future<void> followUser(String userId) async {
     try {
-      final response = await _dio.get('/messages/conversations');
-      return response.data as List<dynamic>;
+      await _dio.post('/follow/$userId');
     } catch (e) {
       rethrow;
     }
   }
 
-  Future<List<dynamic>> getMessages(String conversationId) async {
+  Future<void> unfollowUser(String userId) async {
+    try {
+      await _dio.post('/unfollow/$userId');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<SocialUserModel>> getFollowers(String userId) async {
+    try {
+      final response = await _dio.get('/users/$userId/followers');
+      return (response.data as List? ?? [])
+          .map((item) =>
+              SocialUserModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<SocialUserModel>> getFollowing(String userId) async {
+    try {
+      final response = await _dio.get('/users/$userId/following');
+      return (response.data as List? ?? [])
+          .map((item) =>
+              SocialUserModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // Messages APIs
+  Future<List<MessageConnectionModel>> getMessageConnections() async {
+    try {
+      final response = await _dio.get('/messages/connections');
+      return (response.data as List? ?? [])
+          .map((item) => MessageConnectionModel.fromJson(
+                item as Map<String, dynamic>,
+              ))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<ConversationModel>> getConversations() async {
+    try {
+      final response = await _dio.get('/messages/conversations');
+      return (response.data as List? ?? [])
+          .map((item) =>
+              ConversationModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ConversationThreadModel> getConversationThread(
+    String conversationId,
+  ) async {
     try {
       final response = await _dio.get('/messages/conversations/$conversationId');
-      return response.data as List<dynamic>;
+      return ConversationThreadModel.fromJson(
+        response.data as Map<String, dynamic>,
+      );
     } catch (e) {
       rethrow;
     }
@@ -621,9 +687,31 @@ class ApiService {
       final response = await _dio.post('/messages', data: {
         'receiver_id': receiverId,
         'content': content,
+        'message_type': productId != null ? 'product_link' : 'text',
         if (productId != null) 'product_id': productId,
       });
       return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ChatMessageModel> createMessage({
+    required String receiverId,
+    required String content,
+    String messageType = 'text',
+    String? productId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      final response = await _dio.post('/messages', data: {
+        'receiver_id': receiverId,
+        'content': content,
+        'message_type': messageType,
+        if (productId != null) 'product_id': productId,
+        if (metadata != null) 'metadata': metadata,
+      });
+      return ChatMessageModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       rethrow;
     }

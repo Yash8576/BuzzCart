@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -33,6 +34,7 @@ class _ProfilePageState extends State<ProfilePage>
   List<ProductModel> _products = [];
   bool _loading = true;
   bool _isAvatarUpdating = false;
+  bool _isRelationshipUpdating = false;
   int _avatarVersion = 0;
   String? _localAvatarPreviewPath;
   Uint8List? _localAvatarPreviewBytes;
@@ -72,17 +74,9 @@ class _ProfilePageState extends State<ProfilePage>
     if (!isOwnProfile && widget.userId != null) {
       try {
         final userModel = await _api.getUser(widget.userId!);
-        _profileUser = {
-          'id': userModel.id,
-          'name': userModel.name,
-          'avatar': userModel.avatar,
-          'bio': userModel.bio,
-          'account_type': userModel.accountType,
-          'role': userModel.role,
-          'privacy_profile': userModel.privacyProfile.toLowerCase(),
-          'followers_count': userModel.followersCount,
-          'following_count': userModel.followingCount,
-        };
+        final profileJson = userModel.toJson();
+        profileJson['privacy_profile'] = userModel.privacyProfile.toLowerCase();
+        _profileUser = profileJson;
         debugPrint('Fetched profile user: ${_profileUser?['name']}');
       } catch (e) {
         debugPrint('Error fetching user profile: $e');
@@ -123,6 +117,203 @@ class _ProfilePageState extends State<ProfilePage>
     });
     
     debugPrint('State updated - Photos count: ${_photos.length}');
+  }
+
+  Future<void> _handleFollowAction() async {
+    final currentUser = context.read<AuthProvider>().user;
+    final targetUserId = widget.userId;
+    if (currentUser == null || targetUserId == null || _isRelationshipUpdating) {
+      return;
+    }
+
+    final isFollowing = _profileUser?['is_following'] == true;
+    if (isFollowing) {
+      final shouldUnfollow = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Unfollow user?'),
+          content: const Text('Do you want to unfollow this user?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Unfollow'),
+            ),
+          ],
+        ),
+      );
+      if (shouldUnfollow != true) {
+        return;
+      }
+    }
+
+    setState(() => _isRelationshipUpdating = true);
+    try {
+      if (isFollowing) {
+        await _api.unfollowUser(targetUserId);
+      } else {
+        await _api.followUser(targetUserId);
+      }
+      await context.read<AuthProvider>().refreshUser();
+      await _fetchUserContent();
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isFollowing ? 'Failed to unfollow user' : 'Failed to follow user',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRelationshipUpdating = false);
+      }
+    }
+  }
+
+  Future<void> _showSocialUsers({
+    required String title,
+    required bool followers,
+  }) async {
+    final currentUser = context.read<AuthProvider>().user;
+    if (currentUser == null) {
+      return;
+    }
+
+    final targetUserId = widget.userId ?? currentUser.id;
+
+    try {
+      final users = followers
+          ? await _api.getFollowers(targetUserId)
+          : await _api.getFollowing(targetUserId);
+
+      if (!mounted) {
+        return;
+      }
+
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (context) {
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.72,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                    child: Row(
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: users.isEmpty
+                        ? Center(
+                            child: Text('No users in this list yet'),
+                          )
+                        : ListView.separated(
+                            itemCount: users.length,
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final user = users[index];
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundImage:
+                                      (user.avatar ?? '').isNotEmpty
+                                          ? NetworkImage(
+                                              UrlHelper.getPlatformUrl(
+                                                user.avatar,
+                                              ),
+                                            )
+                                          : null,
+                                  child: (user.avatar ?? '').isEmpty
+                                      ? Text(
+                                          user.name.isEmpty
+                                              ? '?'
+                                              : user.name[0].toUpperCase(),
+                                        )
+                                      : null,
+                                ),
+                                title: Text(user.name),
+                                subtitle: user.bio.isNotEmpty
+                                    ? Text(
+                                        user.bio,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      )
+                                    : null,
+                                trailing: user.isConnection
+                                    ? const Icon(
+                                        Icons.people_alt_outlined,
+                                        size: 18,
+                                      )
+                                    : null,
+                                onTap: () {
+                                  Navigator.of(context).pop();
+                                  context.push('/profile/${user.id}');
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } on DioException catch (e) {
+      if (!mounted) {
+        return;
+      }
+      final message = e.response?.statusCode == 403
+          ? 'This list is private'
+          : 'Failed to load $title';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to load $title')),
+      );
+    }
+  }
+
+  void _openMessages() {
+    final displayUser = _profileUser;
+    if (displayUser == null) {
+      return;
+    }
+    context.push(
+      '/messages',
+      extra: MessagesRouteIntent(
+        participant: MessageParticipantModel(
+          id: displayUser['id'] as String,
+          name: (displayUser['name'] ?? 'Unknown').toString(),
+          avatar: displayUser['avatar'] as String?,
+        ),
+      ),
+    );
   }
 
   Future<void> _showEditProfileDialog() async {
@@ -522,6 +713,8 @@ class _ProfilePageState extends State<ProfilePage>
     }
     final isDesktop = MediaQuery.sizeOf(context).width >= 1024;
     final postsCount = _photos.length + _videos.length + _reels.length;
+    final isFollowing = displayUser?['is_following'] == true;
+    final isConnection = displayUser?['is_connection'] == true;
     
     // If loading and no profile user data yet
     if (_loading && displayUser == null && !isOwnProfile) {
@@ -666,6 +859,10 @@ class _ProfilePageState extends State<ProfilePage>
                                         count: isOwnProfile
                                             ? currentUser.followersCount
                                             : (displayUser?['followers_count'] ?? 0),
+                                        onTap: () => _showSocialUsers(
+                                          title: 'Followers',
+                                          followers: true,
+                                        ),
                                       ),
                                     ),
                                     Expanded(
@@ -674,6 +871,10 @@ class _ProfilePageState extends State<ProfilePage>
                                         count: isOwnProfile
                                             ? currentUser.followingCount
                                             : (displayUser?['following_count'] ?? 0),
+                                        onTap: () => _showSocialUsers(
+                                          title: 'Following',
+                                          followers: false,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -718,28 +919,35 @@ class _ProfilePageState extends State<ProfilePage>
                       ] else ...[
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              // TODO: Implement follow functionality
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Follow functionality coming soon!',
+                            onPressed:
+                                _isRelationshipUpdating ? null : _handleFollowAction,
+                            icon: _isRelationshipUpdating
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Icon(
+                                    isFollowing
+                                        ? Icons.check_circle_outline
+                                        : Icons.person_add,
                                   ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.person_add),
-                            label: const Text('Follow'),
+                            label: Text(isFollowing ? 'Following' : 'Follow'),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.message),
-                            label: const Text('Message'),
+                        if (isConnection) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _openMessages,
+                              icon: const Icon(Icons.message),
+                              label: const Text('Message'),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ],
                   ),
@@ -1190,12 +1398,17 @@ class _ProfilePageState extends State<ProfilePage>
 class _StatItem extends StatelessWidget {
   final String label;
   final int count;
+  final VoidCallback? onTap;
 
-  const _StatItem({required this.label, required this.count});
+  const _StatItem({
+    required this.label,
+    required this.count,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final child = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
@@ -1207,13 +1420,26 @@ class _StatItem extends StatelessWidget {
         ),
         Text(
           label,
-          style: const TextStyle(
-            color: Colors.black,
+          style: TextStyle(
+            color: Theme.of(context).textTheme.bodySmall?.color,
             fontSize: 10,
             fontWeight: FontWeight.w600,
           ),
         ),
       ],
+    );
+
+    if (onTap == null) {
+      return child;
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: child,
+      ),
     );
   }
 }

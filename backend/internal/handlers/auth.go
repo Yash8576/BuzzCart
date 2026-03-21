@@ -252,6 +252,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 func GetUser(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("user_id")
+		viewerID := c.GetString("user_id")
 
 		var user models.User
 		err := db.QueryRow(`
@@ -270,6 +271,27 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 		} else if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
+		}
+
+		user.CanViewConnections = user.PrivacyProfile != models.PrivacyPrivate || viewerID == userID
+		if viewerID != "" && viewerID != userID {
+			err = db.QueryRow(
+				`SELECT
+					EXISTS(SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = $2),
+					EXISTS(SELECT 1 FROM user_follows WHERE follower_id = $2 AND following_id = $1)`,
+				viewerID,
+				userID,
+			).Scan(&user.IsFollowing, &user.IsFollowedBy)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load relationship state"})
+				return
+			}
+			user.IsConnection = user.IsFollowing && user.IsFollowedBy
+			if user.PrivacyProfile == models.PrivacyPrivate {
+				user.CanViewConnections = user.IsConnection
+			}
+		} else if viewerID == userID {
+			user.CanViewConnections = true
 		}
 
 		c.JSON(http.StatusOK, user)

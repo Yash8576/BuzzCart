@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
+import '../../features/messages/providers/messages_provider.dart';
 
 class MainLayout extends StatefulWidget {
   final Widget child;
@@ -70,6 +71,16 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       key: 'last_activity',
       value: DateTime.now().toIso8601String(),
     );
+  }
+
+  void _navigateTo(String path) {
+    if (!path.startsWith('/messages')) {
+      final messagesProvider = context.read<MessagesProvider>();
+      messagesProvider.setTyping(false);
+      messagesProvider.clearSelection();
+    }
+
+    context.go(path);
   }
 
   int _getCurrentIndex() {
@@ -158,9 +169,9 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                     offset: const Offset(0, 50),
                     onSelected: (value) {
                       if (value == 'content') {
-                        context.go('/upload-content');
+                        _navigateTo('/upload-content');
                       } else if (value == 'product') {
-                        context.go('/add-product');
+                        _navigateTo('/add-product');
                       }
                     },
                     itemBuilder: (context) {
@@ -323,7 +334,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                     onPressed: () async {
                       await context.read<AuthProvider>().logout();
                       if (mounted) {
-                        context.go('/login');
+                        _navigateTo('/login');
                       }
                     },
                   ),
@@ -363,9 +374,9 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                   offset: const Offset(0, 40),
                   onSelected: (value) {
                     if (value == 'content') {
-                      context.go('/upload-content');
+                      _navigateTo('/upload-content');
                     } else if (value == 'product') {
-                      context.go('/add-product');
+                      _navigateTo('/add-product');
                     }
                   },
                   itemBuilder: (context) {
@@ -456,17 +467,17 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
           if (isProfilePage)
             IconButton(
               icon: const Icon(Icons.settings),
-              onPressed: () => context.go('/settings'),
+              onPressed: () => _navigateTo('/settings'),
             ),
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () => context.go('/search'),
+            onPressed: () => _navigateTo('/search'),
           ),
           Stack(
             children: [
               IconButton(
                 icon: const Icon(Icons.shopping_cart),
-                onPressed: () => context.go('/cart'),
+                onPressed: () => _navigateTo('/cart'),
               ),
               if (cart.itemCount > 0)
                 Positioned(
@@ -495,6 +506,10 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                 ),
             ],
           ),
+          IconButton(
+            icon: const Icon(Icons.message_outlined),
+            onPressed: () => _navigateTo('/messages'),
+          ),
         ],
       ),
     ),
@@ -516,7 +531,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       child: BottomNavigationBar(
         currentIndex: currentIndex,
         onTap: (index) {
-          context.go(_navItems[index].path);
+          _navigateTo(_navItems[index].path);
         },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.electricBlue,
@@ -547,7 +562,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
             : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
-          onTap: () => context.go(item.path),
+          onTap: () => _navigateTo(item.path),
           borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

@@ -9,6 +9,7 @@ import 'core/providers/upload_content_provider.dart';
 import 'core/providers/add_product_provider.dart';
 import 'core/services/api_service.dart';
 import 'core/router/app_router.dart';
+import 'features/messages/providers/messages_provider.dart';
 
 void main() async {
   // Ensure Flutter binding is initialized
@@ -29,6 +30,20 @@ void main() async {
             apiService: context.read<ApiService>(),
           ),
           lazy: false,  // Initialize immediately to load token
+        ),
+        ChangeNotifierProxyProvider<AuthProvider, MessagesProvider>(
+          create: (context) => MessagesProvider(
+            apiService: context.read<ApiService>(),
+          ),
+          update: (context, authProvider, messagesProvider) {
+            final provider = messagesProvider ??
+                MessagesProvider(apiService: context.read<ApiService>());
+            provider.updateAuthState(
+              isAuthenticated: authProvider.isAuthenticated,
+              user: authProvider.user,
+            );
+            return provider;
+          },
         ),
         ChangeNotifierProvider<CartProvider>(
           create: (context) => CartProvider(

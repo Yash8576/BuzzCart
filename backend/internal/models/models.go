@@ -60,21 +60,35 @@ const (
 // ============================================================================
 
 type User struct {
-	ID             string         `json:"id" db:"id"`
-	Email          string         `json:"email" db:"email"`
-	Password       string         `json:"-" db:"password"`
-	Name           string         `json:"name" db:"name"`
-	Avatar         *string        `json:"avatar,omitempty" db:"avatar"`
-	Bio            string         `json:"bio" db:"bio"`
-	AccountType    AccountType    `json:"account_type" db:"account_type"`
-	Role           UserRole       `json:"role" db:"role"`
-	Status         AccountStatus  `json:"status" db:"status"`
-	IsVerified     bool           `json:"is_verified" db:"is_verified"`
-	PhoneNumber    *string        `json:"phone_number,omitempty" db:"phone_number"`
-	PrivacyProfile PrivacyProfile `json:"privacy_profile" db:"privacy_profile"`
-	FollowersCount int            `json:"followers_count" db:"followers_count"`
-	FollowingCount int            `json:"following_count" db:"following_count"`
-	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
+	ID                 string         `json:"id" db:"id"`
+	Email              string         `json:"email" db:"email"`
+	Password           string         `json:"-" db:"password"`
+	Name               string         `json:"name" db:"name"`
+	Avatar             *string        `json:"avatar,omitempty" db:"avatar"`
+	Bio                string         `json:"bio" db:"bio"`
+	AccountType        AccountType    `json:"account_type" db:"account_type"`
+	Role               UserRole       `json:"role" db:"role"`
+	Status             AccountStatus  `json:"status" db:"status"`
+	IsVerified         bool           `json:"is_verified" db:"is_verified"`
+	PhoneNumber        *string        `json:"phone_number,omitempty" db:"phone_number"`
+	PrivacyProfile     PrivacyProfile `json:"privacy_profile" db:"privacy_profile"`
+	FollowersCount     int            `json:"followers_count" db:"followers_count"`
+	FollowingCount     int            `json:"following_count" db:"following_count"`
+	IsFollowing        bool           `json:"is_following" db:"-"`
+	IsFollowedBy       bool           `json:"is_followed_by" db:"-"`
+	IsConnection       bool           `json:"is_connection" db:"-"`
+	CanViewConnections bool           `json:"can_view_connections" db:"-"`
+	CreatedAt          time.Time      `json:"created_at" db:"created_at"`
+}
+
+type SocialUser struct {
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Avatar       *string `json:"avatar,omitempty"`
+	Bio          string  `json:"bio"`
+	IsFollowing  bool    `json:"is_following"`
+	IsFollowedBy bool    `json:"is_followed_by"`
+	IsConnection bool    `json:"is_connection"`
 }
 
 type UserCreate struct {
@@ -241,20 +255,47 @@ type CartItemAdd struct {
 }
 
 type Message struct {
-	ID             string    `json:"id" db:"id"`
-	ConversationID string    `json:"conversation_id" db:"conversation_id"`
-	SenderID       string    `json:"sender_id" db:"sender_id"`
-	ReceiverID     string    `json:"receiver_id" db:"receiver_id"`
-	Content        string    `json:"content" db:"content"`
-	ProductID      *string   `json:"product_id,omitempty" db:"product_id"`
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
-	Read           bool      `json:"read" db:"read"`
+	ID             string         `json:"id" db:"id"`
+	ConversationID string         `json:"conversation_id" db:"conversation_id"`
+	SenderID       string         `json:"sender_id" db:"sender_id"`
+	ReceiverID     string         `json:"receiver_id,omitempty" db:"-"`
+	Content        string         `json:"content" db:"message_text"`
+	MessageType    string         `json:"message_type" db:"message_type"`
+	ProductID      *string        `json:"product_id,omitempty" db:"product_id"`
+	Product        *ProductSimple `json:"product,omitempty" db:"-"`
+	Metadata       map[string]any `json:"metadata,omitempty" db:"-"`
+	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
+	Read           bool           `json:"read" db:"is_read"`
 }
 
 type MessageCreate struct {
-	ReceiverID string  `json:"receiver_id" binding:"required"`
-	Content    string  `json:"content" binding:"required"`
-	ProductID  *string `json:"product_id,omitempty"`
+	ReceiverID  string         `json:"receiver_id" binding:"required"`
+	Content     string         `json:"content"`
+	MessageType string         `json:"message_type"`
+	ProductID   *string        `json:"product_id,omitempty"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+type ConversationParticipant struct {
+	ID     string  `json:"id"`
+	Name   string  `json:"name"`
+	Avatar *string `json:"avatar,omitempty"`
+}
+
+type ConversationSummary struct {
+	ID          string                  `json:"id"`
+	Participant ConversationParticipant `json:"participant"`
+	LastMessage *Message                `json:"last_message,omitempty"`
+	UnreadCount int                     `json:"unread_count"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+}
+
+type ConversationConnection struct {
+	ID                      string  `json:"id"`
+	Name                    string  `json:"name"`
+	Avatar                  *string `json:"avatar,omitempty"`
+	ConversationID          *string `json:"conversation_id,omitempty"`
+	HasExistingConversation bool    `json:"has_existing_conversation"`
 }
 
 type Follow struct {

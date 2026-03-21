@@ -95,21 +95,41 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 		var rows *sql.Rows
 		var err error
 
+		baseSelect := `
+			SELECT
+				p.id,
+				p.title,
+				COALESCE(p.description, ''),
+				p.price,
+				COALESCE((
+					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
+					FROM product_images pi
+					WHERE pi.product_id = p.id
+				), ARRAY[]::TEXT[]),
+				COALESCE(c.name, ''),
+				COALESCE(p.tags, ARRAY[]::TEXT[]),
+				p.seller_id,
+				COALESCE(u.name, u.username, ''),
+				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				0 AS views,
+				p.created_at
+			FROM products p
+			LEFT JOIN categories c ON c.id = p.category_id
+			LEFT JOIN users u ON u.id = p.seller_id
+		`
+
 		if category != "" {
-			// Case-insensitive category filtering
 			rows, err = db.Query(
-				`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-				 FROM products WHERE category ILIKE $1 ORDER BY created_at DESC LIMIT 20`,
+				baseSelect+`WHERE c.name ILIKE $1 ORDER BY p.created_at DESC LIMIT 20`,
 				category,
 			)
 		} else {
-			rows, err = db.Query(
-				`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-				 FROM products ORDER BY created_at DESC LIMIT 20`,
-			)
+			rows, err = db.Query(baseSelect + `ORDER BY p.created_at DESC LIMIT 20`)
 		}
 
 		if err != nil {
+			log.Printf("[GetProducts] query failed (category=%q): %v", category, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 			return
 		}
@@ -144,8 +164,28 @@ func GetProduct(db *sql.DB) gin.HandlerFunc {
 
 		var product models.Product
 		err := db.QueryRow(
-			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products WHERE id = $1`, productID,
+			`SELECT
+				p.id,
+				p.title,
+				COALESCE(p.description, ''),
+				p.price,
+				COALESCE((
+					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
+					FROM product_images pi
+					WHERE pi.product_id = p.id
+				), ARRAY[]::TEXT[]),
+				COALESCE(c.name, ''),
+				COALESCE(p.tags, ARRAY[]::TEXT[]),
+				p.seller_id,
+				COALESCE(u.name, u.username, ''),
+				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				0 AS views,
+				p.created_at
+			FROM products p
+			LEFT JOIN categories c ON c.id = p.category_id
+			LEFT JOIN users u ON u.id = p.seller_id
+			WHERE p.id = $1`, productID,
 		).Scan(
 			&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
 			&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
@@ -155,6 +195,7 @@ func GetProduct(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		} else if err != nil {
+			log.Printf("[GetProduct] query failed (product_id=%s): %v", productID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
 			return
 		}
@@ -254,10 +295,32 @@ func GetSellerProducts(db *sql.DB) gin.HandlerFunc {
 		sellerID := c.Param("seller_id")
 
 		rows, err := db.Query(
-			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products WHERE seller_id = $1`, sellerID,
+			`SELECT
+				p.id,
+				p.title,
+				COALESCE(p.description, ''),
+				p.price,
+				COALESCE((
+					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
+					FROM product_images pi
+					WHERE pi.product_id = p.id
+				), ARRAY[]::TEXT[]),
+				COALESCE(c.name, ''),
+				COALESCE(p.tags, ARRAY[]::TEXT[]),
+				p.seller_id,
+				COALESCE(u.name, u.username, ''),
+				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
+				0 AS views,
+				p.created_at
+			FROM products p
+			LEFT JOIN categories c ON c.id = p.category_id
+			LEFT JOIN users u ON u.id = p.seller_id
+			WHERE p.seller_id = $1
+			ORDER BY p.created_at DESC`, sellerID,
 		)
 		if err != nil {
+			log.Printf("[GetSellerProducts] query failed (seller_id=%s): %v", sellerID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
 			return
 		}

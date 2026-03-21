@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/upload_content_provider.dart';
 import '../providers/add_product_provider.dart';
+import '../models/models.dart';
 import '../../features/auth/screens/splash_page.dart';
 import '../../features/auth/screens/login_page.dart';
 import '../../features/auth/presentation/screens/signup_screen.dart';
@@ -123,7 +124,11 @@ GoRouter createAppRouter(AuthProvider authProvider) {
         ),
         GoRoute(
           path: '/messages',
-          builder: (context, state) => const MessagesPage(),
+          builder: (context, state) => MessagesPage(
+            intent: state.extra is MessagesRouteIntent
+                ? state.extra as MessagesRouteIntent
+                : null,
+          ),
         ),
         GoRoute(
           path: '/search',

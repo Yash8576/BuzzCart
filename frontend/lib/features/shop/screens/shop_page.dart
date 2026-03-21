@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import '../../../core/models/models.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
@@ -17,8 +18,8 @@ class ShopPage extends StatefulWidget {
 
 class _ShopPageState extends State<ShopPage> {
   final ApiService _api = ApiService();
-  List<dynamic> _products = [];
-  dynamic _productDetail;
+  List<ProductModel> _products = [];
+  ProductModel? _productDetail;
   bool _loading = true;
   String _category = '';
   int _currentImageIndex = 0;
@@ -105,7 +106,7 @@ class _ShopPageState extends State<ShopPage> {
     }
 
     final product = _productDetail!;
-    final images = product['images'] as List? ?? [];
+    final images = product.images;
 
     return Scaffold(
       appBar: AppBar(
@@ -115,7 +116,17 @@ class _ShopPageState extends State<ShopPage> {
         ),
         actions: [
           IconButton(icon: const Icon(Icons.favorite_outline), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.share), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: () {
+              context.push(
+                '/messages',
+                extra: MessagesRouteIntent(
+                  draft: MessageComposerDraft.product(product),
+                ),
+              );
+            },
+          ),
         ],
       ),
       body: Column(
@@ -172,12 +183,12 @@ class _ShopPageState extends State<ShopPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        product['title'] ?? '',
+                        product.title,
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
+                        '\$${product.price.toStringAsFixed(2)}',
                         style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
@@ -186,7 +197,7 @@ class _ShopPageState extends State<ShopPage> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        product['description'] ?? '',
+                        product.description,
                         style: const TextStyle(fontSize: 16, height: 1.5),
                       ),
                       const SizedBox(height: 24),
@@ -283,13 +294,15 @@ class _ShopPageState extends State<ShopPage> {
                 return Card(
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
-                    onTap: () => context.go('/shop/${product['id']}'),
+                    onTap: () => context.go('/shop/${product.id}'),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Image.network(
-                            UrlHelper.getPlatformUrl(product['images']?[0]),
+                            UrlHelper.getPlatformUrl(
+                              product.images.isNotEmpty ? product.images.first : '',
+                            ),
                             fit: BoxFit.cover,
                             width: double.infinity,
                             errorBuilder: (_, __, ___) => Container(
@@ -304,14 +317,14 @@ class _ShopPageState extends State<ShopPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                product['title'] ?? '',
+                                product.title,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontWeight: FontWeight.w500),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
+                                '\$${product.price.toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.electricBlue,

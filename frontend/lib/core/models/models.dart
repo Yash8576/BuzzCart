@@ -14,6 +14,10 @@ class UserModel {
   final bool isVerified;
   final String? phoneNumber;
   final String privacyProfile; // 'PUBLIC' or 'PRIVATE'
+  final bool isFollowing;
+  final bool isFollowedBy;
+  final bool isConnection;
+  final bool canViewConnections;
   final String createdAt;
 
   UserModel({
@@ -30,6 +34,10 @@ class UserModel {
     this.isVerified = false,
     this.phoneNumber,
     this.privacyProfile = 'PUBLIC',
+    this.isFollowing = false,
+    this.isFollowedBy = false,
+    this.isConnection = false,
+    this.canViewConnections = true,
     required this.createdAt,
   });
   
@@ -53,6 +61,10 @@ class UserModel {
       isVerified: json['is_verified'] as bool? ?? false,
       phoneNumber: json['phone_number'] as String?,
       privacyProfile: json['privacy_profile'] as String? ?? 'PUBLIC',
+      isFollowing: json['is_following'] as bool? ?? false,
+      isFollowedBy: json['is_followed_by'] as bool? ?? false,
+      isConnection: json['is_connection'] as bool? ?? false,
+      canViewConnections: json['can_view_connections'] as bool? ?? true,
       createdAt: json['created_at'] as String,
     );
   }
@@ -72,6 +84,10 @@ class UserModel {
     bool? isVerified,
     String? phoneNumber,
     String? privacyProfile,
+    bool? isFollowing,
+    bool? isFollowedBy,
+    bool? isConnection,
+    bool? canViewConnections,
     String? createdAt,
   }) {
     return UserModel(
@@ -88,6 +104,10 @@ class UserModel {
       isVerified: isVerified ?? this.isVerified,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       privacyProfile: privacyProfile ?? this.privacyProfile,
+      isFollowing: isFollowing ?? this.isFollowing,
+      isFollowedBy: isFollowedBy ?? this.isFollowedBy,
+      isConnection: isConnection ?? this.isConnection,
+      canViewConnections: canViewConnections ?? this.canViewConnections,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -107,8 +127,44 @@ class UserModel {
       'is_verified': isVerified,
       'phone_number': phoneNumber,
       'privacy_profile': privacyProfile,
+      'is_following': isFollowing,
+      'is_followed_by': isFollowedBy,
+      'is_connection': isConnection,
+      'can_view_connections': canViewConnections,
       'created_at': createdAt,
     };
+  }
+}
+
+class SocialUserModel {
+  final String id;
+  final String name;
+  final String? avatar;
+  final String bio;
+  final bool isFollowing;
+  final bool isFollowedBy;
+  final bool isConnection;
+
+  SocialUserModel({
+    required this.id,
+    required this.name,
+    this.avatar,
+    this.bio = '',
+    this.isFollowing = false,
+    this.isFollowedBy = false,
+    this.isConnection = false,
+  });
+
+  factory SocialUserModel.fromJson(Map<String, dynamic> json) {
+    return SocialUserModel(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? 'Unknown',
+      avatar: json['avatar'] as String?,
+      bio: json['bio'] as String? ?? '',
+      isFollowing: json['is_following'] as bool? ?? false,
+      isFollowedBy: json['is_followed_by'] as bool? ?? false,
+      isConnection: json['is_connection'] as bool? ?? false,
+    );
   }
 }
 
@@ -652,4 +708,240 @@ class ReviewModel {
       'images': images,
     };
   }
+}
+
+class MessageParticipantModel {
+  final String id;
+  final String name;
+  final String? avatar;
+
+  MessageParticipantModel({
+    required this.id,
+    required this.name,
+    this.avatar,
+  });
+
+  factory MessageParticipantModel.fromJson(Map<String, dynamic> json) {
+    return MessageParticipantModel(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? 'Unknown',
+      avatar: json['avatar'] as String?,
+    );
+  }
+}
+
+class MessageConnectionModel {
+  final String id;
+  final String name;
+  final String? avatar;
+  final String? conversationId;
+  final bool hasExistingConversation;
+
+  MessageConnectionModel({
+    required this.id,
+    required this.name,
+    this.avatar,
+    this.conversationId,
+    this.hasExistingConversation = false,
+  });
+
+  factory MessageConnectionModel.fromJson(Map<String, dynamic> json) {
+    return MessageConnectionModel(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? 'Unknown',
+      avatar: json['avatar'] as String?,
+      conversationId: json['conversation_id'] as String?,
+      hasExistingConversation:
+          json['has_existing_conversation'] as bool? ?? false,
+    );
+  }
+}
+
+class ChatMessageModel {
+  final String id;
+  final String conversationId;
+  final String senderId;
+  final String receiverId;
+  final String content;
+  final String messageType;
+  final String? productId;
+  final ProductModel? product;
+  final Map<String, dynamic>? metadata;
+  final String createdAt;
+  final bool read;
+
+  ChatMessageModel({
+    required this.id,
+    required this.conversationId,
+    required this.senderId,
+    required this.receiverId,
+    required this.content,
+    this.messageType = 'text',
+    this.productId,
+    this.product,
+    this.metadata,
+    required this.createdAt,
+    this.read = false,
+  });
+
+  factory ChatMessageModel.fromJson(Map<String, dynamic> json) {
+    return ChatMessageModel(
+      id: json['id'] as String,
+      conversationId: json['conversation_id'] as String,
+      senderId: json['sender_id'] as String,
+      receiverId: json['receiver_id'] as String? ?? '',
+      content: json['content'] as String? ?? '',
+      messageType: json['message_type'] as String? ?? 'text',
+      productId: json['product_id'] as String?,
+      product: json['product'] is Map<String, dynamic>
+          ? ProductModel(
+              id: (json['product'] as Map<String, dynamic>)['id'] as String,
+              title: (json['product'] as Map<String, dynamic>)['title'] as String,
+              description: '',
+              price: ((json['product'] as Map<String, dynamic>)['price'] as num?)
+                      ?.toDouble() ??
+                  0,
+              images: [
+                if (((json['product'] as Map<String, dynamic>)['image'] as String?)
+                        ?.isNotEmpty ??
+                    false)
+                  (json['product'] as Map<String, dynamic>)['image'] as String,
+              ],
+              category: '',
+              tags: const [],
+              sellerId: '',
+              sellerName: '',
+              createdAt: '',
+            )
+          : null,
+      metadata: json['metadata'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(json['metadata'] as Map<String, dynamic>)
+          : null,
+      createdAt: json['created_at'] as String,
+      read: json['read'] as bool? ?? false,
+    );
+  }
+
+  bool get isProductShare => messageType == 'product_link' && product != null;
+}
+
+class ConversationModel {
+  final String id;
+  final MessageParticipantModel participant;
+  final ChatMessageModel? lastMessage;
+  final int unreadCount;
+  final String updatedAt;
+
+  ConversationModel({
+    required this.id,
+    required this.participant,
+    this.lastMessage,
+    this.unreadCount = 0,
+    required this.updatedAt,
+  });
+
+  factory ConversationModel.fromJson(Map<String, dynamic> json) {
+    return ConversationModel(
+      id: json['id'] as String,
+      participant: MessageParticipantModel.fromJson(
+        json['participant'] as Map<String, dynamic>,
+      ),
+      lastMessage: json['last_message'] is Map<String, dynamic>
+          ? ChatMessageModel.fromJson(
+              json['last_message'] as Map<String, dynamic>,
+            )
+          : null,
+      unreadCount: json['unread_count'] as int? ?? 0,
+      updatedAt: json['updated_at'] as String,
+    );
+  }
+
+  ConversationModel copyWith({
+    ChatMessageModel? lastMessage,
+    int? unreadCount,
+    String? updatedAt,
+  }) {
+    return ConversationModel(
+      id: id,
+      participant: participant,
+      lastMessage: lastMessage ?? this.lastMessage,
+      unreadCount: unreadCount ?? this.unreadCount,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class ConversationThreadModel {
+  final String conversationId;
+  final MessageParticipantModel participant;
+  final List<ChatMessageModel> messages;
+
+  ConversationThreadModel({
+    required this.conversationId,
+    required this.participant,
+    required this.messages,
+  });
+
+  factory ConversationThreadModel.fromJson(Map<String, dynamic> json) {
+    return ConversationThreadModel(
+      conversationId: json['conversation_id'] as String,
+      participant: MessageParticipantModel.fromJson(
+        json['participant'] as Map<String, dynamic>,
+      ),
+      messages: (json['messages'] as List? ?? [])
+          .map((item) => ChatMessageModel.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class MessageComposerDraft {
+  final String content;
+  final String messageType;
+  final String? productId;
+  final Map<String, dynamic>? metadata;
+  final String? previewTitle;
+  final String? previewSubtitle;
+  final String? previewImage;
+
+  const MessageComposerDraft({
+    this.content = '',
+    this.messageType = 'text',
+    this.productId,
+    this.metadata,
+    this.previewTitle,
+    this.previewSubtitle,
+    this.previewImage,
+  });
+
+  factory MessageComposerDraft.product(ProductModel product) {
+    return MessageComposerDraft(
+      content: 'Check this out',
+      messageType: 'product_link',
+      productId: product.id,
+      metadata: {
+        'kind': 'product',
+        'title': product.title,
+        'price': product.price,
+        'image': product.images.isNotEmpty ? product.images.first : null,
+      },
+      previewTitle: product.title,
+      previewSubtitle: '\$${product.price.toStringAsFixed(2)}',
+      previewImage: product.images.isNotEmpty ? product.images.first : null,
+    );
+  }
+
+  bool get hasSharePayload => messageType != 'text' || productId != null;
+}
+
+class MessagesRouteIntent {
+  final String? conversationId;
+  final MessageParticipantModel? participant;
+  final MessageComposerDraft? draft;
+
+  const MessagesRouteIntent({
+    this.conversationId,
+    this.participant,
+    this.draft,
+  });
 }

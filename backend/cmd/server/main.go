@@ -53,6 +53,7 @@ func main() {
 
 	// Create router with custom recovery
 	router := gin.New()
+	messageHub := handlers.NewMessageHub()
 
 	// Add middleware
 	router.Use(middleware.Recovery())        // Custom panic recovery
@@ -105,6 +106,8 @@ func main() {
 		})
 	})
 
+	router.GET("/ws/messages", handlers.MessagesSocket(db, cfg.JWTSecret, messageHub))
+
 	// API routes
 	api := router.Group("/api")
 	{
@@ -118,7 +121,9 @@ func main() {
 		}
 
 		// User routes
-		api.GET("/users/:user_id", handlers.GetUser(db))
+		api.GET("/users/:user_id", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetUser(db))
+		api.GET("/users/:user_id/followers", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetFollowers(db))
+		api.GET("/users/:user_id/following", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetFollowing(db))
 
 		// Product routes
 		products := api.Group("/products")
@@ -236,7 +241,8 @@ func main() {
 		messages := api.Group("/messages")
 		messages.Use(middleware.Auth(cfg.JWTSecret))
 		{
-			messages.POST("", handlers.SendMessage(db))
+			messages.POST("", handlers.SendMessage(db, messageHub))
+			messages.GET("/connections", handlers.GetConnections(db))
 			messages.GET("/conversations", handlers.GetConversations(db))
 			messages.GET("/conversations/:conversation_id", handlers.GetMessages(db))
 		}
