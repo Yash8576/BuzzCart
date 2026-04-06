@@ -304,7 +304,7 @@ class _ConversationList extends StatelessWidget {
 
               return Material(
                 color: isSelected
-                    ? AppColors.electricBlue.withOpacity(0.08)
+                    ? AppColors.electricBlue.withValues(alpha: 0.08)
                     : Colors.transparent,
                 child: ListTile(
                   leading: Stack(
@@ -637,7 +637,7 @@ class _MessageBubble extends StatelessWidget {
                   _formatMessageTime(message.createdAt),
                   style: TextStyle(
                     color: isMe
-                        ? Colors.white.withOpacity(0.8)
+                        ? Colors.white.withValues(alpha: 0.8)
                         : Theme.of(context).hintColor,
                     fontSize: 11,
                   ),
@@ -669,7 +669,7 @@ class _ProductShareCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: inverted
-            ? Colors.white.withOpacity(0.14)
+            ? Colors.white.withValues(alpha: 0.14)
             : Theme.of(context).scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(16),
       ),
@@ -715,7 +715,7 @@ class _ProductShareCard extends StatelessWidget {
                   '\$${product.price.toStringAsFixed(2)}',
                   style: TextStyle(
                     color: inverted
-                        ? Colors.white.withOpacity(0.9)
+                        ? Colors.white.withValues(alpha: 0.9)
                         : AppColors.electricBlue,
                     fontWeight: FontWeight.w700,
                   ),
@@ -822,9 +822,9 @@ class _TypingBubble extends StatelessWidget {
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: Theme.of(context).dividerColor),
         ),
-        child: Row(
+        child: const Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [
+          children: [
             _TypingDot(),
             SizedBox(width: 4),
             _TypingDot(),
