@@ -55,6 +55,7 @@ dist-ssr/
 build/
 frontend/build/
 frontend/.dart_tool/
+frontend/.gradle-user-home/
 
 # IDE
 .vscode/
