@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -76,6 +75,8 @@ class _ProfilePageState extends State<ProfilePage>
         final userModel = await _api.getUser(widget.userId!);
         final profileJson = userModel.toJson();
         profileJson['privacy_profile'] = userModel.privacyProfile.toLowerCase();
+        profileJson['visibility_mode'] = userModel.visibilityMode.toLowerCase();
+        profileJson['visibility_preferences'] = userModel.visibilityPreferences;
         _profileUser = profileJson;
         debugPrint('Fetched profile user: ${_profileUser?['name']}');
       } catch (e) {
@@ -83,28 +84,47 @@ class _ProfilePageState extends State<ProfilePage>
         setState(() => _loading = false);
         return;
       }
+    } else {
+      final profileJson = currentUser.toJson();
+      profileJson['privacy_profile'] = currentUser.privacyProfile.toLowerCase();
+      profileJson['visibility_mode'] = currentUser.visibilityMode.toLowerCase();
+      profileJson['visibility_preferences'] = currentUser.visibilityPreferences;
+      _profileUser = profileJson;
     }
+
+    final canViewPhotos = isOwnProfile || _isBucketVisible('photos', isOwnProfile: false);
+    final canViewVideos = isOwnProfile || _isBucketVisible('videos', isOwnProfile: false);
+    final canViewReels = isOwnProfile || _isBucketVisible('reels', isOwnProfile: false);
+    final canViewPurchases = isOwnProfile || _isBucketVisible('purchases', isOwnProfile: false);
     
     // Fetch each type independently to prevent one failure from blocking others
-    final photos = await _api.getUserMedia(targetUserId, type: 'photo').catchError((e) {
-      debugPrint('Error fetching photos: $e');
-      return <MediaItem>[];
-    });
+    final photos = canViewPhotos
+        ? await _api.getUserMedia(targetUserId, type: 'photo').catchError((e) {
+            debugPrint('Error fetching photos: $e');
+            return <MediaItem>[];
+          })
+        : <MediaItem>[];
     
-    final videos = await _api.getUserMedia(targetUserId, type: 'video').catchError((e) {
-      debugPrint('Error fetching videos: $e');
-      return <MediaItem>[];
-    });
+    final videos = canViewVideos
+        ? await _api.getUserMedia(targetUserId, type: 'video').catchError((e) {
+            debugPrint('Error fetching videos: $e');
+            return <MediaItem>[];
+          })
+        : <MediaItem>[];
     
-    final reels = await _api.getUserMedia(targetUserId, type: 'reel').catchError((e) {
-      debugPrint('Error fetching reels: $e');
-      return <MediaItem>[];
-    });
+    final reels = canViewReels
+        ? await _api.getUserMedia(targetUserId, type: 'reel').catchError((e) {
+            debugPrint('Error fetching reels: $e');
+            return <MediaItem>[];
+          })
+        : <MediaItem>[];
     
-    final products = await _api.getSellerProducts(targetUserId).catchError((e) {
-      debugPrint('Error fetching products: $e');
-      return <ProductModel>[];
-    });
+    final products = canViewPurchases
+        ? await _api.getSellerProducts(targetUserId).catchError((e) {
+            debugPrint('Error fetching products: $e');
+            return <ProductModel>[];
+          })
+        : <ProductModel>[];
     
     debugPrint('Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
     
@@ -120,6 +140,7 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _handleFollowAction() async {
+    final authProvider = context.read<AuthProvider>();
     final currentUser = context.read<AuthProvider>().user;
     final targetUserId = widget.userId;
     if (currentUser == null || targetUserId == null || _isRelationshipUpdating) {
@@ -157,7 +178,7 @@ class _ProfilePageState extends State<ProfilePage>
       } else {
         await _api.followUser(targetUserId);
       }
-      await context.read<AuthProvider>().refreshUser();
+      await authProvider.refreshUser();
       await _fetchUserContent();
     } catch (e) {
       if (!mounted) {
@@ -224,7 +245,7 @@ class _ProfilePageState extends State<ProfilePage>
                   const Divider(height: 1),
                   Expanded(
                     child: users.isEmpty
-                        ? Center(
+                        ? const Center(
                             child: Text('No users in this list yet'),
                           )
                         : ListView.separated(
@@ -668,6 +689,60 @@ class _ProfilePageState extends State<ProfilePage>
     return 'jpg';
   }
 
+  Map<String, bool> _profileVisibilityPreferences() {
+    final rawPreferences = _profileUser?['visibility_preferences'];
+    final preferences = <String, bool>{
+      'photos': true,
+      'videos': true,
+      'reels': true,
+      'purchases': true,
+    };
+
+    if (rawPreferences is Map) {
+      for (final entry in rawPreferences.entries) {
+        preferences[entry.key.toString().toLowerCase()] = entry.value == true;
+      }
+    }
+
+    return preferences;
+  }
+
+  String _profileVisibilityMode() {
+    return (_profileUser?['visibility_mode']?.toString() ?? 'public').toLowerCase();
+  }
+
+  bool _isBucketVisible(String bucket, {required bool isOwnProfile}) {
+    if (isOwnProfile) return true;
+
+    final visibilityMode = _profileVisibilityMode();
+    if (visibilityMode == 'private') return false;
+    if (visibilityMode != 'custom') return true;
+
+    final preferences = _profileVisibilityPreferences();
+    return preferences[bucket.toLowerCase()] ?? true;
+  }
+
+  Widget _buildHiddenSectionMessage(String title, String subtitle) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -1037,28 +1112,22 @@ class _ProfilePageState extends State<ProfilePage>
     final currentUser = context.read<AuthProvider>().user;
     final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    final bucketVisible = _isBucketVisible('photos', isOwnProfile: isOwnProfile);
     
     if (_loading) return const Center(child: CircularProgressIndicator());
     
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _photos.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'This Account is Private',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Follow this account to see their photos',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
+      return _buildHiddenSectionMessage(
+        'This Account is Private',
+        'Follow this account to see their photos',
+      );
+    }
+
+    if (!isOwnProfile && !bucketVisible) {
+      return _buildHiddenSectionMessage(
+        'Photos are Private',
+        'This user chose to hide their photos',
       );
     }
     
@@ -1167,28 +1236,22 @@ class _ProfilePageState extends State<ProfilePage>
     final currentUser = context.read<AuthProvider>().user;
     final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    final bucketVisible = _isBucketVisible('videos', isOwnProfile: isOwnProfile);
     
     if (_loading) return const Center(child: CircularProgressIndicator());
     
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _videos.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'This Account is Private',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Follow this account to see their videos',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
+      return _buildHiddenSectionMessage(
+        'This Account is Private',
+        'Follow this account to see their videos',
+      );
+    }
+
+    if (!isOwnProfile && !bucketVisible) {
+      return _buildHiddenSectionMessage(
+        'Videos are Private',
+        'This user chose to hide their videos',
       );
     }
     
@@ -1236,28 +1299,22 @@ class _ProfilePageState extends State<ProfilePage>
     final currentUser = context.read<AuthProvider>().user;
     final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    final bucketVisible = _isBucketVisible('reels', isOwnProfile: isOwnProfile);
     
     if (_loading) return const Center(child: CircularProgressIndicator());
     
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _reels.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_outline, size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text(
-              'This Account is Private',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Follow this account to see their reels',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-          ],
-        ),
+      return _buildHiddenSectionMessage(
+        'This Account is Private',
+        'Follow this account to see their reels',
+      );
+    }
+
+    if (!isOwnProfile && !bucketVisible) {
+      return _buildHiddenSectionMessage(
+        'Reels are Private',
+        'This user chose to hide their reels',
       );
     }
     
@@ -1302,7 +1359,24 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildProductsGrid() {
+    final currentUser = context.read<AuthProvider>().user;
+    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isPrivate = _profileUser?['privacy_profile'] == 'private';
+    final bucketVisible = _isBucketVisible('purchases', isOwnProfile: isOwnProfile);
+
     if (_loading) return const Center(child: CircularProgressIndicator());
+    if (!isOwnProfile && isPrivate && _products.isEmpty) {
+      return _buildHiddenSectionMessage(
+        'This Account is Private',
+        'Follow this account to see their purchases',
+      );
+    }
+    if (!isOwnProfile && !bucketVisible) {
+      return _buildHiddenSectionMessage(
+        'Purchases are Private',
+        'This user chose to hide their purchases',
+      );
+    }
     if (_products.isEmpty) {
       return const Center(child: Text('No products yet'));
     }

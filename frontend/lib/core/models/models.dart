@@ -14,6 +14,8 @@ class UserModel {
   final bool isVerified;
   final String? phoneNumber;
   final String privacyProfile; // 'PUBLIC' or 'PRIVATE'
+  final String visibilityMode; // 'public', 'private', or 'custom'
+  final Map<String, bool> visibilityPreferences;
   final bool isFollowing;
   final bool isFollowedBy;
   final bool isConnection;
@@ -34,6 +36,13 @@ class UserModel {
     this.isVerified = false,
     this.phoneNumber,
     this.privacyProfile = 'PUBLIC',
+    this.visibilityMode = 'public',
+    this.visibilityPreferences = const {
+      'photos': true,
+      'videos': true,
+      'reels': true,
+      'purchases': true,
+    },
     this.isFollowing = false,
     this.isFollowedBy = false,
     this.isConnection = false,
@@ -42,11 +51,32 @@ class UserModel {
   });
   
   bool get isSeller => accountType == 'SELLER' || role == 'seller';
-  bool get isPrivate => privacyProfile == 'PRIVATE';
+  bool get isPrivate => privacyProfile.toUpperCase() == 'PRIVATE';
+  bool get isCustomVisibility => visibilityMode.toLowerCase() == 'custom';
   bool get isActive => status == 'active';
   bool get isAdmin => role == 'admin';
+  bool canViewBucket(String bucket) {
+    if (isPrivate) return false;
+    if (!isCustomVisibility) return true;
+    return visibilityPreferences[bucket.toLowerCase()] ?? true;
+  }
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final visibilityPreferencesJson = json['visibility_preferences'];
+    final preferences = <String, bool>{
+      'photos': true,
+      'videos': true,
+      'reels': true,
+      'purchases': true,
+    };
+    if (visibilityPreferencesJson is Map) {
+      for (final entry in visibilityPreferencesJson.entries) {
+        final key = entry.key.toString().toLowerCase();
+        final value = entry.value == true;
+        preferences[key] = value;
+      }
+    }
+
     return UserModel(
       id: json['id'] as String,
       email: json['email'] as String,
@@ -60,7 +90,9 @@ class UserModel {
       status: json['status'] as String? ?? 'active',
       isVerified: json['is_verified'] as bool? ?? false,
       phoneNumber: json['phone_number'] as String?,
-      privacyProfile: json['privacy_profile'] as String? ?? 'PUBLIC',
+      privacyProfile: (json['privacy_profile'] as String? ?? 'PUBLIC').toUpperCase(),
+      visibilityMode: (json['visibility_mode'] as String? ?? 'public').toLowerCase(),
+      visibilityPreferences: preferences,
       isFollowing: json['is_following'] as bool? ?? false,
       isFollowedBy: json['is_followed_by'] as bool? ?? false,
       isConnection: json['is_connection'] as bool? ?? false,
@@ -84,6 +116,8 @@ class UserModel {
     bool? isVerified,
     String? phoneNumber,
     String? privacyProfile,
+    String? visibilityMode,
+    Map<String, bool>? visibilityPreferences,
     bool? isFollowing,
     bool? isFollowedBy,
     bool? isConnection,
@@ -104,6 +138,8 @@ class UserModel {
       isVerified: isVerified ?? this.isVerified,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       privacyProfile: privacyProfile ?? this.privacyProfile,
+      visibilityMode: visibilityMode ?? this.visibilityMode,
+      visibilityPreferences: visibilityPreferences ?? this.visibilityPreferences,
       isFollowing: isFollowing ?? this.isFollowing,
       isFollowedBy: isFollowedBy ?? this.isFollowedBy,
       isConnection: isConnection ?? this.isConnection,
@@ -127,6 +163,8 @@ class UserModel {
       'is_verified': isVerified,
       'phone_number': phoneNumber,
       'privacy_profile': privacyProfile,
+      'visibility_mode': visibilityMode,
+      'visibility_preferences': visibilityPreferences,
       'is_following': isFollowing,
       'is_followed_by': isFollowedBy,
       'is_connection': isConnection,

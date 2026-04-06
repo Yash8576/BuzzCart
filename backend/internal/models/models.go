@@ -60,25 +60,27 @@ const (
 // ============================================================================
 
 type User struct {
-	ID                 string         `json:"id" db:"id"`
-	Email              string         `json:"email" db:"email"`
-	Password           string         `json:"-" db:"password"`
-	Name               string         `json:"name" db:"name"`
-	Avatar             *string        `json:"avatar,omitempty" db:"avatar"`
-	Bio                string         `json:"bio" db:"bio"`
-	AccountType        AccountType    `json:"account_type" db:"account_type"`
-	Role               UserRole       `json:"role" db:"role"`
-	Status             AccountStatus  `json:"status" db:"status"`
-	IsVerified         bool           `json:"is_verified" db:"is_verified"`
-	PhoneNumber        *string        `json:"phone_number,omitempty" db:"phone_number"`
-	PrivacyProfile     PrivacyProfile `json:"privacy_profile" db:"privacy_profile"`
-	FollowersCount     int            `json:"followers_count" db:"followers_count"`
-	FollowingCount     int            `json:"following_count" db:"following_count"`
-	IsFollowing        bool           `json:"is_following" db:"-"`
-	IsFollowedBy       bool           `json:"is_followed_by" db:"-"`
-	IsConnection       bool           `json:"is_connection" db:"-"`
-	CanViewConnections bool           `json:"can_view_connections" db:"-"`
-	CreatedAt          time.Time      `json:"created_at" db:"created_at"`
+	ID                    string          `json:"id" db:"id"`
+	Email                 string          `json:"email" db:"email"`
+	Password              string          `json:"-" db:"password"`
+	Name                  string          `json:"name" db:"name"`
+	Avatar                *string         `json:"avatar,omitempty" db:"avatar"`
+	Bio                   string          `json:"bio" db:"bio"`
+	AccountType           AccountType     `json:"account_type" db:"account_type"`
+	Role                  UserRole        `json:"role" db:"role"`
+	Status                AccountStatus   `json:"status" db:"status"`
+	IsVerified            bool            `json:"is_verified" db:"is_verified"`
+	PhoneNumber           *string         `json:"phone_number,omitempty" db:"phone_number"`
+	PrivacyProfile        PrivacyProfile  `json:"privacy_profile" db:"privacy_profile"`
+	VisibilityMode        string          `json:"visibility_mode" db:"visibility_mode"`
+	VisibilityPreferences map[string]bool `json:"visibility_preferences" db:"visibility_preferences"`
+	FollowersCount        int             `json:"followers_count" db:"followers_count"`
+	FollowingCount        int             `json:"following_count" db:"following_count"`
+	IsFollowing           bool            `json:"is_following" db:"-"`
+	IsFollowedBy          bool            `json:"is_followed_by" db:"-"`
+	IsConnection          bool            `json:"is_connection" db:"-"`
+	CanViewConnections    bool            `json:"can_view_connections" db:"-"`
+	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
 }
 
 type SocialUser struct {
@@ -139,9 +141,12 @@ type UserLogin struct {
 }
 
 type ProfileUpdate struct {
-	Name   *string `json:"name,omitempty"`
-	Bio    *string `json:"bio,omitempty"`
-	Avatar *string `json:"avatar,omitempty"`
+	Name                  *string         `json:"name,omitempty"`
+	Bio                   *string         `json:"bio,omitempty"`
+	Avatar                *string         `json:"avatar,omitempty"`
+	PrivacyProfile        *PrivacyProfile `json:"privacy_profile,omitempty"`
+	VisibilityMode        *string         `json:"visibility_mode,omitempty"`
+	VisibilityPreferences map[string]bool `json:"visibility_preferences,omitempty"`
 }
 
 type TokenResponse struct {

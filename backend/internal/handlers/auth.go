@@ -5,7 +5,7 @@ import (
 	"buzzcart/internal/models"
 	"buzzcart/internal/utils"
 	"database/sql"
-	"fmt"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -48,20 +48,26 @@ func Register(db *sql.DB) gin.HandlerFunc {
 
 		// Create user with account type and privacy settings
 		user := models.User{
-			ID:             uuid.New().String(),
-			Email:          req.Email,
-			Password:       hashedPassword,
-			Name:           req.Name,
-			Bio:            "",
-			AccountType:    req.AccountType,
-			Role:           req.Role,
-			Status:         models.StatusActive,
-			IsVerified:     false,
-			PhoneNumber:    req.PhoneNumber,
-			PrivacyProfile: req.PrivacyProfile,
-			FollowersCount: 0,
-			FollowingCount: 0,
-			CreatedAt:      time.Now(),
+			ID:                    uuid.New().String(),
+			Email:                 req.Email,
+			Password:              hashedPassword,
+			Name:                  req.Name,
+			Bio:                   "",
+			AccountType:           req.AccountType,
+			Role:                  req.Role,
+			Status:                models.StatusActive,
+			IsVerified:            false,
+			PhoneNumber:           req.PhoneNumber,
+			PrivacyProfile:        req.PrivacyProfile,
+			VisibilityMode:        string(req.PrivacyProfile),
+			VisibilityPreferences: defaultVisibilityPreferences(string(req.PrivacyProfile)),
+			FollowersCount:        0,
+			FollowingCount:        0,
+			CreatedAt:             time.Now(),
+		}
+		if req.AccountType == models.AccountTypeSeller {
+			user.VisibilityMode = "public"
+			user.VisibilityPreferences = defaultVisibilityPreferences("public")
 		}
 
 		// Generate username from email if not provided (use part before @)
@@ -70,10 +76,11 @@ func Register(db *sql.DB) gin.HandlerFunc {
 		// Insert user into database
 		_, err = db.Exec(`
 		INSERT INTO users (id, username, email, password_hash, name, bio, account_type, role, status, is_verified, 
-			phone_number, privacy_profile, followers_count, following_count, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 	`, user.ID, username, user.Email, user.Password, user.Name, user.Bio, user.AccountType, user.Role,
 			user.Status, user.IsVerified, user.PhoneNumber, user.PrivacyProfile,
+			user.VisibilityMode, user.VisibilityPreferences,
 			user.FollowersCount, user.FollowingCount, user.CreatedAt, user.CreatedAt)
 
 		if err != nil {
@@ -107,14 +114,15 @@ func Login(db *sql.DB) gin.HandlerFunc {
 
 		// Find user
 		var user models.User
+		var visibilityPreferencesJSON string
 		err := db.QueryRow(`
 			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
 			FROM users WHERE email = $1
 		`, req.Email).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
-			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 		)
 
 		if err == sql.ErrNoRows {
@@ -125,6 +133,7 @@ func Login(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
 		// Verify password
 		if !utils.VerifyPassword(req.Password, user.Password) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
@@ -152,14 +161,15 @@ func GetMe(db *sql.DB) gin.HandlerFunc {
 		userID := c.GetString("user_id")
 
 		var user models.User
+		var visibilityPreferencesJSON string
 		err := db.QueryRow(`
 			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
 			FROM users WHERE id = $1
 		`, userID).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
-			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 		)
 
 		if err == sql.ErrNoRows {
@@ -169,6 +179,7 @@ func GetMe(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
+		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
 
 		c.JSON(http.StatusOK, user)
 	}
@@ -184,59 +195,19 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Build update query dynamically
-		query := "UPDATE users SET "
-		args := []interface{}{}
-		argCount := 1
-
-		if req.Name != nil {
-			if argCount > 1 {
-				query += ", "
-			}
-			query += fmt.Sprintf("name = $%d", argCount)
-			args = append(args, *req.Name)
-			argCount++
-		}
-		if req.Bio != nil {
-			if argCount > 1 {
-				query += ", "
-			}
-			query += fmt.Sprintf("bio = $%d", argCount)
-			args = append(args, *req.Bio)
-			argCount++
-		}
-		if req.Avatar != nil {
-			if argCount > 1 {
-				query += ", "
-			}
-			query += fmt.Sprintf("avatar = $%d", argCount)
-			args = append(args, *req.Avatar)
-			argCount++
-		}
-
-		if len(args) > 0 {
-			query += fmt.Sprintf(" WHERE id = $%d", argCount)
-			args = append(args, userID)
-
-			_, err := db.Exec(query, args...)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
-				return
-			}
-		}
-
-		// Fetch updated user
-		var user models.User
+		var current models.User
+		var currentAvatar sql.NullString
+		var currentPhoneNumber sql.NullString
+		var visibilityPreferencesJSON string
 		err := db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status,
+				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
 			FROM users WHERE id = $1
 		`, userID).Scan(
-			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
-			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
-			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+			&current.ID, &current.Email, &current.Password, &current.Name, &currentAvatar, &current.Bio,
+			&current.AccountType, &current.Role, &current.Status, &current.IsVerified, &currentPhoneNumber,
+			&current.PrivacyProfile, &current.VisibilityMode, &visibilityPreferencesJSON, &current.FollowersCount, &current.FollowingCount, &current.CreatedAt,
 		)
-
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -244,6 +215,96 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
+
+		if currentAvatar.Valid {
+			current.Avatar = &currentAvatar.String
+		}
+		if currentPhoneNumber.Valid {
+			current.PhoneNumber = &currentPhoneNumber.String
+		}
+		current.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, current.VisibilityMode)
+
+		updatedName := current.Name
+		updatedBio := current.Bio
+		updatedAvatar := currentAvatar
+		updatedPrivacyProfile := current.PrivacyProfile
+		updatedVisibilityMode := strings.ToLower(current.VisibilityMode)
+		updatedPreferences := current.VisibilityPreferences
+
+		if req.Name != nil {
+			updatedName = *req.Name
+		}
+		if req.Bio != nil {
+			updatedBio = *req.Bio
+		}
+		if req.Avatar != nil {
+			updatedAvatar = sql.NullString{String: *req.Avatar, Valid: strings.TrimSpace(*req.Avatar) != ""}
+		}
+		if req.PrivacyProfile != nil {
+			updatedPrivacyProfile = *req.PrivacyProfile
+		}
+		if req.VisibilityMode != nil {
+			updatedVisibilityMode = strings.ToLower(*req.VisibilityMode)
+		}
+		if req.VisibilityPreferences != nil {
+			updatedPreferences = normalizeVisibilityPreferences(updatedVisibilityMode, req.VisibilityPreferences)
+		}
+
+		if current.AccountType == models.AccountTypeSeller {
+			updatedPrivacyProfile = models.PrivacyPublic
+			updatedVisibilityMode = "public"
+			updatedPreferences = defaultVisibilityPreferences("public")
+		}
+
+		switch updatedVisibilityMode {
+		case "private":
+			updatedPrivacyProfile = models.PrivacyPrivate
+			updatedPreferences = defaultVisibilityPreferences("private")
+		case "custom":
+			updatedPrivacyProfile = models.PrivacyPublic
+			updatedPreferences = normalizeVisibilityPreferences(updatedVisibilityMode, updatedPreferences)
+		default:
+			updatedVisibilityMode = "public"
+			updatedPrivacyProfile = models.PrivacyPublic
+			updatedPreferences = defaultVisibilityPreferences("public")
+		}
+
+		updatedPreferencesJSON, err := json.Marshal(updatedPreferences)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encode visibility settings"})
+			return
+		}
+
+		_, err = db.Exec(`
+			UPDATE users
+			SET name = $1, bio = $2, avatar = $3, privacy_profile = $4, visibility_mode = $5, visibility_preferences = $6, updated_at = $7
+			WHERE id = $8
+		`, updatedName, updatedBio, updatedAvatar, updatedPrivacyProfile, updatedVisibilityMode, updatedPreferencesJSON, time.Now(), userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
+			return
+		}
+
+		var user models.User
+		var updatedVisibilityPreferencesJSON string
+		err = db.QueryRow(`
+			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status,
+				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
+			FROM users WHERE id = $1
+		`, userID).Scan(
+			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
+			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
+			&user.PrivacyProfile, &user.VisibilityMode, &updatedVisibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+		)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+			return
+		}
+
+		user.VisibilityPreferences = parseVisibilityPreferences(updatedVisibilityPreferencesJSON, user.VisibilityMode)
 
 		c.JSON(http.StatusOK, user)
 	}
@@ -255,14 +316,15 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 		viewerID := c.GetString("user_id")
 
 		var user models.User
+		var visibilityPreferencesJSON string
 		err := db.QueryRow(`
 			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, followers_count, following_count, created_at
+				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
 			FROM users WHERE id = $1
 		`, userID).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
-			&user.PrivacyProfile, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
+			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 		)
 
 		if err == sql.ErrNoRows {
@@ -272,6 +334,7 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
+		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
 
 		user.CanViewConnections = user.PrivacyProfile != models.PrivacyPrivate || viewerID == userID
 		if viewerID != "" && viewerID != userID {

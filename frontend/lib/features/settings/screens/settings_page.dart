@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -16,8 +18,156 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _emailNotifications = true;
   bool _messagesNotifications = true;
   bool _ordersNotifications = true;
-  bool _publicProfile = true;
   bool _showActivity = true;
+  bool _isInitialized = false;
+  bool _isSaving = false;
+  bool _pendingVisibilitySave = false;
+  Timer? _visibilitySaveDebounce;
+  String _visibilityMode = 'public';
+  Map<String, bool> _visibilityPreferences = const {
+    'photos': true,
+    'videos': true,
+    'reels': true,
+    'purchases': true,
+  };
+
+  @override
+  void dispose() {
+    _visibilitySaveDebounce?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isInitialized) {
+      return;
+    }
+
+    final authProvider = context.read<AuthProvider>();
+    final user = authProvider.user;
+    if (user == null) {
+      return;
+    }
+
+    _syncVisibilityState(user);
+    _isInitialized = true;
+  }
+
+  void _syncVisibilityState(dynamic user) {
+    final visibilityMode = (user.visibilityMode as String?)?.toLowerCase() ?? 'public';
+    final preferences = Map<String, bool>.from(user.visibilityPreferences as Map<String, bool>);
+
+    setState(() {
+      _visibilityMode = user.isSeller ? 'public' : visibilityMode;
+      _visibilityPreferences = {
+        'photos': preferences['photos'] ?? true,
+        'videos': preferences['videos'] ?? true,
+        'reels': preferences['reels'] ?? true,
+        'purchases': preferences['purchases'] ?? true,
+      };
+
+      if (user.isSeller) {
+        _visibilityPreferences = const {
+          'photos': true,
+          'videos': true,
+          'reels': true,
+          'purchases': true,
+        };
+      }
+    });
+  }
+
+  Future<void> _saveVisibilitySettings(
+    AuthProvider authProvider, {
+    bool showSuccessMessage = false,
+  }) async {
+    final user = authProvider.user;
+    if (user == null) return;
+
+    if (_isSaving) {
+      _pendingVisibilitySave = true;
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final visibilityMode = user.isSeller ? 'public' : _visibilityMode;
+      final privacyProfile = visibilityMode == 'private' ? 'PRIVATE' : 'PUBLIC';
+      final visibilityPreferences = visibilityMode == 'custom'
+          ? _visibilityPreferences
+          : {
+              'photos': visibilityMode == 'public',
+              'videos': visibilityMode == 'public',
+              'reels': visibilityMode == 'public',
+              'purchases': visibilityMode == 'public',
+            };
+
+      await authProvider.updateProfile({
+        'privacy_profile': privacyProfile,
+        'visibility_mode': visibilityMode,
+        'visibility_preferences': visibilityPreferences,
+      });
+
+      if (!mounted) return;
+      setState(() {
+        _visibilityMode = visibilityMode;
+        _visibilityPreferences = Map<String, bool>.from(visibilityPreferences);
+      });
+
+      if (showSuccessMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Visibility settings saved')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save visibility settings: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+      if (_pendingVisibilitySave) {
+        _pendingVisibilitySave = false;
+        unawaited(_saveVisibilitySettings(authProvider));
+      }
+    }
+  }
+
+  void _scheduleVisibilityAutoSave(AuthProvider authProvider) {
+    _visibilitySaveDebounce?.cancel();
+    _visibilitySaveDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      unawaited(_saveVisibilitySettings(authProvider));
+    });
+  }
+
+  void _updateVisibilityMode(String mode, AuthProvider authProvider) {
+    if (_visibilityMode == mode) {
+      return;
+    }
+
+    setState(() {
+      _visibilityMode = mode;
+    });
+    _scheduleVisibilityAutoSave(authProvider);
+  }
+
+  void _updateBucketVisibility(String bucket, bool value, AuthProvider authProvider) {
+    if ((_visibilityPreferences[bucket] ?? true) == value) {
+      return;
+    }
+
+    setState(() {
+      _visibilityPreferences = {
+        ..._visibilityPreferences,
+        bucket: value,
+      };
+    });
+    _scheduleVisibilityAutoSave(authProvider);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,17 +324,96 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
                 const Divider(height: 1),
-                SwitchListTile(
-                  title: const Text('Public Profile'),
-                  subtitle: const Text('Allow others to view your profile'),
-                  value: _publicProfile,
-                  onChanged: (value) => setState(() => _publicProfile = value),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Text(
+                    'Visibility',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
                 ),
-                SwitchListTile(
-                  title: const Text('Show Activity'),
-                  subtitle: const Text('Display your online status'),
-                  value: _showActivity,
-                  onChanged: (value) => setState(() => _showActivity = value),
+                if (authProvider.isSeller)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      'Seller accounts are always public.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                RadioListTile<String>(
+                  title: const Text('Public'),
+                  subtitle: const Text('Anyone can view your profile and content'),
+                  value: 'public',
+                  groupValue: _visibilityMode,
+                  onChanged: authProvider.isSeller
+                      ? null
+                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
+                ),
+                RadioListTile<String>(
+                  title: const Text('Private'),
+                  subtitle: const Text('Only followers can view your account'),
+                  value: 'private',
+                  groupValue: _visibilityMode,
+                  onChanged: authProvider.isSeller
+                      ? null
+                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
+                ),
+                RadioListTile<String>(
+                  title: const Text('Custom'),
+                  subtitle: const Text('Choose what stays public and what stays private'),
+                  value: 'custom',
+                  groupValue: _visibilityMode,
+                  onChanged: authProvider.isSeller
+                      ? null
+                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
+                ),
+                if (_visibilityMode == 'custom' && !authProvider.isSeller) ...[
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    title: const Text('Photos'),
+                    subtitle: const Text('Show your photo gallery'),
+                    value: _visibilityPreferences['photos'] ?? true,
+                    onChanged: (value) => _updateBucketVisibility('photos', value, authProvider),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Videos'),
+                    subtitle: const Text('Show your video gallery'),
+                    value: _visibilityPreferences['videos'] ?? true,
+                    onChanged: (value) => _updateBucketVisibility('videos', value, authProvider),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Reels'),
+                    subtitle: const Text('Show your reels'),
+                    value: _visibilityPreferences['reels'] ?? true,
+                    onChanged: (value) => _updateBucketVisibility('reels', value, authProvider),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Purchases'),
+                    subtitle: const Text('Show your purchases tab'),
+                    value: _visibilityPreferences['purchases'] ?? true,
+                    onChanged: (value) => _updateBucketVisibility('purchases', value, authProvider),
+                  ),
+                ],
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Row(
+                    children: [
+                      if (_isSaving) ...[
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Saving visibility...'),
+                      ] else
+                        const Text(
+                          'Changes save automatically',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),

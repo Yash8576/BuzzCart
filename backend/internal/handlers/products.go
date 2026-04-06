@@ -293,6 +293,26 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 func GetSellerProducts(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sellerID := c.Param("seller_id")
+		requestingUserID := c.GetString("user_id")
+
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
+		var visibilityMode string
+		var visibilityPreferencesJSON string
+		err := db.QueryRowContext(ctx,
+			"SELECT COALESCE(visibility_mode, 'public'), COALESCE(visibility_preferences::text, '{\"photos\": true, \"videos\": true, \"reels\": true, \"purchases\": true}') FROM users WHERE id = $1",
+			sellerID,
+		).Scan(&visibilityMode, &visibilityPreferencesJSON)
+		if err != nil {
+			visibilityMode = "public"
+			visibilityPreferencesJSON = ""
+		}
+
+		if requestingUserID != sellerID && !visibilityBucketAllowed(visibilityMode, visibilityPreferencesJSON, contentBucketPurchases, false) {
+			c.JSON(http.StatusOK, []models.Product{})
+			return
+		}
 
 		rows, err := db.Query(
 			`SELECT

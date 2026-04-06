@@ -446,6 +446,32 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		// Create context with timeout
 		ctx, cancel := database.NewContext()
 		defer cancel()
+
+		var visibilityMode string
+		var visibilityPreferencesJSON string
+		err = db.QueryRowContext(ctx,
+			"SELECT COALESCE(visibility_mode, 'public'), COALESCE(visibility_preferences::text, '{\"photos\": true, \"videos\": true, \"reels\": true, \"purchases\": true}') FROM users WHERE id = $1",
+			userID,
+		).Scan(&visibilityMode, &visibilityPreferencesJSON)
+		if err != nil {
+			visibilityMode = "public"
+			visibilityPreferencesJSON = ""
+		}
+
+		bucket := ""
+		switch strings.ToLower(mediaType) {
+		case "photo":
+			bucket = contentBucketPhotos
+		case "video":
+			bucket = contentBucketVideos
+		case "reel":
+			bucket = contentBucketReels
+		}
+
+		if bucket != "" && !visibilityBucketAllowed(visibilityMode, visibilityPreferencesJSON, bucket, requestingUserID == userID) {
+			c.JSON(http.StatusOK, []gin.H{})
+			return
+		}
 		// Query from user_media table
 		query := `
 			SELECT um.id, um.media_type, um.media_url, um.thumbnail_url, um.caption, 
