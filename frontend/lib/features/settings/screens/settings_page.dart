@@ -18,7 +18,6 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _emailNotifications = true;
   bool _messagesNotifications = true;
   bool _ordersNotifications = true;
-  bool _showActivity = true;
   bool _isInitialized = false;
   bool _isSaving = false;
   bool _pendingVisibilitySave = false;
@@ -341,32 +340,33 @@ class _SettingsPageState extends State<SettingsPage> {
                       style: TextStyle(color: Colors.grey),
                     ),
                   ),
-                RadioListTile<String>(
-                  title: const Text('Public'),
-                  subtitle: const Text('Anyone can view your profile and content'),
-                  value: 'public',
+                RadioGroup<String>(
                   groupValue: _visibilityMode,
-                  onChanged: authProvider.isSeller
-                      ? null
-                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
-                ),
-                RadioListTile<String>(
-                  title: const Text('Private'),
-                  subtitle: const Text('Only followers can view your account'),
-                  value: 'private',
-                  groupValue: _visibilityMode,
-                  onChanged: authProvider.isSeller
-                      ? null
-                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
-                ),
-                RadioListTile<String>(
-                  title: const Text('Custom'),
-                  subtitle: const Text('Choose what stays public and what stays private'),
-                  value: 'custom',
-                  groupValue: _visibilityMode,
-                  onChanged: authProvider.isSeller
-                      ? null
-                      : (value) => _updateVisibilityMode(value ?? 'public', authProvider),
+                  onChanged: (value) {
+                    if (authProvider.isSeller || value == null) {
+                      return;
+                    }
+                    _updateVisibilityMode(value, authProvider);
+                  },
+                  child: const Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: Text('Public'),
+                        subtitle: Text('Anyone can view your profile and content'),
+                        value: 'public',
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Private'),
+                        subtitle: Text('Only followers can view your account'),
+                        value: 'private',
+                      ),
+                      RadioListTile<String>(
+                        title: Text('Custom'),
+                        subtitle: Text('Choose what stays public and what stays private'),
+                        value: 'custom',
+                      ),
+                    ],
+                  ),
                 ),
                 if (_visibilityMode == 'custom' && !authProvider.isSeller) ...[
                   const Divider(height: 1),

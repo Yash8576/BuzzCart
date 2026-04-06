@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +24,8 @@ const (
 	maxFailedLoginAttempts = 5
 	loginLockoutDuration   = 1 * time.Minute
 	loginRateLimitTTL      = 30 * time.Minute
+	defaultVisibilityMode  = "public"
+	defaultVisibilityPrefs = `{"photos": true, "videos": true, "reels": true, "purchases": true}`
 )
 
 type loginAttemptState struct {
@@ -85,6 +88,50 @@ func clearLoginAttemptState(ctx context.Context, key string) {
 	loginAttemptStateMu.Lock()
 	delete(loginAttemptStateMap, key)
 	loginAttemptStateMu.Unlock()
+}
+
+func writeTooManyAttemptsResponse(c *gin.Context, retryAfter int64) {
+	if retryAfter < 1 {
+		retryAfter = int64(loginLockoutDuration.Seconds())
+	}
+
+	c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+	c.JSON(http.StatusTooManyRequests, gin.H{
+		"error":               "Too many attempts-try again in 1 minute.",
+		"retry_after_seconds": retryAfter,
+	})
+}
+
+func registerFailedLoginAttempt(c *gin.Context, key string, state *loginAttemptState) bool {
+	state.FailedAttempts++
+	if state.FailedAttempts >= maxFailedLoginAttempts {
+		state.LockedUntilUnix = time.Now().Add(loginLockoutDuration).Unix()
+		saveLoginAttemptState(c.Request.Context(), key, *state)
+		writeTooManyAttemptsResponse(c, int64(loginLockoutDuration.Seconds()))
+		return true
+	}
+
+	saveLoginAttemptState(c.Request.Context(), key, *state)
+	return false
+}
+
+func buildUserSelectQuery(filterColumn string) string {
+	return fmt.Sprintf(`
+		SELECT id, email, password_hash, name, avatar,
+			COALESCE(bio, ''),
+			COALESCE(account_type::text, 'consumer')::account_type,
+			COALESCE(role::text, 'consumer')::user_role,
+			COALESCE(status::text, 'active')::account_status,
+			COALESCE(is_verified, false),
+			phone_number,
+			COALESCE(privacy_profile::text, 'public')::privacy_profile,
+			'%s' AS visibility_mode,
+			'%s' AS visibility_preferences,
+			COALESCE(followers_count, 0),
+			COALESCE(following_count, 0),
+			created_at
+		FROM users WHERE %s = $1
+	`, defaultVisibilityMode, defaultVisibilityPrefs, filterColumn)
 }
 
 func Register(db *sql.DB) gin.HandlerFunc {
@@ -190,50 +237,27 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		nowUnix := time.Now().Unix()
 		if attemptState.LockedUntilUnix > nowUnix {
 			retryAfter := attemptState.LockedUntilUnix - nowUnix
-			if retryAfter < 1 {
-				retryAfter = int64(loginLockoutDuration.Seconds())
-			}
-
-			c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":               "Too many attempts-try again in 1 minute.",
-				"retry_after_seconds": retryAfter,
-			})
+			writeTooManyAttemptsResponse(c, retryAfter)
 			return
 		}
 
 		// Find user
 		var user models.User
 		var visibilityPreferencesJSON string
-		err := db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
-			FROM users WHERE email = $1
-		`, req.Email).Scan(
+		err := db.QueryRow(buildUserSelectQuery("email"), req.Email).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
 			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 		)
 
 		if err == sql.ErrNoRows {
-			attemptState.FailedAttempts++
-			if attemptState.FailedAttempts >= maxFailedLoginAttempts {
-				attemptState.LockedUntilUnix = time.Now().Add(loginLockoutDuration).Unix()
-				saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
-
-				retryAfter := int64(loginLockoutDuration.Seconds())
-				c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
-				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error":               "Too many attempts-try again in 1 minute.",
-					"retry_after_seconds": retryAfter,
-				})
+			if registerFailedLoginAttempt(c, rateLimitKey, &attemptState) {
 				return
 			}
-
-			saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 			return
 		} else if err != nil {
+			log.Printf("[Auth Login] Database query failed for email=%s: %v", req.Email, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
@@ -241,21 +265,9 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
 		// Verify password
 		if !utils.VerifyPassword(req.Password, user.Password) {
-			attemptState.FailedAttempts++
-			if attemptState.FailedAttempts >= maxFailedLoginAttempts {
-				attemptState.LockedUntilUnix = time.Now().Add(loginLockoutDuration).Unix()
-				saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
-
-				retryAfter := int64(loginLockoutDuration.Seconds())
-				c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
-				c.JSON(http.StatusTooManyRequests, gin.H{
-					"error":               "Too many attempts-try again in 1 minute.",
-					"retry_after_seconds": retryAfter,
-				})
+			if registerFailedLoginAttempt(c, rateLimitKey, &attemptState) {
 				return
 			}
-
-			saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 			return
 		}
@@ -284,11 +296,7 @@ func GetMe(db *sql.DB) gin.HandlerFunc {
 
 		var user models.User
 		var visibilityPreferencesJSON string
-		err := db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
-			FROM users WHERE id = $1
-		`, userID).Scan(
+		err := db.QueryRow(buildUserSelectQuery("id"), userID).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
 			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
@@ -321,11 +329,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 		var currentAvatar sql.NullString
 		var currentPhoneNumber sql.NullString
 		var visibilityPreferencesJSON string
-		err := db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status,
-				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
-			FROM users WHERE id = $1
-		`, userID).Scan(
+		err := db.QueryRow(buildUserSelectQuery("id"), userID).Scan(
 			&current.ID, &current.Email, &current.Password, &current.Name, &currentAvatar, &current.Bio,
 			&current.AccountType, &current.Role, &current.Status, &current.IsVerified, &currentPhoneNumber,
 			&current.PrivacyProfile, &current.VisibilityMode, &visibilityPreferencesJSON, &current.FollowersCount, &current.FollowingCount, &current.CreatedAt,
@@ -409,11 +413,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 
 		var user models.User
 		var updatedVisibilityPreferencesJSON string
-		err = db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status,
-				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
-			FROM users WHERE id = $1
-		`, userID).Scan(
+		err = db.QueryRow(buildUserSelectQuery("id"), userID).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
 			&user.PrivacyProfile, &user.VisibilityMode, &updatedVisibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
@@ -439,11 +439,7 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 
 		var user models.User
 		var visibilityPreferencesJSON string
-		err := db.QueryRow(`
-			SELECT id, email, password_hash, name, avatar, bio, account_type, role, status, 
-				is_verified, phone_number, privacy_profile, visibility_mode, visibility_preferences, followers_count, following_count, created_at
-			FROM users WHERE id = $1
-		`, userID).Scan(
+		err := db.QueryRow(buildUserSelectQuery("id"), userID).Scan(
 			&user.ID, &user.Email, &user.Password, &user.Name, &user.Avatar, &user.Bio,
 			&user.AccountType, &user.Role, &user.Status, &user.IsVerified, &user.PhoneNumber,
 			&user.PrivacyProfile, &user.VisibilityMode, &visibilityPreferencesJSON, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,

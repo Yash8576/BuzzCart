@@ -449,6 +449,7 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 
 		var visibilityMode string
 		var visibilityPreferencesJSON string
+		var err error
 		err = db.QueryRowContext(ctx,
 			"SELECT COALESCE(visibility_mode, 'public'), COALESCE(visibility_preferences::text, '{\"photos\": true, \"videos\": true, \"reels\": true, \"purchases\": true}') FROM users WHERE id = $1",
 			userID,
