@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_parser/http_parser.dart';
@@ -87,6 +88,41 @@ class ApiService {
   }
 
   String? get currentToken => _token;
+
+  Future<bool> hasInternetConnection() async {
+    final result = await Connectivity().checkConnectivity();
+    return !result.contains(ConnectivityResult.none);
+  }
+
+  Future<bool> isBackendReachable() async {
+    try {
+      final healthBaseUrl = _dio.options.baseUrl.replaceFirst(
+        RegExp(r'/api/?$'),
+        '',
+      );
+      final probeClient = Dio(
+        BaseOptions(
+          baseUrl: healthBaseUrl,
+          connectTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+
+      final response = await probeClient.get(
+        '/health',
+        options: Options(
+          sendTimeout: const Duration(seconds: 5),
+          receiveTimeout: const Duration(seconds: 5),
+        ),
+      );
+
+      return response.statusCode != null && response.statusCode! < 500;
+    } on DioException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<void> _saveToken(String token) async {
     _token = token;

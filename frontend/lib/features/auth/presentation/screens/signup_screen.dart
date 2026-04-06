@@ -17,6 +17,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   bool _showPassword = false;
   bool _isLoading = false;
+  bool _rememberMe = false;
   
   // Account Type - default to CONSUMER
   String _accountType = 'CONSUMER';
@@ -49,6 +50,7 @@ class _SignupScreenState extends State<SignupScreen> {
             _emailController.text.trim(),
             _passwordController.text,
             _nameController.text.trim(),
+        rememberMe: _rememberMe,
             accountType: _accountType,
             privacyProfile: 'PUBLIC',
           );
@@ -317,6 +319,27 @@ class _SignupScreenState extends State<SignupScreen> {
                                     ],
                                   ),
                                 ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Remember me
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _rememberMe,
+                              onChanged: _isLoading
+                                  ? null
+                                  : (value) {
+                                      setState(() => _rememberMe = value ?? false);
+                                    },
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Remember me for 30 days',
+                                style: textTheme.bodySmall,
                               ),
                             ),
                           ],

@@ -16,6 +16,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _showPassword = false;
   bool _isLoading = false;
+  bool _rememberMe = false;
 
   @override
   void dispose() {
@@ -36,15 +37,20 @@ class _LoginPageState extends State<LoginPage> {
       await context.read<AuthProvider>().login(
             _emailController.text.trim(),
             _passwordController.text,
+        rememberMe: _rememberMe,
           );
       if (mounted) {
         context.go('/');
       }
+    } on AuthException catch (e) {
+      if (mounted) {
+        final shouldShowRetry = e.code == 'network_connection_error' ||
+            e.code == 'internal_server_error';
+        _showError(e.message, showRetry: shouldShowRetry);
+      }
     } catch (e) {
       if (mounted) {
-        _showError(e.toString().contains('401') 
-            ? 'Invalid email or password'
-            : 'Login failed. Please try again.');
+        _showError('Login failed. Please try again.');
       }
     } finally {
       if (mounted) {
@@ -53,11 +59,18 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  void _showError(String message) {
+  void _showError(String message, {bool showRetry = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: AppColors.destructive,
+        action: showRetry
+            ? SnackBarAction(
+                label: 'Retry',
+                textColor: Colors.white,
+                onPressed: _isLoading ? () {} : _handleLogin,
+              )
+            : null,
       ),
     );
   }
@@ -174,6 +187,27 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           onSubmitted: (_) => _handleLogin(),
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Remember me
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: _rememberMe,
+                              onChanged: _isLoading
+                                  ? null
+                                  : (value) {
+                                      setState(() => _rememberMe = value ?? false);
+                                    },
+                            ),
+                            Expanded(
+                              child: Text(
+                                'Remember me for 30 days',
+                                style: textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 24),
 

@@ -1,7 +1,18 @@
 import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
+
+class AuthException implements Exception {
+  final String code;
+  final String message;
+
+  const AuthException(this.code, this.message);
+
+  @override
+  String toString() => message;
+}
 
 class AuthProvider extends ChangeNotifier {
   final ApiService _api;
@@ -11,9 +22,12 @@ class AuthProvider extends ChangeNotifier {
     ),
   );
   static const String _lastActivityKey = 'last_activity';
+  static const String _rememberMeKey = 'remember_me';
+  static const String _sessionStartedAtKey = 'session_started_at';
   static const String _pendingAvatarPreviewPathKey =
       'pending_avatar_preview_path';
   static const int _maxInactiveDays = 7;
+  static const int _rememberMeDays = 30;
   
   UserModel? _user;
   bool _isLoading = true;
@@ -51,18 +65,36 @@ class AuthProvider extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      
-      // Check if user has been inactive for more than 7 days
-      final lastActivity = await _storage.read(key: _lastActivityKey);
-      if (lastActivity != null) {
-        final lastDate = DateTime.parse(lastActivity);
-        final daysSinceActivity = DateTime.now().difference(lastDate).inDays;
-        
-        if (daysSinceActivity > _maxInactiveDays) {
-          // Auto-logout due to inactivity
-          debugPrint('Auto-logout due to inactivity ($daysSinceActivity days)');
+
+      final rememberMeEnabled =
+          (await _storage.read(key: _rememberMeKey)) == 'true';
+
+      if (rememberMeEnabled) {
+        final sessionStartedAtRaw =
+            await _storage.read(key: _sessionStartedAtKey);
+        DateTime sessionStartedAt;
+
+        if (sessionStartedAtRaw == null) {
+          // Backfill missing key for older sessions so they remain valid.
+          final lastActivityRaw = await _storage.read(key: _lastActivityKey);
+          sessionStartedAt =
+              DateTime.tryParse(lastActivityRaw ?? '') ?? DateTime.now();
+          await _storage.write(
+            key: _sessionStartedAtKey,
+            value: sessionStartedAt.toIso8601String(),
+          );
+        } else {
+          sessionStartedAt = DateTime.tryParse(sessionStartedAtRaw) ?? DateTime.now();
+        }
+
+        final daysSinceSessionStart =
+            DateTime.now().difference(sessionStartedAt).inDays;
+        if (daysSinceSessionStart > _rememberMeDays) {
+          debugPrint('Auto-logout: remember-me session expired ($daysSinceSessionStart days)');
           await _api.logout();
           await _storage.delete(key: _lastActivityKey);
+          await _storage.delete(key: _rememberMeKey);
+          await _storage.delete(key: _sessionStartedAtKey);
           await _storage.delete(key: _pendingAvatarPreviewPathKey);
           _isAuthenticated = false;
           _user = null;
@@ -70,6 +102,31 @@ class AuthProvider extends ChangeNotifier {
           _isLoading = false;
           notifyListeners();
           return;
+        }
+      }
+      
+      // Check if user has been inactive for more than 7 days
+      if (!rememberMeEnabled) {
+        final lastActivity = await _storage.read(key: _lastActivityKey);
+        if (lastActivity != null) {
+          final lastDate = DateTime.parse(lastActivity);
+          final daysSinceActivity = DateTime.now().difference(lastDate).inDays;
+
+          if (daysSinceActivity > _maxInactiveDays) {
+            // Auto-logout due to inactivity
+            debugPrint('Auto-logout due to inactivity ($daysSinceActivity days)');
+            await _api.logout();
+            await _storage.delete(key: _lastActivityKey);
+            await _storage.delete(key: _rememberMeKey);
+            await _storage.delete(key: _sessionStartedAtKey);
+            await _storage.delete(key: _pendingAvatarPreviewPathKey);
+            _isAuthenticated = false;
+            _user = null;
+            _pendingAvatarPreviewPath = null;
+            _isLoading = false;
+            notifyListeners();
+            return;
+          }
         }
       }
 
@@ -105,15 +162,66 @@ class AuthProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> login(String email, String password) async {
+  Future<void> _persistSessionPreference(bool rememberMe) async {
+    await _storage.write(
+      key: _rememberMeKey,
+      value: rememberMe ? 'true' : 'false',
+    );
+    await _storage.write(
+      key: _sessionStartedAtKey,
+      value: DateTime.now().toIso8601String(),
+    );
+  }
+
+  Future<void> login(String email, String password, {bool rememberMe = false}) async {
+    final hasInternet = await _api.hasInternetConnection();
+    if (!hasInternet) {
+      throw const AuthException(
+        'network_connection_error',
+        'Network connection error',
+      );
+    }
+
+    final backendReachable = await _api.isBackendReachable();
+    if (!backendReachable) {
+      throw const AuthException(
+        'internal_server_error',
+        'Internal server error',
+      );
+    }
+
     try {
       final response = await _api.login(email, password);
       _user = UserModel.fromJson(response['user'] as Map<String, dynamic>);
       _isAuthenticated = true;
+      await _persistSessionPreference(rememberMe);
       await _updateLastActivity();
       notifyListeners();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 429) {
+        throw const AuthException(
+          'too_many_attempts',
+          'Too many attempts-try again in 1 minute.',
+        );
+      }
+      if (e.response?.statusCode == 401) {
+        throw const AuthException(
+          'authentication_error',
+          'Invalid email or password',
+        );
+      }
+      throw const AuthException(
+        'internal_server_error',
+        'Internal server error',
+      );
     } catch (e) {
-      rethrow;
+      if (e is AuthException) {
+        rethrow;
+      }
+      throw const AuthException(
+        'login_failed',
+        'Login failed. Please try again.',
+      );
     }
   }
 
@@ -121,6 +229,7 @@ class AuthProvider extends ChangeNotifier {
     String email,
     String password,
     String name, {
+    bool rememberMe = false,
     String accountType = 'CONSUMER',
     String privacyProfile = 'PUBLIC',
     String? phoneNumber,
@@ -136,6 +245,7 @@ class AuthProvider extends ChangeNotifier {
       );
       _user = UserModel.fromJson(response['user'] as Map<String, dynamic>);
       _isAuthenticated = true;
+      await _persistSessionPreference(rememberMe);
       await _updateLastActivity();
       notifyListeners();
     } catch (e) {
@@ -146,6 +256,8 @@ class AuthProvider extends ChangeNotifier {
   Future<void> logout() async {
     await _api.logout();
     await _storage.delete(key: _lastActivityKey);
+    await _storage.delete(key: _rememberMeKey);
+    await _storage.delete(key: _sessionStartedAtKey);
     await _storage.delete(key: _pendingAvatarPreviewPathKey);
     _user = null;
     _isAuthenticated = false;

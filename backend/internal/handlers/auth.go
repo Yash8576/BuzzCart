@@ -1,18 +1,91 @@
 package handlers
 
 import (
+	"buzzcart/internal/cache"
 	"buzzcart/internal/config"
 	"buzzcart/internal/models"
 	"buzzcart/internal/utils"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
+
+const (
+	maxFailedLoginAttempts = 5
+	loginLockoutDuration   = 1 * time.Minute
+	loginRateLimitTTL      = 30 * time.Minute
+)
+
+type loginAttemptState struct {
+	FailedAttempts  int   `json:"failed_attempts"`
+	LockedUntilUnix int64 `json:"locked_until_unix"`
+}
+
+var (
+	loginAttemptStateMu  sync.RWMutex
+	loginAttemptStateMap = make(map[string]loginAttemptState)
+)
+
+func loginRateLimitKey(email, clientIP string) string {
+	normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+	return fmt.Sprintf("auth:login:attempts:%s:%s", normalizedEmail, clientIP)
+}
+
+func getLoginAttemptState(ctx context.Context, key string) loginAttemptState {
+	if client := cache.GetClient(); client != nil {
+		value, err := client.Get(ctx, key).Result()
+		if err == nil {
+			var state loginAttemptState
+			if json.Unmarshal([]byte(value), &state) == nil {
+				return state
+			}
+		}
+		if err != nil && err != redis.Nil {
+			// Fall back to in-memory state when Redis is unavailable.
+		}
+	}
+
+	loginAttemptStateMu.RLock()
+	state := loginAttemptStateMap[key]
+	loginAttemptStateMu.RUnlock()
+	return state
+}
+
+func saveLoginAttemptState(ctx context.Context, key string, state loginAttemptState) {
+	if client := cache.GetClient(); client != nil {
+		payload, err := json.Marshal(state)
+		if err == nil {
+			if client.Set(ctx, key, payload, loginRateLimitTTL).Err() == nil {
+				return
+			}
+		}
+	}
+
+	loginAttemptStateMu.Lock()
+	loginAttemptStateMap[key] = state
+	loginAttemptStateMu.Unlock()
+}
+
+func clearLoginAttemptState(ctx context.Context, key string) {
+	if client := cache.GetClient(); client != nil {
+		if client.Del(ctx, key).Err() == nil {
+			return
+		}
+	}
+
+	loginAttemptStateMu.Lock()
+	delete(loginAttemptStateMap, key)
+	loginAttemptStateMu.Unlock()
+}
 
 func Register(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -112,6 +185,23 @@ func Login(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		rateLimitKey := loginRateLimitKey(req.Email, c.ClientIP())
+		attemptState := getLoginAttemptState(c.Request.Context(), rateLimitKey)
+		nowUnix := time.Now().Unix()
+		if attemptState.LockedUntilUnix > nowUnix {
+			retryAfter := attemptState.LockedUntilUnix - nowUnix
+			if retryAfter < 1 {
+				retryAfter = int64(loginLockoutDuration.Seconds())
+			}
+
+			c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":               "Too many attempts-try again in 1 minute.",
+				"retry_after_seconds": retryAfter,
+			})
+			return
+		}
+
 		// Find user
 		var user models.User
 		var visibilityPreferencesJSON string
@@ -126,6 +216,21 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		)
 
 		if err == sql.ErrNoRows {
+			attemptState.FailedAttempts++
+			if attemptState.FailedAttempts >= maxFailedLoginAttempts {
+				attemptState.LockedUntilUnix = time.Now().Add(loginLockoutDuration).Unix()
+				saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
+
+				retryAfter := int64(loginLockoutDuration.Seconds())
+				c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":               "Too many attempts-try again in 1 minute.",
+					"retry_after_seconds": retryAfter,
+				})
+				return
+			}
+
+			saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 			return
 		} else if err != nil {
@@ -136,9 +241,26 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
 		// Verify password
 		if !utils.VerifyPassword(req.Password, user.Password) {
+			attemptState.FailedAttempts++
+			if attemptState.FailedAttempts >= maxFailedLoginAttempts {
+				attemptState.LockedUntilUnix = time.Now().Add(loginLockoutDuration).Unix()
+				saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
+
+				retryAfter := int64(loginLockoutDuration.Seconds())
+				c.Header("Retry-After", fmt.Sprintf("%d", retryAfter))
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":               "Too many attempts-try again in 1 minute.",
+					"retry_after_seconds": retryAfter,
+				})
+				return
+			}
+
+			saveLoginAttemptState(c.Request.Context(), rateLimitKey, attemptState)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid email or password"})
 			return
 		}
+
+		clearLoginAttemptState(c.Request.Context(), rateLimitKey)
 
 		// Create token
 		cfg := config.Load()
