@@ -58,6 +58,13 @@ const productSelectBase = `
 			FROM product_analytics pa
 			WHERE pa.product_id = p.id
 		), 0),
+		COALESCE((
+			SELECT SUM(oi.quantity)
+			FROM order_items oi
+			JOIN orders o ON o.id = oi.order_id
+			WHERE oi.product_id = p.id
+				AND o.status IN ('delivered', 'completed')
+		), 0),
 		COALESCE(p.metadata, '{}'::jsonb),
 		p.created_at
 	FROM products p
@@ -80,6 +87,7 @@ const productSelectLegacy = `
 		COALESCE(p.rating, 0),
 		COALESCE(p.reviews_count, 0),
 		COALESCE(p.views, 0),
+		0,
 		p.created_at
 	FROM products p
 	LEFT JOIN users u ON u.id = p.seller_id
@@ -491,6 +499,7 @@ func scanProduct(scanner productScanner) (models.Product, error) {
 		&product.Rating,
 		&product.ReviewsCount,
 		&product.Views,
+		&product.Buys,
 		&metadataJSON,
 		&product.CreatedAt,
 	)
@@ -539,6 +548,7 @@ func scanProductLegacy(scanner productScanner) (models.Product, error) {
 		&product.Rating,
 		&product.ReviewsCount,
 		&product.Views,
+		&product.Buys,
 		&product.CreatedAt,
 	)
 	if err != nil {

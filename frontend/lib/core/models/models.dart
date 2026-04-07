@@ -224,6 +224,7 @@ class ProductModel {
   final double rating;
   final int reviewsCount;
   final int views;
+  final int buys;
   final Map<String, dynamic> metadata;
   final String createdAt;
 
@@ -245,6 +246,7 @@ class ProductModel {
     this.rating = 0.0,
     this.reviewsCount = 0,
     this.views = 0,
+    this.buys = 0,
     this.metadata = const {},
     required this.createdAt,
   });
@@ -272,6 +274,7 @@ class ProductModel {
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       reviewsCount: json['reviews_count'] as int? ?? 0,
       views: json['views'] as int? ?? 0,
+      buys: json['buys'] as int? ?? 0,
       metadata: metadata,
       createdAt: json['created_at'] as String,
     );

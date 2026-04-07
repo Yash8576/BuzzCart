@@ -436,6 +436,106 @@ class _ProfilePageState extends State<ProfilePage>
     return value[0].toUpperCase() + value.substring(1);
   }
 
+  String _formatProductRating(ProductModel product) {
+    if (product.reviewsCount <= 0 || product.rating <= 0) {
+      return 'No ratings';
+    }
+    return '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})';
+  }
+
+  Widget _buildProductMetricChip({
+    required IconData icon,
+    required String label,
+    Color? color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: (color ?? Theme.of(context).colorScheme.surfaceContainerHighest)
+            .withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProductOwnerSummary() {
+    final totalViews = _products.fold<int>(0, (sum, product) => sum + product.views);
+    final totalBuys = _products.fold<int>(0, (sum, product) => sum + product.buys);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildOwnerMetricCard(
+              label: 'Total Views',
+              value: '$totalViews',
+              icon: Icons.visibility_outlined,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildOwnerMetricCard(
+              label: 'Total Buys',
+              value: '$totalBuys',
+              icon: Icons.shopping_bag_outlined,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOwnerMetricCard({
+    required String label,
+    required String value,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDeleteOverlay({
     required VoidCallback onDelete,
     required bool isDeleting,
@@ -1583,39 +1683,45 @@ class _ProfilePageState extends State<ProfilePage>
       }
       return const Center(child: Text('No products yet'));
     }
-    final grid = GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.75,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-      ),
+    final list = ListView.separated(
+      padding: const EdgeInsets.all(12),
       itemCount: _products.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final product = _products[index];
         final deletingKey = 'product:${product.id}';
         return InkWell(
           onTap: _isDeleting(deletingKey) ? null : () => context.go('/shop/${product.id}'),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
                   children: [
-                    Opacity(
-                      opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                      child: Image.network(
-                        UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey[300],
-                            child: const Icon(Icons.shopping_bag, size: 48),
-                          );
-                        },
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Opacity(
+                        opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                        child: Image.network(
+                          UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
+                          fit: BoxFit.cover,
+                          width: 92,
+                          height: 92,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 92,
+                              height: 92,
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.shopping_bag, size: 36),
+                            );
+                          },
+                        ),
                       ),
                     ),
                     if (isOwnProfile)
@@ -1625,29 +1731,73 @@ class _ProfilePageState extends State<ProfilePage>
                       ),
                   ],
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    Text(
-                      '\$${product.price.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 6),
+                      Text(
+                        '\$${product.price.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(
+                            product.reviewsCount > 0
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
+                            size: 16,
+                            color: product.reviewsCount > 0
+                                ? Colors.amber[700]
+                                : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _formatProductRating(product),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color:
+                                    Theme.of(context).textTheme.bodySmall?.color,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildProductMetricChip(
+                            icon: Icons.visibility_outlined,
+                            label: '${product.views} views',
+                          ),
+                          _buildProductMetricChip(
+                            icon: Icons.shopping_bag_outlined,
+                            label: '${product.buys} buys',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -1655,8 +1805,9 @@ class _ProfilePageState extends State<ProfilePage>
     if (isOwnProfile && currentUser?.isSeller == true) {
       return Column(
         children: [
+          _buildProductOwnerSummary(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
             child: Align(
               alignment: Alignment.centerRight,
               child: OutlinedButton.icon(
@@ -1666,11 +1817,11 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             ),
           ),
-          Expanded(child: grid),
+          Expanded(child: list),
         ],
       );
     }
-    return grid;
+    return list;
   }
 
   Widget _buildProfileActionButton({
