@@ -266,6 +266,38 @@ func UploadProductImageHandler(c *gin.Context) {
 	})
 }
 
+// UploadProductDocumentHandler handles product PDF uploads.
+// Example endpoint: POST /api/upload/product-document
+func UploadProductDocumentHandler(c *gin.Context) {
+	file, header, err := c.Request.FormFile("document")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+	defer file.Close()
+
+	if err := utils.ValidateDocument(header); err != nil {
+		log.Printf("[UploadProductDocument] Validation failed: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	storageClient := storage.GetStorageClient()
+	url, err := storageClient.UploadFile(file, header, "product-documents")
+	if err != nil {
+		log.Printf("[UploadProductDocument] Storage upload failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload product document"})
+		return
+	}
+
+	log.Printf("[UploadProductDocument] Product document uploaded successfully: %s", url)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"url":     url,
+		"message": "Product document uploaded successfully",
+	})
+}
+
 // UploadAvatarHandler handles user avatar uploads
 // Example endpoint: POST /api/upload/avatar
 func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/models/models.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
@@ -17,7 +19,8 @@ class ShopPage extends StatefulWidget {
 }
 
 class _ShopPageState extends State<ShopPage> {
-  final ApiService _api = ApiService();
+  late final ApiService _api;
+  List<ProductModel> _allProducts = [];
   List<ProductModel> _products = [];
   ProductModel? _productDetail;
   bool _loading = true;
@@ -28,6 +31,7 @@ class _ShopPageState extends State<ShopPage> {
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     if (widget.productId != null) {
       _fetchProductDetail();
     } else {
@@ -38,9 +42,13 @@ class _ShopPageState extends State<ShopPage> {
   Future<void> _fetchProducts() async {
     try {
       setState(() => _loading = true);
+      final currentUserId = context.read<AuthProvider>().user?.id;
       final data = await _api.getProducts();
       setState(() {
-        _products = data;
+        _allProducts = data
+            .where((product) => product.sellerId != currentUserId)
+            .toList();
+        _applyCategoryFilter();
         _loading = false;
       });
     } catch (e) {
@@ -51,7 +59,29 @@ class _ShopPageState extends State<ShopPage> {
   Future<void> _fetchProductDetail() async {
     try {
       setState(() => _loading = true);
+      final currentUserId = context.read<AuthProvider>().user?.id;
       final data = await _api.getProduct(widget.productId!);
+      if (data.sellerId == currentUserId) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _productDetail = null;
+          _loading = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Your own products are managed from your profile warehouse'),
+            ),
+          );
+          context.go('/profile');
+        });
+        return;
+      }
       setState(() {
         _productDetail = data;
         _loading = false;
@@ -76,6 +106,35 @@ class _ShopPageState extends State<ShopPage> {
         );
       }
     }
+  }
+
+  void _applyCategoryFilter() {
+    if (_category.isEmpty) {
+      _products = List<ProductModel>.from(_allProducts);
+      return;
+    }
+    _products = _allProducts
+        .where((product) => product.category.toLowerCase() == _category.toLowerCase())
+        .toList();
+  }
+
+  Future<void> _openExternalUrl(String rawUrl) async {
+    final resolvedUrl = UrlHelper.getPlatformUrl(rawUrl);
+    final uri = Uri.tryParse(resolvedUrl);
+    if (uri == null) {
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  List<String> get _availableCategories {
+    final categories = _allProducts
+        .map((product) => product.category.trim())
+        .where((category) => category.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    return categories;
   }
 
   @override
@@ -195,11 +254,104 @@ class _ShopPageState extends State<ShopPage> {
                           color: AppColors.electricBlue,
                         ),
                       ),
+                      if ((product.brandName ?? '').isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          product.brandName!,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (product.category.isNotEmpty)
+                            Chip(label: Text(product.category)),
+                          if (product.condition.isNotEmpty)
+                            Chip(label: Text(product.condition.toUpperCase())),
+                          Chip(label: Text('Stock: ${product.stockQuantity}')),
+                        ],
+                      ),
                       const SizedBox(height: 16),
                       Text(
                         product.description,
                         style: const TextStyle(fontSize: 16, height: 1.5),
                       ),
+                      if (product.bulletPoints.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Key features',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        ...product.bulletPoints.map(
+                          (point) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('• '),
+                                Expanded(child: Text(point)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (product.highlightedSpecifications.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Specifications',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        ...product.highlightedSpecifications.entries.map(
+                          (entry) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 140,
+                                  child: Text(
+                                    entry.key,
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                                Expanded(child: Text(entry.value)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (product.specificationPdfUrl != null ||
+                          product.mediaVideos.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Supporting Media',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        if (product.specificationPdfUrl != null)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                            title: const Text('Open specification PDF'),
+                            onTap: () => _openExternalUrl(product.specificationPdfUrl!),
+                          ),
+                        ...product.mediaVideos.map(
+                          (videoUrl) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.play_circle_outline),
+                            title: const Text('Open product video'),
+                            onTap: () => _openExternalUrl(videoUrl),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       Row(
                         children: [
@@ -265,15 +417,21 @@ class _ShopPageState extends State<ShopPage> {
                 labelText: 'Filter by Category',
                 border: OutlineInputBorder(),
               ),
-              items: const [
-                DropdownMenuItem(value: '', child: Text('All Categories')),
-                DropdownMenuItem(value: 'tech', child: Text('Tech')),
-                DropdownMenuItem(value: 'fashion', child: Text('Fashion')),
-                DropdownMenuItem(value: 'beauty', child: Text('Beauty')),
-                DropdownMenuItem(value: 'home', child: Text('Home')),
-                DropdownMenuItem(value: 'sports', child: Text('Sports')),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('All Categories')),
+                ..._availableCategories.map(
+                  (category) => DropdownMenuItem(
+                    value: category,
+                    child: Text(category),
+                  ),
+                ),
               ],
-              onChanged: (value) => setState(() => _category = value ?? ''),
+              onChanged: (value) {
+                setState(() {
+                  _category = value ?? '';
+                  _applyCategoryFilter();
+                });
+              },
             ),
           ),
         ),
@@ -321,6 +479,16 @@ class _ShopPageState extends State<ShopPage> {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                product.brandName ?? product.sellerName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(

@@ -34,6 +34,7 @@ class _ProfilePageState extends State<ProfilePage>
   bool _loading = true;
   bool _isAvatarUpdating = false;
   bool _isRelationshipUpdating = false;
+  final Set<String> _deletingItemIds = <String>{};
   int _avatarVersion = 0;
   String? _localAvatarPreviewPath;
   Uint8List? _localAvatarPreviewBytes;
@@ -318,6 +319,156 @@ class _ProfilePageState extends State<ProfilePage>
         SnackBar(content: Text('Failed to load $title')),
       );
     }
+  }
+
+  bool _isDeleting(String key) => _deletingItemIds.contains(key);
+
+  Future<bool> _confirmDelete(String itemLabel) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Delete $itemLabel?'),
+        content: Text('This will permanently remove this $itemLabel from your published content.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldDelete == true;
+  }
+
+  Future<void> _deleteMediaItem(MediaItem item) async {
+    final itemLabel = switch (item.mediaType.toLowerCase()) {
+      'photo' => 'photo post',
+      'video' => 'video',
+      'reel' => 'reel',
+      _ => 'item',
+    };
+
+    if (!await _confirmDelete(itemLabel) || !mounted) {
+      return;
+    }
+
+    final deletingKey = 'media:${item.id}';
+    setState(() => _deletingItemIds.add(deletingKey));
+
+    try {
+      await _api.deleteUserMedia(item.id);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        switch (item.mediaType.toLowerCase()) {
+          case 'photo':
+            _photos.removeWhere((media) => media.id == item.id);
+            break;
+          case 'video':
+            _videos.removeWhere((media) => media.id == item.id);
+            break;
+          case 'reel':
+            _reels.removeWhere((media) => media.id == item.id);
+            break;
+        }
+        _deletingItemIds.remove(deletingKey);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_capitalizeLabel(itemLabel)} deleted')),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _deletingItemIds.remove(deletingKey));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete $itemLabel')),
+      );
+    }
+  }
+
+  Future<void> _deleteProduct(ProductModel product) async {
+    if (!await _confirmDelete('product') || !mounted) {
+      return;
+    }
+
+    final deletingKey = 'product:${product.id}';
+    setState(() => _deletingItemIds.add(deletingKey));
+
+    try {
+      await _api.deleteProduct(product.id);
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _products.removeWhere((item) => item.id == product.id);
+        _deletingItemIds.remove(deletingKey);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Product deleted')),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _deletingItemIds.remove(deletingKey));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to delete product')),
+      );
+    }
+  }
+
+  String _capitalizeLabel(String value) {
+    if (value.isEmpty) {
+      return value;
+    }
+    return value[0].toUpperCase() + value.substring(1);
+  }
+
+  Widget _buildDeleteOverlay({
+    required VoidCallback onDelete,
+    required bool isDeleting,
+  }) {
+    return Positioned(
+      top: 8,
+      right: 8,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(999),
+        child: InkWell(
+          onTap: isDeleting ? null : onDelete,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: isDeleting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(
+                    Icons.delete_outline,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _openMessages() {
@@ -1162,9 +1313,12 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _photos.length,
       itemBuilder: (context, index) {
         final photo = _photos[index];
+        final deletingKey = 'media:${photo.id}';
         debugPrint('Building photo $index: ${photo.mediaUrl}');
         return InkWell(
-          onTap: () {
+          onTap: _isDeleting(deletingKey)
+              ? null
+              : () {
             // Show full screen photo
             showDialog(
               context: context,
@@ -1197,35 +1351,48 @@ class _ProfilePageState extends State<ProfilePage>
               ),
             );
           },
-          child: Image.network(
-            UrlHelper.getPlatformUrl(photo.mediaUrl),
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              debugPrint('Error loading thumbnail image: $error');
-              return Container(
-                color: Colors.grey[300],
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.broken_image, color: Colors.grey, size: 32),
-                    SizedBox(height: 4),
-                    Text('Error', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                  ],
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Opacity(
+                opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                child: Image.network(
+                  UrlHelper.getPlatformUrl(photo.mediaUrl),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('Error loading thumbnail image: $error');
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                          SizedBox(height: 4),
+                          Text('Error', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                        ],
+                      ),
+                    );
+                  },
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) {
+                      debugPrint('Thumbnail loaded: ${photo.mediaUrl}');
+                      return child;
+                    }
+                    return Container(
+                      color: Colors.grey[200],
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) {
-                debugPrint('Thumbnail loaded: ${photo.mediaUrl}');
-                return child;
-              }
-              return Container(
-                color: Colors.grey[200],
-                child: const Center(
-                  child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              if (isOwnProfile)
+                _buildDeleteOverlay(
+                  onDelete: () => _deleteMediaItem(photo),
+                  isDeleting: _isDeleting(deletingKey),
                 ),
-              );
-            },
+            ],
           ),
         );
       },
@@ -1269,25 +1436,34 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _videos.length,
       itemBuilder: (context, index) {
         final video = _videos[index];
+        final deletingKey = 'media:${video.id}';
         return InkWell(
-          onTap: () => context.go('/videos/${video.id}'),
+          onTap: _isDeleting(deletingKey) ? null : () => context.go('/videos/${video.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.network(
-                UrlHelper.getPlatformUrl(video.thumbnailUrl ?? video.mediaUrl),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.video_library, size: 48),
-                  );
-                },
+              Opacity(
+                opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                child: Image.network(
+                  UrlHelper.getPlatformUrl(video.thumbnailUrl ?? video.mediaUrl),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.video_library, size: 48),
+                    );
+                  },
+                ),
               ),
               const Center(
                 child: Icon(Icons.play_circle_fill,
                     color: Colors.white, size: 48),
               ),
+              if (isOwnProfile)
+                _buildDeleteOverlay(
+                  onDelete: () => _deleteMediaItem(video),
+                  isDeleting: _isDeleting(deletingKey),
+                ),
             ],
           ),
         );
@@ -1332,25 +1508,34 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _reels.length,
       itemBuilder: (context, index) {
         final reel = _reels[index];
+        final deletingKey = 'media:${reel.id}';
         return InkWell(
-          onTap: () => context.go('/reels'),
+          onTap: _isDeleting(deletingKey) ? null : () => context.go('/reels'),
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.network(
-                UrlHelper.getPlatformUrl(reel.thumbnailUrl ?? reel.mediaUrl),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.video_camera_back, size: 36),
-                  );
-                },
+              Opacity(
+                opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                child: Image.network(
+                  UrlHelper.getPlatformUrl(reel.thumbnailUrl ?? reel.mediaUrl),
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.video_camera_back, size: 36),
+                    );
+                  },
+                ),
               ),
               const Center(
                 child: Icon(Icons.play_circle_fill,
                     color: Colors.white, size: 36),
               ),
+              if (isOwnProfile)
+                _buildDeleteOverlay(
+                  onDelete: () => _deleteMediaItem(reel),
+                  isDeleting: _isDeleting(deletingKey),
+                ),
             ],
           ),
         );
@@ -1378,9 +1563,27 @@ class _ProfilePageState extends State<ProfilePage>
       );
     }
     if (_products.isEmpty) {
+      if (isOwnProfile && currentUser?.isSeller == true) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.inventory_2_outlined, size: 56, color: Colors.grey),
+              const SizedBox(height: 12),
+              const Text('Your warehouse is empty'),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => context.go('/add-product'),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Product'),
+              ),
+            ],
+          ),
+        );
+      }
       return const Center(child: Text('No products yet'));
     }
-    return GridView.builder(
+    final grid = GridView.builder(
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
@@ -1391,22 +1594,36 @@ class _ProfilePageState extends State<ProfilePage>
       itemCount: _products.length,
       itemBuilder: (context, index) {
         final product = _products[index];
+        final deletingKey = 'product:${product.id}';
         return InkWell(
-          onTap: () => context.go('/shop/${product.id}'),
+          onTap: _isDeleting(deletingKey) ? null : () => context.go('/shop/${product.id}'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Image.network(
-                  UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.shopping_bag, size: 48),
-                    );
-                  },
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Opacity(
+                      opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                      child: Image.network(
+                        UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.shopping_bag, size: 48),
+                          );
+                        },
+                      ),
+                    ),
+                    if (isOwnProfile)
+                      _buildDeleteOverlay(
+                        onDelete: () => _deleteProduct(product),
+                        isDeleting: _isDeleting(deletingKey),
+                      ),
+                  ],
                 ),
               ),
               Padding(
@@ -1435,6 +1652,25 @@ class _ProfilePageState extends State<ProfilePage>
         );
       },
     );
+    if (isOwnProfile && currentUser?.isSeller == true) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: () => context.go('/add-product'),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Product'),
+              ),
+            ),
+          ),
+          Expanded(child: grid),
+        ],
+      );
+    }
+    return grid;
   }
 
   Widget _buildProfileActionButton({

@@ -1,10 +1,15 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
-import 'dart:io';
+
 import '../../../../core/providers/add_product_provider.dart';
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/services/api_service.dart';
 
 class AddProductScreen extends StatefulWidget {
@@ -16,99 +21,258 @@ class AddProductScreen extends StatefulWidget {
 
 class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
-  final ImagePicker _picker = ImagePicker();
+
   late final ApiService _api;
-  
-  // Controllers
-  final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _priceController = TextEditingController();
-  final TextEditingController _categoryController = TextEditingController();
-  final TextEditingController _stockController = TextEditingController();
-  
-  bool _isUploading = false;
+
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _categoryController = TextEditingController();
+  final _brandNameController = TextEditingController();
+  final _manufacturerController = TextEditingController();
+  final _productIdController = TextEditingController();
+  final _gtinController = TextEditingController();
+  final _productTypeController = TextEditingController();
+  final _priceController = TextEditingController();
+  final _quantityController = TextEditingController();
+  final _shippingDetailsController = TextEditingController();
+  final _sizeController = TextEditingController();
+  final _colorController = TextEditingController();
+  final _styleController = TextEditingController();
+  final _packQuantityController = TextEditingController();
+  final _variationFamilyController = TextEditingController();
+  final _materialController = TextEditingController();
+  final _dimensionLengthController = TextEditingController();
+  final _dimensionWidthController = TextEditingController();
+  final _dimensionHeightController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _itemModelNumberController = TextEditingController();
+  final _countryOfOriginController = TextEditingController();
+  final _searchTermsController = TextEditingController();
+
+  final List<_EditableFieldRow> _manualSpecificationRows = [];
+  final List<TextEditingController> _bulletPointControllers = [];
+
+  final List<XFile> _imageFiles = [];
+  final List<XFile> _videoFiles = [];
+  XFile? _specificationPdf;
+
+  String _brandOrigin = 'own';
+  String _condition = 'new';
+  String _fulfillmentMethod = 'FBM';
+  String _dimensionUnit = 'cm';
+  bool _gtinExempt = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
     _api = context.read<ApiService>();
-    // Load state from provider
-    final provider = context.read<AddProductProvider>();
-    _titleController.text = provider.productName;
-    _descriptionController.text = provider.description;
-    _priceController.text = provider.price;
-    _stockController.text = provider.stock;
-    
-    // Add listeners to update provider
-    _titleController.addListener(() {
-      provider.setProductName(_titleController.text);
-    });
-    _descriptionController.addListener(() {
-      provider.setDescription(_descriptionController.text);
-    });
-    _priceController.addListener(() {
-      provider.setPrice(_priceController.text);
-    });
-    _stockController.addListener(() {
-      provider.setStock(_stockController.text);
-    });
+    _addManualSpecificationRow();
+    _addBulletPointRow();
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    _priceController.dispose();
-    _categoryController.dispose();
-    _stockController.dispose();
+    for (final controller in [
+      _titleController,
+      _descriptionController,
+      _categoryController,
+      _brandNameController,
+      _manufacturerController,
+      _productIdController,
+      _gtinController,
+      _productTypeController,
+      _priceController,
+      _quantityController,
+      _shippingDetailsController,
+      _sizeController,
+      _colorController,
+      _styleController,
+      _packQuantityController,
+      _variationFamilyController,
+      _materialController,
+      _dimensionLengthController,
+      _dimensionWidthController,
+      _dimensionHeightController,
+      _weightController,
+      _itemModelNumberController,
+      _countryOfOriginController,
+      _searchTermsController,
+    ]) {
+      controller.dispose();
+    }
+    for (final row in _manualSpecificationRows) {
+      row.dispose();
+    }
+    for (final controller in _bulletPointControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
-  Future<void> _pickMedia() async {
-    final provider = context.read<AddProductProvider>();
-    final mediaType = provider.selectedMediaType;
-    
-    try {
-      if (mediaType == 'photo') {
-        final List<XFile> images = await _picker.pickMultiImage(
-          maxWidth: 1920,
-          maxHeight: 1920,
-          imageQuality: 85,
-        );
-        
-        if (images.isNotEmpty) {
-          for (var image in images) {
-            if (provider.selectedFiles.length < 5) {
-              provider.addFile(image);
-            } else {
-              break;
-            }
-          }
-        }
-      } else if (mediaType == 'video' || mediaType == 'reel') {
-        final XFile? video = await _picker.pickVideo(
-          source: ImageSource.gallery,
-          maxDuration: mediaType == 'reel'
-              ? const Duration(seconds: 60)
-              : const Duration(minutes: 5),
-        );
-        
-        if (video != null && provider.selectedFiles.length < 5) {
-          provider.addFile(video);
-        }
-      } else if (mediaType == 'audio') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Audio upload coming soon!')),
-          );
+  void _markDirty() {
+    context.read<AddProductProvider>().markEdited();
+  }
+
+  void _addManualSpecificationRow({String key = '', String value = ''}) {
+    final row = _EditableFieldRow(
+      keyController: TextEditingController(text: key),
+      valueController: TextEditingController(text: value),
+    );
+    row.keyController.addListener(_markDirty);
+    row.valueController.addListener(_markDirty);
+    _manualSpecificationRows.add(row);
+  }
+
+  void _addBulletPointRow({String value = ''}) {
+    final controller = TextEditingController(text: value);
+    controller.addListener(_markDirty);
+    _bulletPointControllers.add(controller);
+  }
+
+  Future<void> _pickImages() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: true,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final pickedFiles = <XFile>[];
+    for (final file in result.files) {
+      final xFile = _toXFile(file);
+      if (xFile != null) {
+        pickedFiles.add(xFile);
+      }
+    }
+
+    if (pickedFiles.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      for (final file in pickedFiles) {
+        if (_imageFiles.length < 8) {
+          _imageFiles.add(file);
         }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking media: $e')),
-        );
+    });
+    _markDirty();
+  }
+
+  Future<void> _pickVideos() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: true,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final pickedFiles = <XFile>[];
+    for (final file in result.files) {
+      final xFile = _toXFile(file);
+      if (xFile != null) {
+        pickedFiles.add(xFile);
       }
+    }
+
+    if (pickedFiles.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      for (final file in pickedFiles) {
+        if (_videoFiles.length < 4) {
+          _videoFiles.add(file);
+        }
+      }
+    });
+    _markDirty();
+  }
+
+  Future<void> _pickSpecificationPdf() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
+
+    final pdf = _toXFile(
+      result.files.first,
+      fallbackMimeType: 'application/pdf',
+    );
+    if (pdf == null) {
+      return;
+    }
+
+    setState(() {
+      _specificationPdf = pdf;
+    });
+    _markDirty();
+  }
+
+  XFile? _toXFile(PlatformFile file, {String? fallbackMimeType}) {
+    final mimeType = fallbackMimeType ?? _guessMimeType(file.name);
+
+    if (kIsWeb) {
+      if (file.bytes == null || file.bytes!.isEmpty) {
+        return null;
+      }
+      return XFile.fromData(
+        file.bytes!,
+        name: file.name,
+        mimeType: mimeType,
+      );
+    }
+
+    if (file.path != null && file.path!.isNotEmpty) {
+      return XFile(
+        file.path!,
+        name: file.name,
+        mimeType: mimeType,
+      );
+    }
+
+    if (file.bytes != null) {
+      return XFile.fromData(
+        file.bytes!,
+        name: file.name,
+        mimeType: mimeType,
+      );
+    }
+
+    return null;
+  }
+
+  String? _guessMimeType(String fileName) {
+    final extension = fileName.split('.').last.toLowerCase();
+    switch (extension) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'mp4':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'webm':
+        return 'video/webm';
+      case 'pdf':
+        return 'application/pdf';
+      default:
+        return null;
     }
   }
 
@@ -117,417 +281,519 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
-    final provider = context.read<AddProductProvider>();
-    
-    if (provider.selectedFiles.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please add at least one product media file')),
-        );
-      }
+    if (_imageFiles.isEmpty && _videoFiles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add at least one product photo or video.'),
+        ),
+      );
       return;
     }
 
     setState(() {
-      _isUploading = true;
+      _isSubmitting = true;
     });
 
     try {
-      // Upload all product images first
-      List<String> uploadedUrls = [];
-      
-      for (final file in provider.selectedFiles) {
+      final uploadedImageUrls = <String>[];
+      for (final file in _imageFiles) {
         final result = await _api.uploadProductImage(file);
-        if (result['url'] != null) {
-          uploadedUrls.add(result['url'] as String);
+        final url = result['url'] as String?;
+        if (url != null && url.isNotEmpty) {
+          uploadedImageUrls.add(url);
         }
       }
-      
-      if (uploadedUrls.isEmpty) {
-        throw Exception('Failed to upload product images');
+
+      final uploadedVideoUrls = <String>[];
+      for (final file in _videoFiles) {
+        final result = await _api.uploadVideo(file);
+        final url = result['url'] as String?;
+        if (url != null && url.isNotEmpty) {
+          uploadedVideoUrls.add(url);
+        }
       }
-      
-      // Create the product with uploaded image URLs
+
+      String? specificationPdfUrl;
+      if (_specificationPdf != null) {
+        final result = await _api.uploadProductDocument(_specificationPdf!);
+        specificationPdfUrl = result['url'] as String?;
+      }
+
+      final manualSpecs = <String, String>{};
+      for (final row in _manualSpecificationRows) {
+        final key = row.keyController.text.trim();
+        final value = row.valueController.text.trim();
+        if (key.isNotEmpty && value.isNotEmpty) {
+          manualSpecs[key] = value;
+        }
+      }
+
+      final bulletPoints = _bulletPointControllers
+          .map((controller) => controller.text.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+
+      final searchTerms = _searchTermsController.text
+          .split(',')
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toList();
+
+      final authProvider = context.read<AuthProvider>();
+      final sellerName = authProvider.user?.name ?? '';
+      final resolvedBrandName = _brandOrigin == 'own'
+          ? (sellerName.isNotEmpty
+              ? sellerName
+              : _brandNameController.text.trim())
+          : _brandNameController.text.trim();
+
+      final dimensions = <String, String>{};
+      if (_dimensionLengthController.text.trim().isNotEmpty) {
+        dimensions['length'] = _dimensionLengthController.text.trim();
+      }
+      if (_dimensionWidthController.text.trim().isNotEmpty) {
+        dimensions['width'] = _dimensionWidthController.text.trim();
+      }
+      if (_dimensionHeightController.text.trim().isNotEmpty) {
+        dimensions['height'] = _dimensionHeightController.text.trim();
+      }
+      if (dimensions.isNotEmpty) {
+        dimensions['unit'] = _dimensionUnit;
+      }
+
+      final metadata = <String, dynamic>{
+        'brand_origin': _brandOrigin,
+        'brand_name': resolvedBrandName,
+        'manufacturer': _manufacturerController.text.trim(),
+        'product_identifier': _productIdController.text.trim(),
+        'gtin': _gtinExempt ? '' : _gtinController.text.trim(),
+        'gtin_exempt': _gtinExempt,
+        'product_type': _productTypeController.text.trim(),
+        'variation_summary': [
+          _sizeController.text.trim().isNotEmpty
+              ? 'Size: ${_sizeController.text.trim()}'
+              : null,
+          _colorController.text.trim().isNotEmpty
+              ? 'Color: ${_colorController.text.trim()}'
+              : null,
+          _styleController.text.trim().isNotEmpty
+              ? 'Style: ${_styleController.text.trim()}'
+              : null,
+          _packQuantityController.text.trim().isNotEmpty
+              ? 'Pack quantity: ${_packQuantityController.text.trim()}'
+              : null,
+          _variationFamilyController.text.trim().isNotEmpty
+              ? 'Variation family: ${_variationFamilyController.text.trim()}'
+              : null,
+        ].whereType<String>().join(' | '),
+        'fulfillment_method': _fulfillmentMethod,
+        'shipping_details': _shippingDetailsController.text.trim(),
+        'bullet_points': bulletPoints,
+        'search_terms': searchTerms,
+        'manual_specifications': manualSpecs,
+        'material': _materialController.text.trim(),
+        'dimensions': dimensions,
+        'weight': _weightController.text.trim(),
+        'color': _colorController.text.trim(),
+        'item_model_number': _itemModelNumberController.text.trim(),
+        'country_of_origin': _countryOfOriginController.text.trim(),
+        'specification_pdf_url': specificationPdfUrl,
+        'media_videos': uploadedVideoUrls,
+      }..removeWhere((key, value) {
+          if (value == null) {
+            return true;
+          }
+          if (value is String) {
+            return value.trim().isEmpty;
+          }
+          if (value is List || value is Map) {
+            return (value as dynamic).isEmpty;
+          }
+          return false;
+        });
+
       await _api.createProduct(
-        title: provider.productName,
-        description: provider.description,
-        price: double.parse(provider.price),
-        category: _categoryController.text.isEmpty ? 'General' : _categoryController.text,
-        images: uploadedUrls,
+        title: _titleController.text.trim(),
+        description: _descriptionController.text.trim(),
+        price: double.parse(_priceController.text.trim()),
+        category: _categoryController.text.trim(),
+        images: uploadedImageUrls,
+        tags: searchTerms,
+        sku: _productIdController.text.trim().isEmpty
+            ? null
+            : _productIdController.text.trim(),
+        stockQuantity: int.tryParse(_quantityController.text.trim()),
+        condition: _condition,
+        metadata: metadata,
       );
-      
-      if (mounted) {
-        provider.clearAll(); // Clear state after successful upload
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Product created successfully!')),
-        );
-        Navigator.pop(context);
+
+      if (!mounted) {
+        return;
       }
+
+      context.read<AddProductProvider>().clearAll();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Product added to your warehouse successfully.'),
+        ),
+      );
+      context.go('/profile');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create product: $e')),
-        );
+      if (!mounted) {
+        return;
       }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create product: $e')),
+      );
     } finally {
       if (mounted) {
         setState(() {
-          _isUploading = false;
+          _isSubmitting = false;
         });
       }
     }
   }
 
+  Widget _buildSectionCard({
+    required String title,
+    String? subtitle,
+    required Widget child,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.grey[700],
+                    ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    String? hint,
+    String? prefixText,
+    String? Function(String?)? validator,
+    int maxLines = 1,
+    int? maxLength,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+  }) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixText: prefixText,
+        border: const OutlineInputBorder(),
+        alignLabelWithHint: maxLines > 1,
+      ),
+      maxLines: maxLines,
+      maxLength: maxLength,
+      validator: validator,
+      keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
+      onChanged: (_) => _markDirty(),
+    );
+  }
+
+  String? Function(String?) _requiredValidator(String message) {
+    return (value) {
+      if (value == null || value.trim().isEmpty) {
+        return message;
+      }
+      return null;
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Consumer<AddProductProvider>(
-      builder: (context, provider, child) {
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Add New Product'),
-            actions: [
-              if (!_isUploading)
-                TextButton(
-                  onPressed: _submitProduct,
-                  child: const Text(
-                    'Publish',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
+    final isSeller = context.watch<AuthProvider>().isSeller;
+
+    if (!isSeller) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Seller Warehouse')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Only seller accounts can add products to the warehouse.',
+              textAlign: TextAlign.center,
+            ),
           ),
-          body: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Add Product to Warehouse'),
+        actions: [
+          TextButton(
+            onPressed: _isSubmitting ? null : _submitProduct,
+            child: const Text(
+              'Publish',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          children: [
+            _buildSectionCard(
+              title: 'Warehouse Visibility',
+              subtitle:
+                  'Products added here will appear for all users on Home and Shop.',
+              child: Row(
                 children: [
-                  // Product Media Section
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Product Media',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          
-                          // Media type selector
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ChoiceChip(
-                                  label: const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.photo, size: 16),
-                                      SizedBox(height: 2),
-                                      Text('Photo', style: TextStyle(fontSize: 10)),
-                                    ],
-                                  ),
-                                  selected: provider.selectedMediaType == 'photo',
-                                  onSelected: (selected) {
-                                    if (selected) {
-                                      provider.setMediaType('photo');
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: ChoiceChip(
-                                  label: const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.videocam, size: 16),
-                                      SizedBox(height: 2),
-                                      Text('Video', style: TextStyle(fontSize: 10)),
-                                    ],
-                                  ),
-                                  selected: provider.selectedMediaType == 'video',
-                                  onSelected: (selected) {
-                                    if (selected) {
-                                      provider.setMediaType('video');
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: ChoiceChip(
-                                  label: const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.movie, size: 16),
-                                      SizedBox(height: 2),
-                                      Text('Reel', style: TextStyle(fontSize: 10)),
-                                    ],
-                                  ),
-                                  selected: provider.selectedMediaType == 'reel',
-                                  onSelected: (selected) {
-                                    if (selected) {
-                                      provider.setMediaType('reel');
-                                    }
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: ChoiceChip(
-                                  label: const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.audiotrack, size: 16),
-                                      SizedBox(height: 2),
-                                      Text('Audio', style: TextStyle(fontSize: 10)),
-                                    ],
-                                  ),
-                                  selected: provider.selectedMediaType == 'audio',
-                                  onSelected: (selected) {
-                                    if (selected) {
-                                      provider.setMediaType('audio');
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          
-                          Text(
-                            'Add up to 5 ${provider.selectedMediaType == 'photo' ? 'images' : 'files'}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          
-                          // Media grid
-                          SizedBox(
-                            height: 100,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: provider.selectedFiles.length + 1,
-                              itemBuilder: (context, index) {
-                                if (index == provider.selectedFiles.length) {
-                                  // Add button
-                                  return GestureDetector(
-                                    onTap: provider.selectedFiles.length < 5 ? _pickMedia : null,
-                                    child: Container(
-                                      width: 100,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      decoration: BoxDecoration(
-                                        border: Border.all(
-                                          color: Colors.grey.shade300,
-                                          width: 2,
-                                        ),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Column(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Icon(
-                                            provider.selectedMediaType == 'photo' ? Icons.add_photo_alternate :
-                                            provider.selectedMediaType == 'video' || provider.selectedMediaType == 'reel' ? Icons.video_library :
-                                            Icons.audio_file,
-                                            size: 32,
-                                            color: provider.selectedFiles.length < 5
-                                                ? Colors.blue
-                                                : Colors.grey,
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Add',
-                                            style: TextStyle(
-                                              color: provider.selectedFiles.length < 5
-                                                  ? Colors.blue
-                                                  : Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  );
-                                }
-                                
-                                // Media preview
-                                return Stack(
-                                  children: [
-                                    Container(
-                                      width: 100,
-                                      margin: const EdgeInsets.only(right: 8),
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8),
-                                        color: Colors.grey.shade200,
-                                        image: provider.selectedMediaType == 'photo' ? DecorationImage(
-                                          image: kIsWeb 
-                                              ? NetworkImage(provider.selectedFiles[index].path) as ImageProvider
-                                              : FileImage(File(provider.selectedFiles[index].path)),
-                                          fit: BoxFit.cover,
-                                        ) : null,
-                                      ),
-                                      child: provider.selectedMediaType != 'photo' ? Center(
-                                        child: Icon(
-                                          provider.selectedMediaType == 'video' || provider.selectedMediaType == 'reel' 
-                                              ? Icons.play_circle_outline 
-                                              : Icons.audiotrack,
-                                          size: 40,
-                                          color: Colors.blue,
-                                        ),
-                                      ) : null,
-                                    ),
-                                    Positioned(
-                                      top: 4,
-                                      right: 12,
-                                      child: GestureDetector(
-                                        onTap: () => provider.removeFile(index),
-                                        child: Container(
-                                          padding: const EdgeInsets.all(4),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.red,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: const Icon(
-                                            Icons.close,
-                                            size: 16,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    if (index == 0)
-                                      Positioned(
-                                        bottom: 4,
-                                        left: 4,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.blue,
-                                            borderRadius: BorderRadius.circular(4),
-                                          ),
-                                          child: const Text(
-                                            'Main',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
+                  const Icon(Icons.public, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Global product listing is enabled for seller products.',
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Product Title
-                  TextFormField(
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '1. Basic Product Info',
+              child: Column(
+                children: [
+                  _buildTextField(
                     controller: _titleController,
-                    decoration: const InputDecoration(
-                      labelText: 'Product Name *',
-                      hintText: 'Enter product name',
-                      border: OutlineInputBorder(),
-                    ),
+                    label: 'Product name *',
+                    hint: 'Enter the product title',
+                    validator: _requiredValidator('Product name is required'),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'own', label: Text('Own Brand')),
+                      ButtonSegment(value: 'other', label: Text('Different Brand')),
+                    ],
+                    selected: {_brandOrigin},
+                    onSelectionChanged: (selection) {
+                      setState(() {
+                        _brandOrigin = selection.first;
+                      });
+                      _markDirty();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _brandNameController,
+                    label: _brandOrigin == 'other' ? 'Brand name *' : 'Brand name',
+                    hint: _brandOrigin == 'own'
+                        ? 'Leave blank to use your seller name'
+                        : 'Enter the brand name',
                     validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter product name';
+                      if (_brandOrigin == 'other' &&
+                          (value == null || value.trim().isEmpty)) {
+                        return 'Brand name is required for products from another brand';
                       }
                       return null;
                     },
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Description
-                  TextFormField(
-                    controller: _descriptionController,
-                    maxLines: 4,
-                    maxLength: 1000,
-                    decoration: const InputDecoration(
-                      labelText: 'Description *',
-                      hintText: 'Describe your product...',
-                      border: OutlineInputBorder(),
-                      alignLabelWithHint: true,
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter product description';
-                      }
-                      return null;
-                    },
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _manufacturerController,
+                    label: 'Manufacturer',
+                    hint: 'Who makes this product?',
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Price and Stock Row
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: TextFormField(
+                        child: _buildTextField(
+                          controller: _productIdController,
+                          label: 'Product ID',
+                          hint: 'SKU or internal ID',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _productTypeController,
+                          label: 'Product type',
+                          hint: 'Example: smartphone',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    value: _gtinExempt,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('GTIN exemption'),
+                    subtitle: const Text(
+                      'Use this if you do not have UPC / EAN / ISBN',
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        _gtinExempt = value ?? false;
+                      });
+                      _markDirty();
+                    },
+                  ),
+                  if (!_gtinExempt) ...[
+                    const SizedBox(height: 8),
+                    _buildTextField(
+                      controller: _gtinController,
+                      label: 'UPC / EAN / ISBN',
+                      hint: 'Optional barcode identifier',
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _categoryController,
+                    label: 'Category *',
+                    hint: 'Example: Electronics',
+                    validator: _requiredValidator('Category is required'),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _descriptionController,
+                    label: 'Description *',
+                    hint:
+                        'Describe the product, who it is for, and what makes it useful',
+                    maxLines: 5,
+                    maxLength: 1500,
+                    validator: _requiredValidator('Description is required'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '2. Variations',
+              subtitle:
+                  'Optional if the product has size, color, style, or pack options.',
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _sizeController,
+                          label: 'Size',
+                          hint: 'S, M, L or 256GB',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _colorController,
+                          label: 'Color',
+                          hint: 'Black',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _styleController,
+                          label: 'Style',
+                          hint: 'Modern / Classic',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _packQuantityController,
+                          label: 'Pack quantity',
+                          hint: '2 pack',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _variationFamilyController,
+                    label: 'Parent-child variation setup',
+                    hint: 'Optional grouping note for related variants',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '3. Offer Details',
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
                           controller: _priceController,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-                          ],
-                          decoration: const InputDecoration(
-                            labelText: 'Price *',
-                            hintText: '0.00',
-                            prefixText: '\$ ',
-                            border: OutlineInputBorder(),
+                          label: 'Price *',
+                          hint: '0.00',
+                          prefixText: '\$ ',
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
                           ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d{0,2}'),
+                            ),
+                          ],
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Enter price';
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Price is required';
                             }
-                            final price = double.tryParse(value);
+                            final price = double.tryParse(value.trim());
                             if (price == null || price <= 0) {
-                              return 'Invalid price';
+                              return 'Enter a valid price';
                             }
                             return null;
                           },
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: TextFormField(
-                          controller: _stockController,
+                        child: _buildTextField(
+                          controller: _quantityController,
+                          label: 'Quantity *',
+                          hint: '0',
                           keyboardType: TextInputType.number,
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
                           ],
-                          decoration: const InputDecoration(
-                            labelText: 'Stock *',
-                            hintText: '0',
-                            border: OutlineInputBorder(),
-                          ),
                           validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Enter stock';
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Quantity is required';
                             }
-                            final stock = int.tryParse(value);
-                            if (stock == null || stock < 0) {
-                              return 'Invalid stock';
+                            final quantity = int.tryParse(value.trim());
+                            if (quantity == null || quantity < 0) {
+                              return 'Enter a valid quantity';
                             }
                             return null;
                           },
@@ -535,53 +801,564 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Category
-                  TextFormField(
-                    controller: _categoryController,
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _condition,
                     decoration: const InputDecoration(
-                      labelText: 'Category *',
-                      hintText: 'e.g., Electronics, Fashion, Home',
+                      labelText: 'Condition',
                       border: OutlineInputBorder(),
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter category';
+                    items: const [
+                      DropdownMenuItem(value: 'new', child: Text('New')),
+                      DropdownMenuItem(value: 'used', child: Text('Used')),
+                      DropdownMenuItem(
+                        value: 'refurbished',
+                        child: Text('Refurbished'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
                       }
-                      return null;
+                      setState(() {
+                        _condition = value;
+                      });
+                      _markDirty();
                     },
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // Submit Button
-                  ElevatedButton(
-                    onPressed: _isUploading ? null : _submitProduct,
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      minimumSize: const Size.fromHeight(50),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _fulfillmentMethod,
+                    decoration: const InputDecoration(
+                      labelText: 'Fulfillment method',
+                      border: OutlineInputBorder(),
                     ),
-                    child: _isUploading
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text(
-                            'Create Product',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'FBM',
+                        child: Text('FBM - Seller ships'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'FBA',
+                        child: Text('FBA - Platform ships'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setState(() {
+                        _fulfillmentMethod = value;
+                      });
+                      _markDirty();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildTextField(
+                    controller: _shippingDetailsController,
+                    label: 'Shipping details',
+                    hint:
+                        'Delivery notes, lead time, coverage, or packaging info',
+                    maxLines: 3,
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '4. Product Description Content',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Bullet points',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...List.generate(_bulletPointControllers.length, (index) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _bulletPointControllers[index],
+                              decoration: InputDecoration(
+                                labelText: 'Key feature ${index + 1}',
+                                hintText:
+                                    'Example: 6GB RAM for smooth performance',
+                                border: const OutlineInputBorder(),
+                              ),
+                              maxLines: 2,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            onPressed: _bulletPointControllers.length == 1
+                                ? null
+                                : () {
+                                    setState(() {
+                                      final controller =
+                                          _bulletPointControllers.removeAt(
+                                        index,
+                                      );
+                                      controller.dispose();
+                                    });
+                                    _markDirty();
+                                  },
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _addBulletPointRow();
+                      });
+                      _markDirty();
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add bullet point'),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _searchTermsController,
+                    label: 'Search terms',
+                    hint: 'Comma separated keywords for SEO',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: '5. Product Details / Specifications',
+              child: Column(
+                children: [
+                  _buildTextField(
+                    controller: _materialController,
+                    label: 'Material',
+                    hint: 'Example: Aluminum',
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _dimensionLengthController,
+                          label: 'Length',
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _dimensionWidthController,
+                          label: 'Width',
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _dimensionHeightController,
+                          label: 'Height',
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _weightController,
+                          label: 'Weight',
+                          hint: 'Example: 1.3 kg',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: _dimensionUnit,
+                          decoration: const InputDecoration(
+                            labelText: 'Dimension unit',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'cm', child: Text('cm')),
+                            DropdownMenuItem(value: 'mm', child: Text('mm')),
+                            DropdownMenuItem(
+                              value: 'in',
+                              child: Text('inches'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _dimensionUnit = value;
+                            });
+                            _markDirty();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _itemModelNumberController,
+                          label: 'Item model number',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _countryOfOriginController,
+                          label: 'Country of origin',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Manual key-value specifications',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...List.generate(_manualSpecificationRows.length, (index) {
+                    final row = _manualSpecificationRows[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: row.keyController,
+                              decoration: const InputDecoration(
+                                labelText: 'Spec name',
+                                hintText: 'RAM',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextFormField(
+                              controller: row.valueController,
+                              decoration: const InputDecoration(
+                                labelText: 'Spec value',
+                                hintText: '6GB',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton(
+                            onPressed: _manualSpecificationRows.length == 1
+                                ? null
+                                : () {
+                                    setState(() {
+                                      final removed =
+                                          _manualSpecificationRows.removeAt(
+                                        index,
+                                      );
+                                      removed.dispose();
+                                    });
+                                    _markDirty();
+                                  },
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _addManualSpecificationRow();
+                      });
+                      _markDirty();
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add specification'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _buildSectionCard(
+              title: 'Media & Documents',
+              subtitle:
+                  'Add photos and/or videos, plus the optional PDF specification sheet.',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _pickImages,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: Text('Add Photos (${_imageFiles.length}/8)'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _pickVideos,
+                        icon: const Icon(Icons.videocam_outlined),
+                        label: Text('Add Videos (${_videoFiles.length}/4)'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _pickSpecificationPdf,
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: Text(
+                          _specificationPdf == null
+                              ? 'Upload Specs PDF'
+                              : 'Replace Specs PDF',
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_imageFiles.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Photos',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 112,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _imageFiles.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          return _MediaPreviewCard(
+                            file: _imageFiles[index],
+                            isVideo: false,
+                            onRemove: () {
+                              setState(() {
+                                _imageFiles.removeAt(index);
+                              });
+                              _markDirty();
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  if (_videoFiles.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    ...List.generate(_videoFiles.length, (index) {
+                      final file = _videoFiles[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: const Icon(Icons.videocam),
+                          title: Text(file.name),
+                          subtitle: const Text('Product video'),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () {
+                              setState(() {
+                                _videoFiles.removeAt(index);
+                              });
+                              _markDirty();
+                            },
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                  if (_specificationPdf != null) ...[
+                    const SizedBox(height: 16),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(
+                          Icons.picture_as_pdf,
+                          color: Colors.red,
+                        ),
+                        title: Text(_specificationPdf!.name),
+                        subtitle: const Text('Specification sheet'),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            setState(() {
+                              _specificationPdf = null;
+                            });
+                            _markDirty();
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _isSubmitting ? null : _submitProduct,
+              icon: _isSubmitting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.inventory_2_outlined),
+              label:
+                  Text(_isSubmitting ? 'Publishing...' : 'Publish Product'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(52),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EditableFieldRow {
+  final TextEditingController keyController;
+  final TextEditingController valueController;
+
+  _EditableFieldRow({
+    required this.keyController,
+    required this.valueController,
+  });
+
+  void dispose() {
+    keyController.dispose();
+    valueController.dispose();
+  }
+}
+
+class _MediaPreviewCard extends StatelessWidget {
+  final XFile file;
+  final bool isVideo;
+  final VoidCallback onRemove;
+
+  const _MediaPreviewCard({
+    required this.file,
+    required this.isVideo,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 104,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.grey.shade100,
+                ),
+                child: isVideo
+                    ? const Center(
+                        child: Icon(
+                          Icons.play_circle_fill,
+                          size: 42,
+                          color: Colors.black54,
+                        ),
+                      )
+                    : _ImagePreview(file: file),
+              ),
+            ),
           ),
-        );
+          Positioned(
+            top: 6,
+            right: 6,
+            child: InkWell(
+              onTap: onRemove,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close, size: 14, color: Colors.white),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 8,
+            right: 8,
+            bottom: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                file.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 11),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImagePreview extends StatelessWidget {
+  final XFile file;
+
+  const _ImagePreview({required this.file});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: file.readAsBytes(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
+        if (!snapshot.hasData || snapshot.data == null || snapshot.data!.isEmpty) {
+          return const Center(child: Icon(Icons.broken_image_outlined));
+        }
+        return Image.memory(snapshot.data!, fit: BoxFit.cover);
       },
     );
   }

@@ -23,6 +23,7 @@ class _ProfileGalleryWidgetState extends State<ProfileGalleryWidget> {
   final ApiService _api = ApiService();
   final ScrollController _scrollController = ScrollController();
   final List<PostModel> _posts = [];
+  final Set<String> _deletingPostIds = <String>{};
   
   bool _loading = true;
   bool _loadingMore = false;
@@ -110,6 +111,57 @@ class _ProfileGalleryWidgetState extends State<ProfileGalleryWidget> {
     }
   }
 
+  Future<bool> _confirmDeletePost() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete post?'),
+        content: const Text('This will permanently remove this published post.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
+  }
+
+  Future<void> _deletePost(PostModel post) async {
+    if (!widget.isOwnProfile || !await _confirmDeletePost() || !mounted) {
+      return;
+    }
+
+    setState(() => _deletingPostIds.add(post.id));
+    try {
+      await _api.deletePost(post.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _posts.removeWhere((item) => item.id == post.id);
+        _deletingPostIds.remove(post.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Post deleted')),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _deletingPostIds.remove(post.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to delete post')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -187,6 +239,9 @@ class _ProfileGalleryWidgetState extends State<ProfileGalleryWidget> {
             return _GridItem(
               post: post,
               onTap: () => _openPost(post, index),
+              isOwnProfile: widget.isOwnProfile,
+              isDeleting: _deletingPostIds.contains(post.id),
+              onDelete: () => _deletePost(post),
             );
           },
           childCount: _posts.length + (_loadingMore ? 1 : 0),
@@ -243,32 +298,41 @@ class _ProfileGalleryWidgetState extends State<ProfileGalleryWidget> {
 class _GridItem extends StatelessWidget {
   final PostModel post;
   final VoidCallback onTap;
+  final bool isOwnProfile;
+  final bool isDeleting;
+  final VoidCallback onDelete;
 
   const _GridItem({
     required this.post,
     required this.onTap,
+    required this.isOwnProfile,
+    required this.isDeleting,
+    required this.onDelete,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: isDeleting ? null : onTap,
       child: Stack(
         fit: StackFit.expand,
         children: [
           // Media thumbnail
-          CachedNetworkImage(
-            imageUrl: post.thumbnailUrl ?? post.mediaUrl,
-            fit: BoxFit.cover,
-            placeholder: (context, url) => Container(
-              color: Colors.grey[200],
-              child: const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
+          Opacity(
+            opacity: isDeleting ? 0.45 : 1,
+            child: CachedNetworkImage(
+              imageUrl: post.thumbnailUrl ?? post.mediaUrl,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => Container(
+                color: Colors.grey[200],
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
-            ),
-            errorWidget: (context, url, error) => Container(
-              color: Colors.grey[200],
-              child: const Icon(Icons.broken_image, color: Colors.grey),
+              errorWidget: (context, url, error) => Container(
+                color: Colors.grey[200],
+                child: const Icon(Icons.broken_image, color: Colors.grey),
+              ),
             ),
           ),
           
@@ -290,13 +354,44 @@ class _GridItem extends StatelessWidget {
                 ),
               ),
             ),
+
+          if (isOwnProfile)
+            Positioned(
+              top: 8,
+              left: 8,
+              child: Material(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(20),
+                child: InkWell(
+                  onTap: isDeleting ? null : onDelete,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: isDeleting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.delete_outline,
+                            color: Colors.white,
+                            size: 18,
+                          ),
+                  ),
+                ),
+              ),
+            ),
           
           // Engagement overlay (shown on hover/press)
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: onTap,
+                onTap: isDeleting ? null : onTap,
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.3),

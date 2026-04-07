@@ -211,6 +211,11 @@ class ProductModel {
   final String title;
   final String description;
   final double price;
+  final double? compareAtPrice;
+  final String currency;
+  final String? sku;
+  final int stockQuantity;
+  final String condition;
   final List<String> images;
   final String category;
   final List<String> tags;
@@ -219,6 +224,7 @@ class ProductModel {
   final double rating;
   final int reviewsCount;
   final int views;
+  final Map<String, dynamic> metadata;
   final String createdAt;
 
   ProductModel({
@@ -226,6 +232,11 @@ class ProductModel {
     required this.title,
     required this.description,
     required this.price,
+    this.compareAtPrice,
+    this.currency = 'USD',
+    this.sku,
+    this.stockQuantity = 0,
+    this.condition = 'new',
     required this.images,
     required this.category,
     required this.tags,
@@ -234,25 +245,131 @@ class ProductModel {
     this.rating = 0.0,
     this.reviewsCount = 0,
     this.views = 0,
+    this.metadata = const {},
     required this.createdAt,
   });
 
   factory ProductModel.fromJson(Map<String, dynamic> json) {
+    final metadata = json['metadata'] is Map
+        ? Map<String, dynamic>.from(json['metadata'] as Map)
+        : <String, dynamic>{};
+
     return ProductModel(
       id: json['id'] as String,
       title: json['title'] as String,
-      description: json['description'] as String,
+      description: json['description'] as String? ?? '',
       price: (json['price'] as num).toDouble(),
+      compareAtPrice: (json['compare_at_price'] as num?)?.toDouble(),
+      currency: json['currency'] as String? ?? 'USD',
+      sku: json['sku'] as String?,
+      stockQuantity: json['stock_quantity'] as int? ?? 0,
+      condition: json['condition'] as String? ?? 'new',
       images: List<String>.from(json['images'] as List? ?? []),
-      category: json['category'] as String,
+      category: json['category'] as String? ?? '',
       tags: List<String>.from(json['tags'] as List? ?? []),
       sellerId: json['seller_id'] as String,
-      sellerName: json['seller_name'] as String,
+      sellerName: json['seller_name'] as String? ?? '',
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       reviewsCount: json['reviews_count'] as int? ?? 0,
       views: json['views'] as int? ?? 0,
+      metadata: metadata,
       createdAt: json['created_at'] as String,
     );
+  }
+
+  String? get brandName => _metadataString('brand_name');
+  String? get manufacturer => _metadataString('manufacturer');
+  String? get productIdentifier => _metadataString('product_identifier');
+  String? get gtin => _metadataString('gtin');
+  String? get productType => _metadataString('product_type');
+  String? get fulfillmentMethod => _metadataString('fulfillment_method');
+  String? get shippingDetails => _metadataString('shipping_details');
+  String? get variationSummary => _metadataString('variation_summary');
+  String? get material => _metadataString('material');
+  String? get weight => _metadataString('weight');
+  String? get color => _metadataString('color');
+  String? get itemModelNumber => _metadataString('item_model_number');
+  String? get countryOfOrigin => _metadataString('country_of_origin');
+  String? get specificationPdfUrl => _metadataString('specification_pdf_url');
+  List<String> get mediaVideos => _metadataStringList('media_videos');
+  List<String> get bulletPoints => _metadataStringList('bullet_points');
+  List<String> get searchTerms => _metadataStringList('search_terms');
+
+  Map<String, String> get manualSpecifications {
+    final raw = metadata['manual_specifications'];
+    if (raw is! Map) {
+      return const {};
+    }
+
+    final specs = <String, String>{};
+    for (final entry in raw.entries) {
+      final key = entry.key.toString().trim();
+      final value = entry.value?.toString().trim() ?? '';
+      if (key.isNotEmpty && value.isNotEmpty) {
+        specs[key] = value;
+      }
+    }
+    return specs;
+  }
+
+  String? get dimensionsLabel {
+    final raw = metadata['dimensions'];
+    if (raw is! Map) {
+      return null;
+    }
+
+    final length = raw['length']?.toString().trim();
+    final width = raw['width']?.toString().trim();
+    final height = raw['height']?.toString().trim();
+    final unit = raw['unit']?.toString().trim();
+    final parts = [length, width, height].whereType<String>().where((value) => value.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return null;
+    }
+    final size = parts.join(' x ');
+    return unit != null && unit.isNotEmpty ? '$size $unit' : size;
+  }
+
+  Map<String, String> get highlightedSpecifications {
+    final specs = <String, String>{};
+    specs.addAll(manualSpecifications);
+
+    void addSpec(String label, String? value) {
+      if (value != null && value.trim().isNotEmpty && !specs.containsKey(label)) {
+        specs[label] = value.trim();
+      }
+    }
+
+    addSpec('Material', material);
+    addSpec('Dimensions', dimensionsLabel);
+    addSpec('Weight', weight);
+    addSpec('Color', color);
+    addSpec('Item Model Number', itemModelNumber);
+    addSpec('Country of Origin', countryOfOrigin);
+    addSpec('Condition', condition);
+    addSpec('Category', category);
+
+    return specs;
+  }
+
+  String? _metadataString(String key) {
+    final value = metadata[key];
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  List<String> _metadataStringList(String key) {
+    final value = metadata[key];
+    if (value is! List) {
+      return const [];
+    }
+    return value
+        .map((item) => item?.toString().trim() ?? '')
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
 }
 

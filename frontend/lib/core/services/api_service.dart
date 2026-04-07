@@ -545,6 +545,14 @@ class ApiService {
     }
   }
 
+  Future<void> deleteVideo(String id) async {
+    try {
+      await _dio.delete('/videos/$id');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Reels APIs
   Future<List<ReelModel>> getReels() async {
     try {
@@ -571,6 +579,14 @@ class ApiService {
         if (productIds != null && productIds.isNotEmpty) 'product_ids': productIds,
       });
       return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deleteReel(String id) async {
+    try {
+      await _dio.delete('/reels/$id');
     } catch (e) {
       rethrow;
     }
@@ -760,7 +776,12 @@ class ApiService {
     required double price,
     required String category,
     required List<String> images,
+    double? compareAtPrice,
     List<String>? tags,
+    String? sku,
+    int? stockQuantity,
+    String? condition,
+    Map<String, dynamic>? metadata,
   }) async {
     try {
       final response = await _dio.post('/products', data: {
@@ -769,9 +790,22 @@ class ApiService {
         'price': price,
         'category': category,
         'images': images,
+        if (compareAtPrice != null) 'compare_at_price': compareAtPrice,
         if (tags != null && tags.isNotEmpty) 'tags': tags,
+        if (sku != null && sku.isNotEmpty) 'sku': sku,
+        if (stockQuantity != null) 'stock_quantity': stockQuantity,
+        if (condition != null && condition.isNotEmpty) 'condition': condition,
+        if (metadata != null && metadata.isNotEmpty) 'metadata': metadata,
       });
       return ProductModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deleteProduct(String id) async {
+    try {
+      await _dio.delete('/products/$id');
     } catch (e) {
       rethrow;
     }
@@ -842,6 +876,34 @@ class ApiService {
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
       debugPrint('[uploadProductImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadProductDocument(XFile file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      debugPrint('[uploadProductDocument] fileName=${file.name}, size=${bytes.length}');
+      final fileName = file.name;
+      final formData = FormData.fromMap({
+        'document': MultipartFile.fromBytes(
+          bytes,
+          filename: fileName,
+          contentType: MediaType('application', 'pdf'),
+        ),
+      });
+
+      final response = await _dio.post(
+        '/upload/product-document',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 2),
+        ),
+      );
+      return response.data as Map<String, dynamic>;
+    } on DioException catch (e) {
+      debugPrint('[uploadProductDocument] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -918,6 +980,22 @@ class ApiService {
       debugPrint('Error in getUserMedia: $e');
       // Return empty list instead of rethrowing to prevent blocking other data
       return [];
+    }
+  }
+
+  Future<void> deleteUserMedia(String mediaId) async {
+    try {
+      await _dio.delete('/users/media/$mediaId');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deletePost(String postId) async {
+    try {
+      await _dio.delete('/posts/$postId');
+    } catch (e) {
+      rethrow;
     }
   }
 

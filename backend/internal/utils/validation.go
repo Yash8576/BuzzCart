@@ -14,6 +14,8 @@ const (
 	MaxVideoSize = 100 * 1024 * 1024
 	// MaxAvatarSize is 5MB
 	MaxAvatarSize = 5 * 1024 * 1024
+	// MaxDocumentSize is 25MB
+	MaxDocumentSize = 25 * 1024 * 1024
 )
 
 var (
@@ -55,6 +57,16 @@ var (
 		".mov":  true,
 		".avi":  true,
 		".webm": true,
+	}
+
+	// AllowedDocumentFormats defines acceptable document MIME types.
+	AllowedDocumentFormats = map[string]bool{
+		"application/pdf": true,
+	}
+
+	// AllowedDocumentExtensions defines acceptable document file extensions.
+	AllowedDocumentExtensions = map[string]bool{
+		".pdf": true,
 	}
 )
 
@@ -145,6 +157,29 @@ func ValidateAvatar(header *multipart.FileHeader) error {
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	if !AllowedImageExtensions[ext] {
 		return fmt.Errorf("unsupported avatar file extension: %s", ext)
+	}
+
+	return nil
+}
+
+// ValidateDocument validates a document upload.
+func ValidateDocument(header *multipart.FileHeader) error {
+	if header.Size > MaxDocumentSize {
+		return fmt.Errorf("document size exceeds maximum allowed size of %d MB", MaxDocumentSize/(1024*1024))
+	}
+
+	if header.Size == 0 {
+		return fmt.Errorf("document file is empty")
+	}
+
+	contentType := header.Header.Get("Content-Type")
+	if contentType != "" && contentType != "application/octet-stream" && !AllowedDocumentFormats[contentType] {
+		return fmt.Errorf("unsupported document format: %s", contentType)
+	}
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !AllowedDocumentExtensions[ext] {
+		return fmt.Errorf("unsupported document file extension: %s", ext)
 	}
 
 	return nil

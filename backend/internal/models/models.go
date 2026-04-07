@@ -156,28 +156,39 @@ type TokenResponse struct {
 }
 
 type Product struct {
-	ID           string    `json:"id" db:"id"`
-	Title        string    `json:"title" db:"title"`
-	Description  string    `json:"description" db:"description"`
-	Price        float64   `json:"price" db:"price"`
-	Images       []string  `json:"images" db:"images"`
-	Category     string    `json:"category" db:"category"`
-	Tags         []string  `json:"tags" db:"tags"`
-	SellerID     string    `json:"seller_id" db:"seller_id"`
-	SellerName   string    `json:"seller_name" db:"seller_name"`
-	Rating       float64   `json:"rating" db:"rating"`
-	ReviewsCount int       `json:"reviews_count" db:"reviews_count"`
-	Views        int       `json:"views" db:"views"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	ID             string         `json:"id" db:"id"`
+	Title          string         `json:"title" db:"title"`
+	Description    string         `json:"description" db:"description"`
+	Price          float64        `json:"price" db:"price"`
+	CompareAtPrice *float64       `json:"compare_at_price,omitempty" db:"compare_at_price"`
+	Currency       string         `json:"currency" db:"currency"`
+	SKU            *string        `json:"sku,omitempty" db:"sku"`
+	StockQuantity  int            `json:"stock_quantity" db:"stock_quantity"`
+	Condition      string         `json:"condition" db:"condition"`
+	Images         []string       `json:"images" db:"images"`
+	Category       string         `json:"category" db:"category"`
+	Tags           []string       `json:"tags" db:"tags"`
+	SellerID       string         `json:"seller_id" db:"seller_id"`
+	SellerName     string         `json:"seller_name" db:"seller_name"`
+	Rating         float64        `json:"rating" db:"rating"`
+	ReviewsCount   int            `json:"reviews_count" db:"reviews_count"`
+	Views          int            `json:"views" db:"views"`
+	Metadata       map[string]any `json:"metadata,omitempty" db:"metadata"`
+	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
 }
 
 type ProductCreate struct {
-	Title       string   `json:"title" binding:"required"`
-	Description string   `json:"description" binding:"required"`
-	Price       float64  `json:"price" binding:"required,gt=0"`
-	Images      []string `json:"images"`
-	Category    string   `json:"category"`
-	Tags        []string `json:"tags"`
+	Title          string         `json:"title" binding:"required"`
+	Description    string         `json:"description" binding:"required"`
+	Price          float64        `json:"price" binding:"required,gt=0"`
+	CompareAtPrice *float64       `json:"compare_at_price,omitempty"`
+	Images         []string       `json:"images"`
+	Category       string         `json:"category"`
+	Tags           []string       `json:"tags"`
+	SKU            *string        `json:"sku,omitempty"`
+	StockQuantity  *int           `json:"stock_quantity,omitempty"`
+	Condition      string         `json:"condition,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 type Video struct {

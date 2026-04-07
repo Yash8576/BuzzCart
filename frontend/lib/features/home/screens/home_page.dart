@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/models.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
@@ -34,7 +35,33 @@ class _HomePageState extends State<HomePage> {
 
     try {
       final api = context.read<ApiService>();
-      final feed = await api.getFeed();
+      final currentUserId = context.read<AuthProvider>().user?.id;
+      final results = await Future.wait([
+        api.getProducts().catchError((_) => <ProductModel>[]),
+        api.getVideos().catchError((_) => <VideoModel>[]),
+        api.getReels().catchError((_) => <ReelModel>[]),
+      ]);
+
+      final products = (results[0] as List<ProductModel>)
+          .where((product) => product.sellerId != currentUserId)
+          .toList();
+      final videos = (results[1] as List<VideoModel>)
+          .where((video) => video.creatorId != currentUserId)
+          .toList();
+      final reels = (results[2] as List<ReelModel>)
+          .where((reel) => reel.creatorId != currentUserId)
+          .toList();
+
+      final feed = <FeedItem>[
+        ...products.map((product) => FeedItem(type: 'product', data: product)),
+        ...videos.map((video) => FeedItem(type: 'video', data: video)),
+        ...reels.map((reel) => FeedItem(type: 'reel', data: reel)),
+      ]..sort((a, b) {
+          final aDate = DateTime.tryParse(_createdAtFor(a)) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = DateTime.tryParse(_createdAtFor(b)) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bDate.compareTo(aDate);
+        });
+
       setState(() {
         _feed = feed;
         _isLoading = false;
@@ -44,6 +71,19 @@ class _HomePageState extends State<HomePage> {
         _error = 'Failed to load feed';
         _isLoading = false;
       });
+    }
+  }
+
+  String _createdAtFor(FeedItem item) {
+    switch (item.type) {
+      case 'product':
+        return (item.data as ProductModel).createdAt;
+      case 'video':
+        return (item.data as VideoModel).createdAt;
+      case 'reel':
+        return (item.data as ReelModel).createdAt;
+      default:
+        return '';
     }
   }
 
@@ -90,6 +130,21 @@ class _HomePageState extends State<HomePage> {
               onPressed: _fetchFeed,
               child: const Text('Retry'),
             ),
+          ],
+        ),
+      );
+    }
+
+    if (_feed.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _fetchFeed,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 180),
+            Icon(Icons.dynamic_feed_outlined, size: 64, color: Colors.grey),
+            SizedBox(height: 16),
+            Center(child: Text('No recommended content yet')),
           ],
         ),
       );
@@ -206,6 +261,16 @@ class _HomePageState extends State<HomePage> {
                           fontWeight: FontWeight.bold,
                         ),
                   ),
+                  if ((product.brandName ?? '').isNotEmpty ||
+                      product.sellerName.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      product.brandName ?? product.sellerName,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     children: [

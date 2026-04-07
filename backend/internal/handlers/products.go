@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,72 @@ import (
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
+
+const productSelectBase = `
+	SELECT
+		p.id,
+		p.title,
+		COALESCE(p.description, ''),
+		p.price,
+		p.compare_at_price,
+		COALESCE(p.currency, 'USD'),
+		p.sku,
+		COALESCE(p.stock_quantity, 0),
+		COALESCE(p.condition, 'new'),
+		COALESCE((
+			SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
+			FROM product_images pi
+			WHERE pi.product_id = p.id
+		), ARRAY[]::TEXT[]),
+		COALESCE(c.name, ''),
+		COALESCE(p.tags, ARRAY[]::TEXT[]),
+		p.seller_id,
+		COALESCE(u.name, u.username, ''),
+		COALESCE((
+			SELECT AVG(pr.rating)::FLOAT8
+			FROM product_ratings pr
+			WHERE pr.product_id = p.id
+				AND pr.is_private = false
+				AND pr.moderation_status = 'approved'
+		), 0),
+		COALESCE((
+			SELECT COUNT(*)
+			FROM product_ratings pr
+			WHERE pr.product_id = p.id
+				AND pr.is_private = false
+				AND pr.moderation_status = 'approved'
+		), 0),
+		COALESCE((
+			SELECT SUM(pa.view_count)
+			FROM product_analytics pa
+			WHERE pa.product_id = p.id
+		), 0),
+		COALESCE(p.metadata, '{}'::jsonb),
+		p.created_at
+	FROM products p
+	LEFT JOIN categories c ON c.id = p.category_id
+	LEFT JOIN users u ON u.id = p.seller_id
+	WHERE p.is_active = TRUE
+`
+
+const productSelectLegacy = `
+	SELECT
+		p.id,
+		p.title,
+		COALESCE(p.description, ''),
+		p.price,
+		p.images,
+		COALESCE(p.category, ''),
+		COALESCE(p.tags, ARRAY[]::TEXT[]),
+		p.seller_id,
+		COALESCE(p.seller_name, u.name, ''),
+		COALESCE(p.rating, 0),
+		COALESCE(p.reviews_count, 0),
+		COALESCE(p.views, 0),
+		p.created_at
+	FROM products p
+	LEFT JOIN users u ON u.id = p.seller_id
+`
 
 func CreateProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -33,11 +100,15 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 		ctx, cancel := database.NewContext()
 		defer cancel()
 
-		// Get user info
-		var user models.User
-		err := db.QueryRowContext(ctx, "SELECT id, name, email, avatar, bio, followers_count, following_count, created_at FROM users WHERE id = $1", userID).Scan(
-			&user.ID, &user.Name, &user.Email, &user.Avatar, &user.Bio, &user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
-		)
+		req = normalizeProductCreate(req)
+
+		var sellerName string
+		var role string
+		err := db.QueryRowContext(
+			ctx,
+			"SELECT COALESCE(name, username, ''), COALESCE(role, 'consumer') FROM users WHERE id = $1",
+			userID,
+		).Scan(&sellerName, &role)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -47,111 +118,98 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 			return
 		}
-
-		product := models.Product{
-			ID:           uuid.New().String(),
-			Title:        req.Title,
-			Description:  req.Description,
-			Price:        req.Price,
-			Images:       req.Images,
-			Category:     req.Category,
-			Tags:         req.Tags,
-			SellerID:     userID,
-			SellerName:   user.Name,
-			Rating:       0.0,
-			ReviewsCount: 0,
-			Views:        0,
-			CreatedAt:    time.Now(),
+		if role != string(models.RoleSeller) && role != string(models.RoleAdmin) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only seller accounts can add products"})
+			return
 		}
 
-		if product.Images == nil {
-			product.Images = []string{}
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+			return
 		}
-		if product.Tags == nil {
-			product.Tags = []string{}
-		}
+		defer tx.Rollback()
 
-		_, err = db.ExecContext(ctx,
-			`INSERT INTO products (id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at) 
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			product.ID, product.Title, product.Description, product.Price, pq.Array(product.Images), product.Category, pq.Array(product.Tags),
-			product.SellerID, product.SellerName, product.Rating, product.ReviewsCount, product.Views, product.CreatedAt,
+		productID := uuid.New().String()
+		createdAt := time.Now()
+		product, categoryName, err := createProductWithSchemaFallback(
+			ctx,
+			db,
+			tx,
+			productID,
+			userID,
+			sellerName,
+			createdAt,
+			req,
 		)
 		if err != nil {
-			log.Printf("[CreateProduct] Failed to insert product for user %s: %v", userID, err)
+			log.Printf("[CreateProduct] Failed to create product for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create product"})
 			return
 		}
 
-		log.Printf("[CreateProduct] Product %s created successfully by user %s", product.ID, userID)
-		c.JSON(http.StatusOK, product)
+		log.Printf("[CreateProduct] Product %s created successfully by user %s", productID, userID)
+		if product.ID == "" {
+			c.JSON(http.StatusCreated, gin.H{
+				"id":          productID,
+				"title":       req.Title,
+				"description": req.Description,
+				"price":       req.Price,
+				"images":      req.Images,
+				"category":    categoryName,
+				"tags":        req.Tags,
+				"seller_id":   userID,
+				"seller_name": sellerName,
+				"created_at":  createdAt,
+				"metadata":    req.Metadata,
+			})
+			return
+		}
+		c.JSON(http.StatusCreated, product)
 	}
 }
 
 func GetProducts(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		category := c.Query("category")
-
-		var rows *sql.Rows
-		var err error
-
-		baseSelect := `
-			SELECT
-				p.id,
-				p.title,
-				COALESCE(p.description, ''),
-				p.price,
-				COALESCE((
-					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
-					FROM product_images pi
-					WHERE pi.product_id = p.id
-				), ARRAY[]::TEXT[]),
-				COALESCE(c.name, ''),
-				COALESCE(p.tags, ARRAY[]::TEXT[]),
-				p.seller_id,
-				COALESCE(u.name, u.username, ''),
-				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				0 AS views,
-				p.created_at
-			FROM products p
-			LEFT JOIN categories c ON c.id = p.category_id
-			LEFT JOIN users u ON u.id = p.seller_id
-		`
-
+		var (
+			rows *sql.Rows
+			err  error
+		)
 		if category != "" {
 			rows, err = db.Query(
-				baseSelect+`WHERE c.name ILIKE $1 ORDER BY p.created_at DESC LIMIT 20`,
+				productSelectBase+` AND c.name ILIKE $1 ORDER BY p.created_at DESC LIMIT 100`,
 				category,
 			)
 		} else {
-			rows, err = db.Query(baseSelect + `ORDER BY p.created_at DESC LIMIT 20`)
+			rows, err = db.Query(productSelectBase + ` ORDER BY p.created_at DESC LIMIT 100`)
 		}
-
 		if err != nil {
-			log.Printf("[GetProducts] query failed (category=%q): %v", category, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+			log.Printf("[GetProducts] primary query failed (category=%q): %v", category, err)
+			products, legacyErr := getProductsLegacy(db, category)
+			if legacyErr != nil {
+				log.Printf("[GetProducts] legacy query failed (category=%q): %v", category, legacyErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+				return
+			}
+			c.JSON(http.StatusOK, products)
 			return
 		}
 		defer rows.Close()
 
-		var products []models.Product
+		products := []models.Product{}
 		for rows.Next() {
-			var product models.Product
-			err := rows.Scan(
-				&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
-				&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
-				&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
-			)
+			product, err := scanProduct(rows)
 			if err != nil {
+				log.Printf("[GetProducts] decode failed: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
 				return
 			}
 			products = append(products, product)
 		}
-
-		if products == nil {
-			products = []models.Product{}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+			return
 		}
 
 		c.JSON(http.StatusOK, products)
@@ -162,46 +220,23 @@ func GetProduct(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("product_id")
 
-		var product models.Product
-		err := db.QueryRow(
-			`SELECT
-				p.id,
-				p.title,
-				COALESCE(p.description, ''),
-				p.price,
-				COALESCE((
-					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
-					FROM product_images pi
-					WHERE pi.product_id = p.id
-				), ARRAY[]::TEXT[]),
-				COALESCE(c.name, ''),
-				COALESCE(p.tags, ARRAY[]::TEXT[]),
-				p.seller_id,
-				COALESCE(u.name, u.username, ''),
-				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				0 AS views,
-				p.created_at
-			FROM products p
-			LEFT JOIN categories c ON c.id = p.category_id
-			LEFT JOIN users u ON u.id = p.seller_id
-			WHERE p.id = $1`, productID,
-		).Scan(
-			&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
-			&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
-			&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
-		)
+		product, err := getProductByID(db, productID)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
-		} else if err != nil {
-			log.Printf("[GetProduct] query failed (product_id=%s): %v", productID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-			return
 		}
-
-		// Increment views
-		db.Exec("UPDATE products SET views = views + 1 WHERE id = $1", productID)
+		if err != nil {
+			log.Printf("[GetProduct] primary query failed (product_id=%s): %v", productID, err)
+			product, err = getProductByIDLegacy(db, productID)
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+				return
+			}
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+				return
+			}
+		}
 
 		c.JSON(http.StatusOK, product)
 	}
@@ -233,26 +268,21 @@ func UpdateProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		_, err = db.Exec(
-			`UPDATE products SET title = $1, description = $2, price = $3, images = $4, category = $5, tags = $6 
-			 WHERE id = $7`,
-			req.Title, req.Description, req.Price, pq.Array(req.Images), req.Category, pq.Array(req.Tags), productID,
-		)
+		req = normalizeProductCreate(req)
+
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 			return
 		}
+		defer tx.Rollback()
 
-		err = db.QueryRow(
-			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products WHERE id = $1`, productID,
-		).Scan(
-			&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
-			&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
-			&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
-		)
+		product, err = updateProductWithSchemaFallback(ctx, db, tx, productID, req)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated product"})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update product"})
 			return
 		}
 
@@ -280,8 +310,45 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		_, err = db.Exec("DELETE FROM products WHERE id = $1", productID)
+		ctx, cancel := database.NewContext()
+		defer cancel()
+
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+			return
+		}
+		defer tx.Rollback()
+
+		if _, err := tx.ExecContext(ctx, "DELETE FROM review_helpful_votes WHERE review_id IN (SELECT id FROM product_ratings WHERE product_id = $1)", productID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+			return
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM product_ratings WHERE product_id = $1", productID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+			return
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM product_analytics WHERE product_id = $1", productID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+			return
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM product_images WHERE product_id = $1", productID); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+			return
+		}
+
+		result, err := tx.ExecContext(ctx, "DELETE FROM products WHERE id = $1", productID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
+			return
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
 			return
 		}
@@ -315,58 +382,532 @@ func GetSellerProducts(db *sql.DB) gin.HandlerFunc {
 		}
 
 		rows, err := db.Query(
-			`SELECT
-				p.id,
-				p.title,
-				COALESCE(p.description, ''),
-				p.price,
-				COALESCE((
-					SELECT ARRAY_AGG(pi.image_url ORDER BY pi.display_order)
-					FROM product_images pi
-					WHERE pi.product_id = p.id
-				), ARRAY[]::TEXT[]),
-				COALESCE(c.name, ''),
-				COALESCE(p.tags, ARRAY[]::TEXT[]),
-				p.seller_id,
-				COALESCE(u.name, u.username, ''),
-				COALESCE((SELECT AVG(pr.rating)::FLOAT8 FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				COALESCE((SELECT COUNT(*) FROM product_ratings pr WHERE pr.product_id = p.id), 0),
-				0 AS views,
-				p.created_at
-			FROM products p
-			LEFT JOIN categories c ON c.id = p.category_id
-			LEFT JOIN users u ON u.id = p.seller_id
-			WHERE p.seller_id = $1
-			ORDER BY p.created_at DESC`, sellerID,
+			productSelectBase+` AND p.seller_id = $1 ORDER BY p.created_at DESC`, sellerID,
 		)
 		if err != nil {
-			log.Printf("[GetSellerProducts] query failed (seller_id=%s): %v", sellerID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+			log.Printf("[GetSellerProducts] primary query failed (seller_id=%s): %v", sellerID, err)
+			products, legacyErr := getSellerProductsLegacy(db, sellerID)
+			if legacyErr != nil {
+				log.Printf("[GetSellerProducts] legacy query failed (seller_id=%s): %v", sellerID, legacyErr)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+				return
+			}
+			c.JSON(http.StatusOK, products)
 			return
 		}
 		defer rows.Close()
 
-		var products []models.Product
+		products := []models.Product{}
 		for rows.Next() {
-			var product models.Product
-			err := rows.Scan(
-				&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
-				&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
-				&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
-			)
+			product, err := scanProduct(rows)
 			if err != nil {
+				log.Printf("[GetSellerProducts] decode failed (seller_id=%s): %v", sellerID, err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode products"})
 				return
 			}
 			products = append(products, product)
 		}
-
-		if products == nil {
-			products = []models.Product{}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch products"})
+			return
 		}
 
 		c.JSON(http.StatusOK, products)
 	}
+}
+
+func normalizeProductCreate(req models.ProductCreate) models.ProductCreate {
+	req.Title = strings.TrimSpace(req.Title)
+	req.Description = strings.TrimSpace(req.Description)
+	req.Category = strings.TrimSpace(req.Category)
+	if req.Images == nil {
+		req.Images = []string{}
+	}
+	if req.Tags == nil {
+		req.Tags = []string{}
+	}
+	if req.Metadata == nil {
+		req.Metadata = map[string]any{}
+	}
+	req.Condition = strings.ToLower(strings.TrimSpace(req.Condition))
+	if req.Condition == "" {
+		req.Condition = "new"
+	}
+	return req
+}
+
+func getProductByID(db *sql.DB, productID string) (models.Product, error) {
+	return scanProduct(
+		db.QueryRow(
+			productSelectBase+` AND p.id = $1 LIMIT 1`,
+			productID,
+		),
+	)
+}
+
+func getProductByIDLegacy(db *sql.DB, productID string) (models.Product, error) {
+	return scanProductLegacy(
+		db.QueryRow(
+			productSelectLegacy+` WHERE p.id = $1 LIMIT 1`,
+			productID,
+		),
+	)
+}
+
+type productScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanProduct(scanner productScanner) (models.Product, error) {
+	product := models.Product{
+		Currency:  "USD",
+		Condition: "new",
+		Images:    []string{},
+		Tags:      []string{},
+		Metadata:  map[string]any{},
+	}
+
+	var (
+		compareAtPrice sql.NullFloat64
+		sku            sql.NullString
+		metadataJSON   []byte
+	)
+
+	err := scanner.Scan(
+		&product.ID,
+		&product.Title,
+		&product.Description,
+		&product.Price,
+		&compareAtPrice,
+		&product.Currency,
+		&sku,
+		&product.StockQuantity,
+		&product.Condition,
+		pq.Array(&product.Images),
+		&product.Category,
+		pq.Array(&product.Tags),
+		&product.SellerID,
+		&product.SellerName,
+		&product.Rating,
+		&product.ReviewsCount,
+		&product.Views,
+		&metadataJSON,
+		&product.CreatedAt,
+	)
+	if err != nil {
+		return models.Product{}, err
+	}
+
+	if compareAtPrice.Valid {
+		product.CompareAtPrice = &compareAtPrice.Float64
+	}
+	if sku.Valid && strings.TrimSpace(sku.String) != "" {
+		value := sku.String
+		product.SKU = &value
+	}
+	if len(metadataJSON) > 0 {
+		if err := json.Unmarshal(metadataJSON, &product.Metadata); err != nil {
+			return models.Product{}, err
+		}
+	}
+	if product.Metadata == nil {
+		product.Metadata = map[string]any{}
+	}
+
+	return product, nil
+}
+
+func scanProductLegacy(scanner productScanner) (models.Product, error) {
+	product := models.Product{
+		Currency:  "USD",
+		Condition: "new",
+		Images:    []string{},
+		Tags:      []string{},
+		Metadata:  map[string]any{},
+	}
+
+	err := scanner.Scan(
+		&product.ID,
+		&product.Title,
+		&product.Description,
+		&product.Price,
+		pq.Array(&product.Images),
+		&product.Category,
+		pq.Array(&product.Tags),
+		&product.SellerID,
+		&product.SellerName,
+		&product.Rating,
+		&product.ReviewsCount,
+		&product.Views,
+		&product.CreatedAt,
+	)
+	if err != nil {
+		return models.Product{}, err
+	}
+
+	return product, nil
+}
+
+func getProductsLegacy(db *sql.DB, category string) ([]models.Product, error) {
+	query := productSelectLegacy
+	args := []any{}
+	if strings.TrimSpace(category) != "" {
+		query += ` WHERE p.category ILIKE $1`
+		args = append(args, category)
+	}
+	query += ` ORDER BY p.created_at DESC LIMIT 100`
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	products := []models.Product{}
+	for rows.Next() {
+		product, err := scanProductLegacy(rows)
+		if err != nil {
+			return nil, err
+		}
+		products = append(products, product)
+	}
+	return products, rows.Err()
+}
+
+func getSellerProductsLegacy(db *sql.DB, sellerID string) ([]models.Product, error) {
+	rows, err := db.Query(
+		productSelectLegacy+` WHERE p.seller_id = $1 ORDER BY p.created_at DESC`,
+		sellerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	products := []models.Product{}
+	for rows.Next() {
+		product, err := scanProductLegacy(rows)
+		if err != nil {
+			return nil, err
+		}
+		products = append(products, product)
+	}
+	return products, rows.Err()
+}
+
+func createProductWithSchemaFallback(
+	ctx context.Context,
+	db *sql.DB,
+	tx *sql.Tx,
+	productID string,
+	userID string,
+	sellerName string,
+	createdAt time.Time,
+	req models.ProductCreate,
+) (models.Product, string, error) {
+	categoryID, categoryName, err := ensureCategoryTx(ctx, tx, req.Category)
+	if err == nil {
+		metadataJSON, marshalErr := json.Marshal(req.Metadata)
+		if marshalErr != nil {
+			return models.Product{}, "", marshalErr
+		}
+
+		stockQuantity := 0
+		if req.StockQuantity != nil && *req.StockQuantity > 0 {
+			stockQuantity = *req.StockQuantity
+		}
+
+		_, err = tx.ExecContext(
+			ctx,
+			`INSERT INTO products (
+				id, seller_id, category_id, title, description, price, compare_at_price, currency,
+				sku, stock_quantity, condition, tags, metadata, is_active, created_at, updated_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, 'USD', $8, $9, $10, $11, $12, TRUE, $13, $13
+			)`,
+			productID,
+			userID,
+			categoryID,
+			req.Title,
+			req.Description,
+			req.Price,
+			req.CompareAtPrice,
+			req.SKU,
+			stockQuantity,
+			req.Condition,
+			pq.Array(req.Tags),
+			metadataJSON,
+			createdAt,
+		)
+		if err == nil {
+			if err = syncProductImagesTx(ctx, tx, productID, req.Images); err == nil {
+				if err = tx.Commit(); err == nil {
+					product, reloadErr := getProductByID(db, productID)
+					if reloadErr == nil {
+						return product, categoryName, nil
+					}
+					log.Printf("[CreateProduct] Enhanced insert succeeded but reload failed, falling back to partial response: %v", reloadErr)
+					return models.Product{}, categoryName, nil
+				}
+			}
+		}
+		log.Printf("[CreateProduct] Enhanced schema path failed, falling back to legacy schema: %v", err)
+	}
+
+	legacyProduct, legacyErr := createLegacyProduct(ctx, db, productID, userID, sellerName, createdAt, req)
+	return legacyProduct, req.Category, legacyErr
+}
+
+func createLegacyProduct(
+	ctx context.Context,
+	db *sql.DB,
+	productID string,
+	userID string,
+	sellerName string,
+	createdAt time.Time,
+	req models.ProductCreate,
+) (models.Product, error) {
+	metadataJSON, err := json.Marshal(req.Metadata)
+	if err != nil {
+		return models.Product{}, err
+	}
+
+	_, err = db.ExecContext(
+		ctx,
+		`INSERT INTO products (
+			id, title, description, price, images, category, tags, seller_id, seller_name,
+			rating, reviews_count, views, metadata, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, 0, $10, $11
+		)`,
+		productID,
+		req.Title,
+		req.Description,
+		req.Price,
+		pq.Array(req.Images),
+		req.Category,
+		pq.Array(req.Tags),
+		userID,
+		sellerName,
+		metadataJSON,
+		createdAt,
+	)
+	if err != nil {
+		_, fallbackErr := db.ExecContext(
+			ctx,
+			`INSERT INTO products (
+				id, title, description, price, images, category, tags, seller_id, seller_name,
+				rating, reviews_count, views, created_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, 0, $10
+			)`,
+			productID,
+			req.Title,
+			req.Description,
+			req.Price,
+			pq.Array(req.Images),
+			req.Category,
+			pq.Array(req.Tags),
+			userID,
+			sellerName,
+			createdAt,
+		)
+		if fallbackErr != nil {
+			return models.Product{}, err
+		}
+	}
+
+	return getProductByIDLegacy(db, productID)
+}
+
+func updateProductWithSchemaFallback(
+	ctx context.Context,
+	db *sql.DB,
+	tx *sql.Tx,
+	productID string,
+	req models.ProductCreate,
+) (models.Product, error) {
+	categoryID, _, err := ensureCategoryTx(ctx, tx, req.Category)
+	if err == nil {
+		metadataJSON, marshalErr := json.Marshal(req.Metadata)
+		if marshalErr != nil {
+			return models.Product{}, marshalErr
+		}
+
+		stockQuantity := 0
+		if req.StockQuantity != nil && *req.StockQuantity > 0 {
+			stockQuantity = *req.StockQuantity
+		}
+
+		_, err = tx.ExecContext(
+			ctx,
+			`UPDATE products
+			 SET title = $1,
+			     description = $2,
+			     price = $3,
+			     compare_at_price = $4,
+			     category_id = $5,
+			     tags = $6,
+			     sku = $7,
+			     stock_quantity = $8,
+			     condition = $9,
+			     metadata = $10,
+			     updated_at = $11
+			 WHERE id = $12`,
+			req.Title,
+			req.Description,
+			req.Price,
+			req.CompareAtPrice,
+			categoryID,
+			pq.Array(req.Tags),
+			req.SKU,
+			stockQuantity,
+			req.Condition,
+			metadataJSON,
+			time.Now(),
+			productID,
+		)
+		if err == nil {
+			if err = syncProductImagesTx(ctx, tx, productID, req.Images); err == nil {
+				if err = tx.Commit(); err == nil {
+					return getProductByID(db, productID)
+				}
+			}
+		}
+		log.Printf("[UpdateProduct] Enhanced schema path failed, falling back to legacy schema: %v", err)
+	}
+
+	metadataJSON, err := json.Marshal(req.Metadata)
+	if err != nil {
+		return models.Product{}, err
+	}
+
+	_, err = db.ExecContext(
+		ctx,
+		`UPDATE products
+		 SET title = $1,
+		     description = $2,
+		     price = $3,
+		     images = $4,
+		     category = $5,
+		     tags = $6,
+		     metadata = $7
+		 WHERE id = $8`,
+		req.Title,
+		req.Description,
+		req.Price,
+		pq.Array(req.Images),
+		req.Category,
+		pq.Array(req.Tags),
+		metadataJSON,
+		productID,
+	)
+	if err != nil {
+		_, fallbackErr := db.ExecContext(
+			ctx,
+			`UPDATE products
+			 SET title = $1,
+			     description = $2,
+			     price = $3,
+			     images = $4,
+			     category = $5,
+			     tags = $6
+			 WHERE id = $7`,
+			req.Title,
+			req.Description,
+			req.Price,
+			pq.Array(req.Images),
+			req.Category,
+			pq.Array(req.Tags),
+			productID,
+		)
+		if fallbackErr != nil {
+			return models.Product{}, err
+		}
+	}
+
+	return getProductByIDLegacy(db, productID)
+}
+
+func ensureCategoryTx(ctx context.Context, tx *sql.Tx, category string) (*string, string, error) {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return nil, "", nil
+	}
+
+	categoryID := uuid.New().String()
+	now := time.Now()
+	slug := slugify(category)
+	var resolvedID string
+	var resolvedName string
+
+	err := tx.QueryRowContext(
+		ctx,
+		`INSERT INTO categories (id, name, slug, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $4)
+		 ON CONFLICT (slug) DO UPDATE SET
+		 	name = EXCLUDED.name,
+		 	updated_at = EXCLUDED.updated_at
+		 RETURNING id, name`,
+		categoryID,
+		category,
+		slug,
+		now,
+	).Scan(&resolvedID, &resolvedName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &resolvedID, resolvedName, nil
+}
+
+func syncProductImagesTx(ctx context.Context, tx *sql.Tx, productID string, imageURLs []string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM product_images WHERE product_id = $1", productID); err != nil {
+		return err
+	}
+
+	for index, imageURL := range imageURLs {
+		imageURL = strings.TrimSpace(imageURL)
+		if imageURL == "" {
+			continue
+		}
+
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO product_images (id, product_id, image_url, display_order, is_primary, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			uuid.New().String(),
+			productID,
+			imageURL,
+			index,
+			index == 0,
+			time.Now(),
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func slugify(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var builder strings.Builder
+	lastWasDash := false
+	for _, r := range value {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			builder.WriteRune(r)
+			lastWasDash = false
+		case !lastWasDash:
+			builder.WriteRune('-')
+			lastWasDash = true
+		}
+	}
+	slug := strings.Trim(builder.String(), "-")
+	if slug == "" {
+		return "general"
+	}
+	return slug
 }
 
 // ============================================================================
@@ -1201,31 +1742,11 @@ func MarkReviewHelpful(db *sql.DB) gin.HandlerFunc {
 // updateProductRating recalculates and updates the average rating and review count for a product
 // Only counts approved and public reviews
 func updateProductRating(db *sql.DB, productID string) error {
-	var avgRating sql.NullFloat64
-	var reviewCount int
-
-	err := db.QueryRow(
-		`SELECT COALESCE(AVG(rating), 0), COUNT(*) 
-		 FROM product_ratings 
-		 WHERE product_id = $1 AND is_private = false AND moderation_status = 'approved'`,
-		productID,
-	).Scan(&avgRating, &reviewCount)
-
-	if err != nil {
-		return err
-	}
-
-	rating := 0.0
-	if avgRating.Valid {
-		rating = avgRating.Float64
-	}
-
-	_, err = db.Exec(
-		`UPDATE products SET rating = $1, reviews_count = $2 WHERE id = $3`,
-		rating, reviewCount, productID,
-	)
-
-	return err
+	_ = db
+	_ = productID
+	// Ratings are derived at read time from product_ratings, so there is nothing
+	// to persist on the products table here.
+	return nil
 }
 
 // invalidateReviewCache invalidates all cached ranked reviews for a product

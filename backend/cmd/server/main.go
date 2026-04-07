@@ -163,6 +163,7 @@ func main() {
 			videos.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreateVideo(db))
 			videos.GET("", handlers.GetVideos(db))
 			videos.GET("/:video_id", handlers.GetVideo(db))
+			videos.DELETE("/:video_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteVideo(db))
 			videos.POST("/:video_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikeVideo(db))
 		}
 
@@ -172,6 +173,7 @@ func main() {
 			reels.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreateReel(db))
 			reels.GET("", handlers.GetReels(db))
 			reels.GET("/:reel_id", handlers.GetReel(db))
+			reels.DELETE("/:reel_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteReel(db))
 			reels.POST("/:reel_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikeReel(db))
 		}
 
@@ -192,6 +194,7 @@ func main() {
 			upload.POST("/image", middleware.Auth(cfg.JWTSecret), handlers.UploadImageHandler(db))
 			upload.POST("/video", handlers.UploadVideoHandler)
 			upload.POST("/product-image", handlers.UploadProductImageHandler)
+			upload.POST("/product-document", middleware.Auth(cfg.JWTSecret), handlers.UploadProductDocumentHandler)
 
 			upload.POST("/user-photo", middleware.Auth(cfg.JWTSecret), handlers.UploadUserPhotoHandler(db))
 			upload.POST("/avatar", middleware.Auth(cfg.JWTSecret), handlers.UploadAvatarHandler(db))
@@ -201,6 +204,7 @@ func main() {
 
 		// User media routes
 		api.GET("/users/:user_id/media", handlers.GetUserMedia(db))
+		api.DELETE("/users/media/:media_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteUserMedia(db))
 
 		// Follow routes
 		api.POST("/follow/:user_id", middleware.Auth(cfg.JWTSecret), handlers.FollowUser(db))
@@ -226,6 +230,7 @@ func main() {
 			posts.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreatePost(db))
 
 			// Like/Unlike a post
+			posts.DELETE("/:post_id", middleware.Auth(cfg.JWTSecret), handlers.DeletePost(db))
 			posts.POST("/:post_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikePost(db))
 			posts.DELETE("/:post_id/like", middleware.Auth(cfg.JWTSecret), handlers.UnlikePost(db))
 		}
