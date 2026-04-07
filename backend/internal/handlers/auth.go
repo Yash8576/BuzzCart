@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -134,6 +136,46 @@ func buildUserSelectQuery(filterColumn string) string {
 	`, defaultVisibilityMode, defaultVisibilityPrefs, filterColumn)
 }
 
+func generateUniqueUsername(db *sql.DB, email string) (string, error) {
+	base := strings.ToLower(strings.TrimSpace(strings.SplitN(email, "@", 2)[0]))
+	if base == "" {
+		base = "user"
+	}
+
+	const maxUsernameLength = 50
+	if len(base) > maxUsernameLength {
+		base = base[:maxUsernameLength]
+	}
+
+	for i := 0; i < 500; i++ {
+		candidate := base
+		if i > 0 {
+			suffix := fmt.Sprintf("_%d", i)
+			maxBaseLength := maxUsernameLength - len(suffix)
+			if maxBaseLength < 1 {
+				maxBaseLength = 1
+			}
+			trimmedBase := base
+			if len(trimmedBase) > maxBaseLength {
+				trimmedBase = trimmedBase[:maxBaseLength]
+			}
+			candidate = trimmedBase + suffix
+		}
+
+		var exists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", candidate).Scan(&exists)
+		if err != nil {
+			return "", err
+		}
+
+		if !exists {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to generate unique username")
+}
+
 func Register(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.UserCreate
@@ -190,8 +232,19 @@ func Register(db *sql.DB) gin.HandlerFunc {
 			user.VisibilityPreferences = defaultVisibilityPreferences("public")
 		}
 
-		// Generate username from email if not provided (use part before @)
-		username := req.Email[:strings.Index(req.Email, "@")]
+		username, err := generateUniqueUsername(db, req.Email)
+		if err != nil {
+			log.Printf("[Auth Register] Failed to generate username for email=%s: %v", req.Email, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare user account"})
+			return
+		}
+
+		visibilityPreferencesJSON, err := json.Marshal(user.VisibilityPreferences)
+		if err != nil {
+			log.Printf("[Auth Register] Failed to encode visibility preferences for email=%s: %v", req.Email, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
 
 		// Insert user into database
 		_, err = db.Exec(`
@@ -200,10 +253,30 @@ func Register(db *sql.DB) gin.HandlerFunc {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 	`, user.ID, username, user.Email, user.Password, user.Name, user.Bio, user.AccountType, user.Role,
 			user.Status, user.IsVerified, user.PhoneNumber, user.PrivacyProfile,
-			user.VisibilityMode, user.VisibilityPreferences,
+			user.VisibilityMode, visibilityPreferencesJSON,
 			user.FollowersCount, user.FollowingCount, user.CreatedAt, user.CreatedAt)
 
 		if err != nil {
+			log.Printf("[Auth Register] Failed to create user email=%s username=%s: %v", req.Email, username, err)
+
+			var pqErr *pq.Error
+			if errors.As(err, &pqErr) {
+				switch pqErr.Code {
+				case "23505":
+					if pqErr.Constraint == "users_email_key" {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "Email already registered"})
+						return
+					}
+					if pqErr.Constraint == "users_username_key" {
+						c.JSON(http.StatusConflict, gin.H{"error": "Please try a different email"})
+						return
+					}
+				case "23514":
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account type/role/privacy combination"})
+					return
+				}
+			}
+
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 			return
 		}
