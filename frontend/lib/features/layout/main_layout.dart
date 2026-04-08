@@ -31,6 +31,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   final List<_NavItem> _sidebarOnlyItems = [
     _NavItem(path: '/search', icon: Icons.search, label: 'Search'),
     _NavItem(path: '/messages', icon: Icons.message, label: 'Messages'),
+    _NavItem(path: '/cart', icon: Icons.shopping_cart, label: 'Cart'),
     _NavItem(path: '/settings', icon: Icons.settings, label: 'Settings'),
   ];
 
@@ -553,6 +554,8 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     final isActive = location == item.path || 
                      (location.startsWith(item.path) && item.path != '/');
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cartCount = context.watch<CartProvider>().cart.itemCount;
+    final showCartBadge = item.path == '/cart' && cartCount > 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -568,16 +571,49 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                Icon(
-                  item.icon,
-                  size: 20,
-                  color: isActive
-                      ? (isDark
-                          ? AppColors.darkPrimaryForeground
-                          : AppColors.lightPrimaryForeground)
-                      : (isDark
-                          ? AppColors.darkMutedForeground
-                          : AppColors.lightMutedForeground),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      item.icon,
+                      size: 20,
+                      color: isActive
+                          ? (isDark
+                              ? AppColors.darkPrimaryForeground
+                              : AppColors.lightPrimaryForeground)
+                          : (isDark
+                              ? AppColors.darkMutedForeground
+                              : AppColors.lightMutedForeground),
+                    ),
+                    if (showCartBadge)
+                      Positioned(
+                        right: -9,
+                        top: -8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 2,
+                          ),
+                          decoration: const BoxDecoration(
+                            color: AppColors.electricBlue,
+                            borderRadius: BorderRadius.all(Radius.circular(10)),
+                          ),
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            cartCount > 99 ? '99+' : '$cartCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(width: 12),
                 Text(
