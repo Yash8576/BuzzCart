@@ -10,13 +10,64 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func tableExists(ctx context.Context, tx *sql.Tx, tableName string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", tableName).Scan(&exists)
+	return exists, err
+}
+
+func columnExists(ctx context.Context, tx *sql.Tx, tableName, columnName string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+		)`,
+		tableName,
+		columnName,
+	).Scan(&exists)
+	return exists, err
+}
+
 func deletePostsByMediaID(ctx context.Context, tx *sql.Tx, mediaID string) error {
-	if _, err := tx.ExecContext(ctx, "DELETE FROM user_feeds WHERE post_id IN (SELECT id FROM posts WHERE media_id = $1)", mediaID); err != nil {
+	postsExists, err := tableExists(ctx, tx, "public.posts")
+	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM post_likes WHERE post_id IN (SELECT id FROM posts WHERE media_id = $1)", mediaID); err != nil {
+	if !postsExists {
+		return nil
+	}
+
+	hasMediaIDColumn, err := columnExists(ctx, tx, "posts", "media_id")
+	if err != nil {
 		return err
 	}
+	if !hasMediaIDColumn {
+		return nil
+	}
+
+	userFeedsExists, err := tableExists(ctx, tx, "public.user_feeds")
+	if err != nil {
+		return err
+	}
+	if userFeedsExists {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM user_feeds WHERE post_id IN (SELECT id FROM posts WHERE media_id = $1)", mediaID); err != nil {
+			return err
+		}
+	}
+
+	postLikesExists, err := tableExists(ctx, tx, "public.post_likes")
+	if err != nil {
+		return err
+	}
+	if postLikesExists {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM post_likes WHERE post_id IN (SELECT id FROM posts WHERE media_id = $1)", mediaID); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, "DELETE FROM posts WHERE media_id = $1", mediaID); err != nil {
 		return err
 	}

@@ -19,6 +19,32 @@ class ShopPage extends StatefulWidget {
 }
 
 class _ShopPageState extends State<ShopPage> {
+  static const double _gridSpacing = 12;
+  static const double _minTileWidth = 170;
+  static const double _maxTileWidth = 260;
+  static const double _detailImageMaxSize = 420;
+  static const double _detailImageMinSize = 240;
+
+  int _calculateGridColumns(double availableWidth) {
+    if (availableWidth <= 0) return 1;
+
+    var columns =
+        ((availableWidth + _gridSpacing) / (_minTileWidth + _gridSpacing))
+            .floor();
+    if (columns < 1) columns = 1;
+
+    while (columns > 1) {
+      final tileWidth =
+          (availableWidth - (columns - 1) * _gridSpacing) / columns;
+      if (tileWidth <= _maxTileWidth) {
+        break;
+      }
+      columns++;
+    }
+
+    return columns;
+  }
+
   late final ApiService _api;
   List<ProductModel> _allProducts = [];
   List<ProductModel> _products = [];
@@ -194,47 +220,62 @@ class _ShopPageState extends State<ShopPage> {
             child: ListView(
               children: [
                 if (images.isNotEmpty)
-                  AspectRatio(
-                    aspectRatio: 1,
-                    child: Stack(
-                      children: [
-                        PageView.builder(
-                          itemCount: images.length,
-                          onPageChanged: (index) => setState(() => _currentImageIndex = index),
-                          itemBuilder: (context, index) => Image.network(
-                            UrlHelper.getPlatformUrl(images[index]),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: Colors.grey[300],
-                              child: const Icon(Icons.image, size: 64),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final availableWidth = constraints.maxWidth;
+                      final squareSize = availableWidth.clamp(
+                        _detailImageMinSize,
+                        _detailImageMaxSize,
+                      );
+
+                      return Center(
+                        child: SizedBox(
+                          width: squareSize,
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: Stack(
+                              children: [
+                                PageView.builder(
+                                  itemCount: images.length,
+                                  onPageChanged: (index) => setState(() => _currentImageIndex = index),
+                                  itemBuilder: (context, index) => Image.network(
+                                    UrlHelper.getPlatformUrl(images[index]),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Icon(Icons.image, size: 64),
+                                    ),
+                                  ),
+                                ),
+                                if (images.length > 1)
+                                  Positioned(
+                                    bottom: 16,
+                                    left: 0,
+                                    right: 0,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: List.generate(
+                                        images.length,
+                                        (index) => Container(
+                                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: _currentImageIndex == index
+                                                ? Colors.white
+                                                : Colors.white54,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ),
-                        if (images.length > 1)
-                          Positioned(
-                            bottom: 16,
-                            left: 0,
-                            right: 0,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(
-                                images.length,
-                                (index) => Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _currentImageIndex == index
-                                        ? Colors.white
-                                        : Colors.white54,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -438,72 +479,77 @@ class _ShopPageState extends State<ShopPage> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.75,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemCount: _products.length,
-              itemBuilder: (context, index) {
-                final product = _products[index];
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    onTap: () => context.go('/shop/${product.id}'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Image.network(
-                            UrlHelper.getPlatformUrl(
-                              product.images.isNotEmpty ? product.images.first : '',
-                            ),
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: Colors.grey[300],
-                              child: const Icon(Icons.image),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                product.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                product.brandName ?? product.sellerName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '\$${product.price.toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.electricBlue,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = _calculateGridColumns(constraints.maxWidth - 24);
+                return GridView.builder(
+                  padding: const EdgeInsets.all(12),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    childAspectRatio: 0.75,
+                    crossAxisSpacing: _gridSpacing,
+                    mainAxisSpacing: _gridSpacing,
                   ),
+                  itemCount: _products.length,
+                  itemBuilder: (context, index) {
+                    final product = _products[index];
+                    return Card(
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => context.go('/shop/${product.id}'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Image.network(
+                                UrlHelper.getPlatformUrl(
+                                  product.images.isNotEmpty ? product.images.first : '',
+                                ),
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: Colors.grey[300],
+                                  child: const Icon(Icons.image),
+                                ),
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    product.title,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    product.brandName ?? product.sellerName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '\$${product.price.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.electricBlue,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
             ),

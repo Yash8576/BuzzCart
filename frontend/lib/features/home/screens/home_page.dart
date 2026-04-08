@@ -17,6 +17,27 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const double _gridSpacing = 16;
+  static const double _minTileWidth = 180;
+  static const double _maxTileWidth = 280;
+
+  int _calculateGridColumns(double availableWidth) {
+    if (availableWidth <= 0) return 1;
+
+    var columns = ((availableWidth + _gridSpacing) / (_minTileWidth + _gridSpacing)).floor();
+    if (columns < 1) columns = 1;
+
+    while (columns > 1) {
+      final tileWidth = (availableWidth - (columns - 1) * _gridSpacing) / columns;
+      if (tileWidth <= _maxTileWidth) {
+        break;
+      }
+      columns++;
+    }
+
+    return columns;
+  }
+
   List<FeedItem> _feed = [];
   bool _isLoading = true;
   String? _error;
@@ -152,32 +173,33 @@ class _HomePageState extends State<HomePage> {
 
     return RefreshIndicator(
       onRefresh: _fetchFeed,
-      child: GridView.builder(
+      child: LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = _calculateGridColumns(constraints.maxWidth - 32);
+        return GridView.builder(
         padding: const EdgeInsets.all(16),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: MediaQuery.of(context).size.width >= 1024
-              ? 4
-              : MediaQuery.of(context).size.width >= 768
-                  ? 3
-                  : 2,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
+          crossAxisCount: columns,
+          crossAxisSpacing: _gridSpacing,
+          mainAxisSpacing: _gridSpacing,
           childAspectRatio: 0.75,
         ),
         itemCount: _feed.length,
         itemBuilder: (context, index) {
           final item = _feed[index];
           switch (item.type) {
-            case 'product':
-              return _buildProductCard(item.data as ProductModel, index);
-            case 'video':
-              return _buildVideoCard(item.data as VideoModel, index);
-            case 'reel':
-              return _buildReelCard(item.data as ReelModel, index);
-            default:
-              return const SizedBox();
+          case 'product':
+            return _buildProductCard(item.data as ProductModel, index);
+          case 'video':
+            return _buildVideoCard(item.data as VideoModel, index);
+          case 'reel':
+            return _buildReelCard(item.data as ReelModel, index);
+          default:
+            return const SizedBox();
           }
         },
+        );
+      },
       ),
     );
   }
