@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 )
 
 func GetCart(db *sql.DB) gin.HandlerFunc {
@@ -80,17 +79,23 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 			req.Quantity = 1
 		}
 
-		// Get product details
-		var product models.Product
-		err := db.QueryRow("SELECT id, title, price, images FROM products WHERE id = $1", req.ProductID).Scan(
-			&product.ID, &product.Title, &product.Price, pq.Array(&product.Images),
-		)
+		// Get product details using schema-aware product queries.
+		product, err := getProductByID(db, req.ProductID)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
-		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-			return
+		}
+		if err != nil {
+			product, err = getProductByIDLegacy(db, req.ProductID)
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+				return
+			}
+			if err != nil {
+				fmt.Printf("AddToCart - Failed to fetch product %s: %v\n", req.ProductID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+				return
+			}
 		}
 
 		image := ""

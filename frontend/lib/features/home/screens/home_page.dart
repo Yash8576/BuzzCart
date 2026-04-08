@@ -334,25 +334,34 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _handleAddToCart(String productId) async {
-    try {
-      await context.read<CartProvider>().addToCart(productId);
-      if (!mounted) return;
+    final added = await context.read<CartProvider>().addToCart(productId);
+    if (!mounted) return;
+
+    if (added) {
+      final cart = context.read<CartProvider>().cart;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Added to cart!'),
+        SnackBar(
+          content: Text(
+            'Added to cart. Total: \$${cart.total.toStringAsFixed(2)}',
+          ),
           backgroundColor: AppColors.successGreen,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: 'Checkout',
+            textColor: Colors.white,
+            onPressed: () => context.go('/cart'),
+          ),
         ),
       );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to add to cart'),
-          backgroundColor: AppColors.destructive,
-        ),
-      );
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Failed to add to cart'),
+        backgroundColor: AppColors.destructive,
+      ),
+    );
   }
 
   @override

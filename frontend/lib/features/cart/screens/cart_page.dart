@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/models/models.dart';
+import '../../../core/utils/url_helper.dart';
 
 class CartPage extends StatelessWidget {
   const CartPage({super.key});
@@ -12,6 +14,17 @@ class CartPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final cartProvider = context.watch<CartProvider>();
     final cart = cartProvider.cart;
+
+    if (cartProvider.isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Your Cart'),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
 
     if (cart.items.isEmpty) {
       return Scaffold(
@@ -128,7 +141,9 @@ class CartPage extends StatelessWidget {
                       );
                     },
                     icon: const Icon(Icons.credit_card),
-                    label: const Text('Checkout'),
+                    label: Text(
+                      'Proceed to Checkout - \$${cart.total.toStringAsFixed(2)}',
+                    ),
                   ),
                 ),
               ],
@@ -166,10 +181,10 @@ class _CartItemCard extends StatelessWidget {
               child: item.product.images.isNotEmpty
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        item.product.images[0],
+                      child: CachedNetworkImage(
+                        imageUrl: UrlHelper.getPlatformUrl(item.product.images[0]),
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
+                        errorWidget: (context, url, error) =>
                             const Icon(Icons.shopping_bag),
                       ),
                     )
@@ -233,14 +248,11 @@ class _CartItemCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                TextButton.icon(
+                IconButton(
                   onPressed: () => cartProvider.removeFromCart(item.product.id),
-                  icon: const Icon(Icons.delete, size: 16),
-                  label: const Text('Remove'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.destructive,
-                    padding: EdgeInsets.zero,
-                  ),
+                  icon: const Icon(Icons.delete_outline),
+                  color: AppColors.destructive,
+                  tooltip: 'Remove from cart',
                 ),
               ],
             ),

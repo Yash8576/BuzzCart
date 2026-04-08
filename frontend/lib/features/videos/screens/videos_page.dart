@@ -223,19 +223,17 @@ class _VideosPageState extends State<VideosPage> {
                                         width: double.infinity,
                                         child: ElevatedButton.icon(
                                           onPressed: () async {
-                                            try {
-                                              await context.read<CartProvider>().addToCart(product['id']);
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text('Added to cart!')),
-                                                );
-                                              }
-                                            } catch (e) {
-                                              if (context.mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text('Failed to add')),
-                                                );
-                                              }
+                                            final added = await context
+                                                .read<CartProvider>()
+                                                .addToCart(product['id']);
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    added ? 'Added to cart!' : 'Failed to add',
+                                                  ),
+                                                ),
+                                              );
                                             }
                                           },
                                           icon: const Icon(Icons.shopping_bag, size: 16),

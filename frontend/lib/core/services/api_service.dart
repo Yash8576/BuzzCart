@@ -611,7 +611,7 @@ class ApiService {
 
   Future<void> updateCartQuantity(String productId, int quantity) async {
     try {
-      await _dio.put('/cart/update', data: {
+      await _dio.post('/cart/update', data: {
         'product_id': productId,
         'quantity': quantity,
       });
@@ -622,7 +622,9 @@ class ApiService {
 
   Future<void> removeFromCart(String productId) async {
     try {
-      await _dio.delete('/cart/remove/$productId');
+      await _dio.post('/cart/remove', data: {
+        'product_id': productId,
+      });
     } catch (e) {
       rethrow;
     }

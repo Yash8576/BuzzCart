@@ -539,8 +539,33 @@ class CartItemModel {
   });
 
   factory CartItemModel.fromJson(Map<String, dynamic> json) {
+    final hasNestedProduct = json['product'] is Map<String, dynamic>;
+    final productJson = hasNestedProduct
+        ? Map<String, dynamic>.from(json['product'] as Map<String, dynamic>)
+        : <String, dynamic>{
+            'id': json['product_id'] as String,
+            'title': json['title'] as String? ?? '',
+            'description': '',
+            'price': (json['price'] as num?)?.toDouble() ?? 0,
+            'images': [
+              if ((json['image'] as String?) != null &&
+                  (json['image'] as String).isNotEmpty)
+                json['image'] as String,
+            ],
+            'category': '',
+            'tags': const <String>[],
+            'seller_id': '',
+            'seller_name': '',
+            'rating': 0,
+            'reviews_count': 0,
+            'views': 0,
+            'buys': 0,
+            'metadata': const <String, dynamic>{},
+            'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+          };
+
     return CartItemModel(
-      product: ProductModel.fromJson(json['product'] as Map<String, dynamic>),
+      product: ProductModel.fromJson(productJson),
       quantity: json['quantity'] as int,
     );
   }

@@ -41,20 +41,16 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> _handleAddToCart(String productId) async {
-    try {
-      await context.read<CartProvider>().addToCart(productId);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Added to cart!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to add to cart')),
-        );
-      }
+    final added = await context.read<CartProvider>().addToCart(productId);
+    if (!mounted) {
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(added ? 'Added to cart!' : 'Failed to add to cart'),
+      ),
+    );
   }
 
   @override

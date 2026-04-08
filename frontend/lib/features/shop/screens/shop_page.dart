@@ -129,20 +129,20 @@ class _ShopPageState extends State<ShopPage> {
   }
 
   Future<void> _handleAddToCart() async {
-    try {
-      await context.read<CartProvider>().addToCart(widget.productId!, quantity: _quantity);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added $_quantity item(s) to cart!')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to add to cart')),
-        );
-      }
+    final added = await context
+        .read<CartProvider>()
+        .addToCart(widget.productId!, quantity: _quantity);
+    if (!mounted) {
+      return;
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added ? 'Added $_quantity item(s) to cart!' : 'Failed to add to cart',
+        ),
+      ),
+    );
   }
 
   void _applyCategoryFilter() {
