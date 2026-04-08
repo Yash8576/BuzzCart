@@ -146,7 +146,11 @@ GoRouter createAppRouter(AuthProvider authProvider) {
           ),
           GoRoute(
             path: '/add-product',
-            builder: (context, state) => const AddProductScreen(),
+            builder: (context, state) {
+              final editingProduct =
+                  state.extra is ProductModel ? state.extra as ProductModel : null;
+              return AddProductScreen(editingProduct: editingProduct);
+            },
             onExit: (context) async {
               final provider = context.read<AddProductProvider>();
               if (!provider.hasUnsavedWork) {

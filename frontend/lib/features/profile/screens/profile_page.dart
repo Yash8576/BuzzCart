@@ -450,6 +450,16 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  Future<void> _manageProduct(ProductModel product) async {
+    final result = await context.push('/add-product', extra: product);
+    if (!mounted) {
+      return;
+    }
+    if (result == true) {
+      await _fetchUserContent();
+    }
+  }
+
   String _capitalizeLabel(String value) {
     if (value.isEmpty) {
       return value;
@@ -1919,6 +1929,41 @@ class _ProfilePageState extends State<ProfilePage>
                     ],
                   ),
                 ),
+                if (isOwnProfile && currentUser?.isSeller == true)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _isDeleting(deletingKey)
+                              ? null
+                              : () => _manageProduct(product),
+                          icon: const Icon(Icons.edit_note_outlined, size: 16),
+                          label: const Text('Manage'),
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Stock ${product.stockQuantity}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

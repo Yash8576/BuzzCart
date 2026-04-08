@@ -847,6 +847,40 @@ class ApiService {
     }
   }
 
+  Future<ProductModel> updateProduct({
+    required String productId,
+    required String title,
+    required String description,
+    required double price,
+    required String category,
+    required List<String> images,
+    double? compareAtPrice,
+    List<String>? tags,
+    String? sku,
+    int? stockQuantity,
+    String? condition,
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      final response = await _dio.put('/products/$productId', data: {
+        'title': title,
+        'description': description,
+        'price': price,
+        'category': category,
+        'images': images,
+        if (compareAtPrice != null) 'compare_at_price': compareAtPrice,
+        if (tags != null && tags.isNotEmpty) 'tags': tags,
+        if (sku != null && sku.isNotEmpty) 'sku': sku,
+        if (stockQuantity != null) 'stock_quantity': stockQuantity,
+        if (condition != null && condition.isNotEmpty) 'condition': condition,
+        if (metadata != null && metadata.isNotEmpty) 'metadata': metadata,
+      });
+      return ProductModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<void> deleteProduct(String id) async {
     try {
       await _dio.delete('/products/$id');

@@ -6,12 +6,16 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/models/models.dart';
 import '../../../../core/providers/add_product_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/services/api_service.dart';
+import '../../../../core/utils/url_helper.dart';
 
 class AddProductScreen extends StatefulWidget {
-  const AddProductScreen({super.key});
+  final ProductModel? editingProduct;
+
+  const AddProductScreen({super.key, this.editingProduct});
 
   @override
   State<AddProductScreen> createState() => _AddProductScreenState();
@@ -60,6 +64,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
   String _dimensionUnit = 'cm';
   bool _gtinExempt = false;
   bool _isSubmitting = false;
+  int _initialStockQuantity = 0;
+  String _stockAdjustmentMode = 'increment';
+  bool _isPrefilling = false;
+
+  bool get _isEditing => widget.editingProduct != null;
 
   @override
   void initState() {
@@ -67,6 +76,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _api = context.read<ApiService>();
     _addManualSpecificationRow();
     _addBulletPointRow();
+    _prefillFromEditingProduct();
   }
 
   @override
@@ -109,7 +119,173 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   void _markDirty() {
+    if (_isPrefilling) {
+      return;
+    }
     context.read<AddProductProvider>().markEdited();
+  }
+
+  String _metaString(Map<String, dynamic> metadata, String key) {
+    final value = metadata[key];
+    return value == null ? '' : value.toString().trim();
+  }
+
+  String _extractVariationValue(String summary, String prefix) {
+    if (summary.isEmpty) {
+      return '';
+    }
+    for (final segment in summary.split('|')) {
+      final trimmed = segment.trim();
+      if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+        return trimmed.substring(prefix.length).trim();
+      }
+    }
+    return '';
+  }
+
+  void _prefillFromEditingProduct() {
+    final product = widget.editingProduct;
+    if (product == null) {
+      return;
+    }
+
+    _isPrefilling = true;
+
+    final metadata = product.metadata;
+    final variationSummary = _metaString(metadata, 'variation_summary');
+    final dimensionsRaw = metadata['dimensions'];
+    final dimensions =
+        dimensionsRaw is Map ? Map<String, dynamic>.from(dimensionsRaw) : null;
+
+    _titleController.text = product.title;
+    _descriptionController.text = product.description;
+    _categoryController.text = product.category;
+    _priceController.text = product.price.toStringAsFixed(2);
+    _quantityController.text = '0';
+
+    _initialStockQuantity = product.stockQuantity;
+    _condition = product.condition;
+    _brandNameController.text = _metaString(metadata, 'brand_name');
+    _brandOrigin = _metaString(metadata, 'brand_origin').toLowerCase() == 'other'
+        ? 'other'
+        : 'own';
+    _manufacturerController.text = _metaString(metadata, 'manufacturer');
+    _productIdController.text = product.sku ?? _metaString(metadata, 'product_identifier');
+    _gtinController.text = _metaString(metadata, 'gtin');
+    _gtinExempt = metadata['gtin_exempt'] == true;
+    _productTypeController.text = _metaString(metadata, 'product_type');
+    _fulfillmentMethod = _metaString(metadata, 'fulfillment_method').isEmpty
+        ? 'FBM'
+        : _metaString(metadata, 'fulfillment_method');
+    _shippingDetailsController.text = _metaString(metadata, 'shipping_details');
+    _sizeController.text = _extractVariationValue(variationSummary, 'Size:');
+    _colorController.text = _extractVariationValue(variationSummary, 'Color:');
+    _styleController.text = _extractVariationValue(variationSummary, 'Style:');
+    _packQuantityController.text =
+        _extractVariationValue(variationSummary, 'Pack quantity:');
+    _variationFamilyController.text =
+        _extractVariationValue(variationSummary, 'Variation family:');
+    _materialController.text = _metaString(metadata, 'material');
+    _dimensionLengthController.text =
+        dimensions == null ? '' : (dimensions['length']?.toString() ?? '');
+    _dimensionWidthController.text =
+        dimensions == null ? '' : (dimensions['width']?.toString() ?? '');
+    _dimensionHeightController.text =
+        dimensions == null ? '' : (dimensions['height']?.toString() ?? '');
+    _dimensionUnit = dimensions == null
+        ? 'cm'
+        : (dimensions['unit']?.toString().trim().isEmpty ?? true)
+            ? 'cm'
+            : dimensions['unit'].toString();
+    _weightController.text = _metaString(metadata, 'weight');
+    _itemModelNumberController.text = _metaString(metadata, 'item_model_number');
+    _countryOfOriginController.text = _metaString(metadata, 'country_of_origin');
+
+    final searchTerms = product.searchTerms.isNotEmpty
+        ? product.searchTerms
+        : product.tags;
+    _searchTermsController.text = searchTerms.join(', ');
+
+    for (final row in _manualSpecificationRows) {
+      row.dispose();
+    }
+    _manualSpecificationRows.clear();
+    final manualSpecs = product.manualSpecifications;
+    if (manualSpecs.isEmpty) {
+      _addManualSpecificationRow();
+    } else {
+      for (final entry in manualSpecs.entries) {
+        _addManualSpecificationRow(key: entry.key, value: entry.value);
+      }
+    }
+
+    for (final controller in _bulletPointControllers) {
+      controller.dispose();
+    }
+    _bulletPointControllers.clear();
+    final bulletPoints = product.bulletPoints;
+    if (bulletPoints.isEmpty) {
+      _addBulletPointRow();
+    } else {
+      for (final point in bulletPoints) {
+        _addBulletPointRow(value: point);
+      }
+    }
+
+    _mediaQueue.clear();
+    final queue = product.mediaQueue;
+    if (queue.isNotEmpty) {
+      for (final item in queue) {
+        final type = (item['type'] ?? '').toString().toLowerCase();
+        final url = (item['url'] ?? '').toString().trim();
+        if (url.isEmpty) {
+          continue;
+        }
+        final kind = type == 'video' ? _QueuedMediaKind.video : _QueuedMediaKind.image;
+        _mediaQueue.add(
+          _QueuedProductMedia.remote(
+            id: 'media-${_mediaQueueSequence++}',
+            remoteUrl: url,
+            kind: kind,
+            displayName: (item['name'] ?? '').toString(),
+          ),
+        );
+      }
+    }
+
+    if (_mediaQueue.isEmpty) {
+      for (final url in product.images) {
+        if (url.trim().isEmpty) {
+          continue;
+        }
+        _mediaQueue.add(
+          _QueuedProductMedia.remote(
+            id: 'media-${_mediaQueueSequence++}',
+            remoteUrl: url,
+            kind: _QueuedMediaKind.image,
+          ),
+        );
+      }
+      for (final url in product.mediaVideos) {
+        if (url.trim().isEmpty) {
+          continue;
+        }
+        _mediaQueue.add(
+          _QueuedProductMedia.remote(
+            id: 'media-${_mediaQueueSequence++}',
+            remoteUrl: url,
+            kind: _QueuedMediaKind.video,
+          ),
+        );
+      }
+    }
+
+    final specificationPdfUrl = product.specificationPdfUrl;
+    if (specificationPdfUrl != null && specificationPdfUrl.trim().isNotEmpty) {
+      _specificationPdf = XFile(specificationPdfUrl.trim(), name: 'existing-specification.pdf');
+    }
+
+    _isPrefilling = false;
   }
 
   void _addManualSpecificationRow({String key = '', String value = ''}) {
@@ -136,7 +312,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     setState(() {
       for (final file in files) {
         _mediaQueue.add(
-          _QueuedProductMedia(
+          _QueuedProductMedia.local(
             id: 'media-${_mediaQueueSequence++}',
             file: file,
             kind: kind,
@@ -336,15 +512,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
       final uploadedMediaQueue = <Map<String, dynamic>>[];
 
       for (final item in _mediaQueue) {
-        final result = item.kind == _QueuedMediaKind.image
-            ? await _api.uploadProductImage(item.file)
-            : await _api.uploadVideo(item.file);
-        final url = result['url'] as String?;
+        String? url;
+        if (item.isRemote) {
+          url = item.remoteUrl;
+        } else if (item.file != null) {
+          final result = item.kind == _QueuedMediaKind.image
+              ? await _api.uploadProductImage(item.file!)
+              : await _api.uploadVideo(item.file!);
+          url = result['url'] as String?;
+        }
+
         if (url != null && url.isNotEmpty) {
           uploadedMediaQueue.add({
             'type': item.kind.apiValue,
             'url': url,
-            'name': item.file.name,
+            'name': item.displayName,
           });
           if (item.kind == _QueuedMediaKind.image) {
             uploadedImageUrls.add(url);
@@ -356,8 +538,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
       String? specificationPdfUrl;
       if (_specificationPdf != null) {
-        final result = await _api.uploadProductDocument(_specificationPdf!);
-        specificationPdfUrl = result['url'] as String?;
+        if (_specificationPdf!.path.startsWith('http://') ||
+            _specificationPdf!.path.startsWith('https://')) {
+          specificationPdfUrl = _specificationPdf!.path;
+        } else {
+          final result = await _api.uploadProductDocument(_specificationPdf!);
+          specificationPdfUrl = result['url'] as String?;
+        }
+      }
+
+      if (uploadedImageUrls.isEmpty) {
+        throw Exception('Add at least one product photo to continue.');
       }
 
       final manualSpecs = <String, String>{};
@@ -453,20 +644,45 @@ class _AddProductScreenState extends State<AddProductScreen> {
           return false;
         });
 
-      await _api.createProduct(
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
-        price: double.parse(_priceController.text.trim()),
-        category: _categoryController.text.trim(),
-        images: uploadedImageUrls,
-        tags: searchTerms,
-        sku: _productIdController.text.trim().isEmpty
-            ? null
-            : _productIdController.text.trim(),
-        stockQuantity: int.tryParse(_quantityController.text.trim()),
-        condition: _condition,
-        metadata: metadata,
-      );
+      if (_isEditing) {
+        final editingProduct = widget.editingProduct!;
+        final latest = await _api.getProduct(editingProduct.id);
+        final adjustBy = int.tryParse(_quantityController.text.trim()) ?? 0;
+        final updatedStock = _stockAdjustmentMode == 'decrement'
+            ? (latest.stockQuantity - adjustBy).clamp(0, 1 << 31)
+            : latest.stockQuantity + adjustBy;
+
+        await _api.updateProduct(
+          productId: editingProduct.id,
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          price: double.parse(_priceController.text.trim()),
+          category: _categoryController.text.trim(),
+          images: uploadedImageUrls,
+          tags: searchTerms,
+          sku: _productIdController.text.trim().isEmpty
+              ? null
+              : _productIdController.text.trim(),
+          stockQuantity: updatedStock,
+          condition: _condition,
+          metadata: metadata,
+        );
+      } else {
+        await _api.createProduct(
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          price: double.parse(_priceController.text.trim()),
+          category: _categoryController.text.trim(),
+          images: uploadedImageUrls,
+          tags: searchTerms,
+          sku: _productIdController.text.trim().isEmpty
+              ? null
+              : _productIdController.text.trim(),
+          stockQuantity: int.tryParse(_quantityController.text.trim()),
+          condition: _condition,
+          metadata: metadata,
+        );
+      }
 
       if (!mounted) {
         return;
@@ -474,17 +690,31 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
       context.read<AddProductProvider>().clearAll();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Product added to your warehouse successfully.'),
+        SnackBar(
+          content: Text(
+            _isEditing
+                ? 'Product updated successfully.'
+                : 'Product added to your warehouse successfully.',
+          ),
         ),
       );
-      context.go('/profile');
+      if (_isEditing) {
+        context.pop(true);
+      } else {
+        context.go('/profile');
+      }
     } catch (e) {
       if (!mounted) {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create product: $e')),
+        SnackBar(
+          content: Text(
+            _isEditing
+                ? 'Failed to update product: $e'
+                : 'Failed to create product: $e',
+          ),
+        ),
       );
     } finally {
       if (mounted) {
@@ -588,13 +818,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Product to Warehouse'),
+        title: Text(_isEditing ? 'Manage Listing' : 'Add Product to Warehouse'),
         actions: [
           TextButton(
             onPressed: _isSubmitting ? null : _submitProduct,
-            child: const Text(
-              'Publish',
-              style: TextStyle(fontWeight: FontWeight.w700),
+            child: Text(
+              _isEditing ? 'Update' : 'Publish',
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -822,15 +1052,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       Expanded(
                         child: _buildTextField(
                           controller: _quantityController,
-                          label: 'Quantity *',
-                          hint: '0',
+                          label: _isEditing
+                              ? 'Adjust stock by'
+                              : 'Quantity *',
+                          hint: _isEditing ? '0' : '0',
                           keyboardType: TextInputType.number,
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
                           ],
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
-                              return 'Quantity is required';
+                              return _isEditing
+                                  ? 'Enter a value (0 or more)'
+                                  : 'Quantity is required';
                             }
                             final quantity = int.tryParse(value.trim());
                             if (quantity == null || quantity < 0) {
@@ -842,6 +1076,45 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ),
                     ],
                   ),
+                  if (_isEditing) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Current stock: $_initialStockQuantity',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(
+                          value: 'increment',
+                          icon: Icon(Icons.add),
+                          label: Text('Increment by'),
+                        ),
+                        ButtonSegment(
+                          value: 'decrement',
+                          icon: Icon(Icons.remove),
+                          label: Text('Decrement by'),
+                        ),
+                      ],
+                      selected: {_stockAdjustmentMode},
+                      onSelectionChanged: (selection) {
+                        setState(() {
+                          _stockAdjustmentMode = selection.first;
+                        });
+                        _markDirty();
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Latest stock is fetched at publish, then the chosen increment/decrement is applied.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _condition,
@@ -1220,7 +1493,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                           margin: const EdgeInsets.only(bottom: 8),
                           child: ListTile(
                             leading: _QueuedMediaPreview(item: item),
-                            title: Text(item.file.name),
+                            title: Text(item.displayName),
                             subtitle: Text(item.kind.label),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1274,9 +1547,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Icon(Icons.inventory_2_outlined),
+                    : Icon(_isEditing
+                      ? Icons.edit_outlined
+                      : Icons.inventory_2_outlined),
               label:
-                  Text(_isSubmitting ? 'Publishing...' : 'Publish Product'),
+                    Text(_isSubmitting
+                      ? (_isEditing ? 'Updating...' : 'Publishing...')
+                      : (_isEditing ? 'Update Product' : 'Publish Product')),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
@@ -1312,14 +1589,51 @@ extension on _QueuedMediaKind {
 
 class _QueuedProductMedia {
   final String id;
-  final XFile file;
+  final XFile? file;
+  final String? remoteUrl;
   final _QueuedMediaKind kind;
+  final String displayName;
+
+  bool get isRemote => remoteUrl != null;
 
   _QueuedProductMedia({
     required this.id,
     required this.file,
+    required this.remoteUrl,
     required this.kind,
+    required this.displayName,
   });
+
+  factory _QueuedProductMedia.local({
+    required String id,
+    required XFile file,
+    required _QueuedMediaKind kind,
+  }) {
+    return _QueuedProductMedia(
+      id: id,
+      file: file,
+      remoteUrl: null,
+      kind: kind,
+      displayName: file.name,
+    );
+  }
+
+  factory _QueuedProductMedia.remote({
+    required String id,
+    required String remoteUrl,
+    required _QueuedMediaKind kind,
+    String? displayName,
+  }) {
+    return _QueuedProductMedia(
+      id: id,
+      file: null,
+      remoteUrl: remoteUrl,
+      kind: kind,
+      displayName: displayName?.trim().isNotEmpty == true
+          ? displayName!.trim()
+          : remoteUrl.split('/').last,
+    );
+  }
 }
 
 class _QueuedMediaPreview extends StatelessWidget {
@@ -1341,14 +1655,43 @@ class _QueuedMediaPreview extends StatelessWidget {
             color: Colors.grey.shade100,
           ),
           child: item.kind == _QueuedMediaKind.image
-              ? _ImagePreview(file: item.file)
-              : const Center(
-                  child: Icon(
-                    Icons.play_circle_fill,
-                    size: 32,
-                    color: Colors.black54,
-                  ),
-                ),
+              ? _ImagePreview(
+                  file: item.file,
+                  remoteUrl: item.remoteUrl,
+                )
+              : item.remoteUrl != null
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.network(
+                          UrlHelper.getPlatformUrl(item.remoteUrl!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.videocam_outlined,
+                                size: 28,
+                                color: Colors.black54,
+                              ),
+                            );
+                          },
+                        ),
+                        const Center(
+                          child: Icon(
+                            Icons.play_circle_fill,
+                            size: 32,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Center(
+                      child: Icon(
+                        Icons.play_circle_fill,
+                        size: 32,
+                        color: Colors.black54,
+                      ),
+                    ),
         ),
       ),
     );
@@ -1356,14 +1699,29 @@ class _QueuedMediaPreview extends StatelessWidget {
 }
 
 class _ImagePreview extends StatelessWidget {
-  final XFile file;
+  final XFile? file;
+  final String? remoteUrl;
 
-  const _ImagePreview({required this.file});
+  const _ImagePreview({required this.file, required this.remoteUrl});
 
   @override
   Widget build(BuildContext context) {
+    if (remoteUrl != null && remoteUrl!.isNotEmpty) {
+      return Image.network(
+        UrlHelper.getPlatformUrl(remoteUrl!),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return const Center(child: Icon(Icons.broken_image_outlined));
+        },
+      );
+    }
+
+    if (file == null) {
+      return const Center(child: Icon(Icons.broken_image_outlined));
+    }
+
     return FutureBuilder<Uint8List>(
-      future: file.readAsBytes(),
+      future: file!.readAsBytes(),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
           return const Center(
