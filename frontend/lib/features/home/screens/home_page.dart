@@ -25,15 +25,110 @@ class _HomePageState extends State<HomePage> {
   static const double _reelCardMaxWidth = 420;
   static const double _productRailCardWidth = 188;
   static const double _productRailHeight = 278;
+  static const double _listCacheExtent = 2200;
 
   List<_HomeSection> _sections = [];
   bool _isLoading = true;
   String? _error;
+  final Map<int, ScrollController> _productRailControllers = {};
+  final Set<int> _canScrollRailLeft = {};
+  final Set<int> _canScrollRailRight = {};
 
   @override
   void initState() {
     super.initState();
     _fetchFeed();
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _productRailControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  ScrollController _getProductRailController(int sectionIndex) {
+    return _productRailControllers.putIfAbsent(sectionIndex, () {
+      final controller = ScrollController();
+      controller.addListener(() => _updateRailScrollState(sectionIndex));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _updateRailScrollState(sectionIndex);
+      });
+      return controller;
+    });
+  }
+
+  void _updateRailScrollState(int sectionIndex) {
+    final controller = _productRailControllers[sectionIndex];
+    if (controller == null || !controller.hasClients || !mounted) {
+      return;
+    }
+
+    final canLeft = controller.offset > 2;
+    final canRight = controller.offset < controller.position.maxScrollExtent - 2;
+    final wasLeft = _canScrollRailLeft.contains(sectionIndex);
+    final wasRight = _canScrollRailRight.contains(sectionIndex);
+
+    if (canLeft == wasLeft && canRight == wasRight) {
+      return;
+    }
+
+    setState(() {
+      if (canLeft) {
+        _canScrollRailLeft.add(sectionIndex);
+      } else {
+        _canScrollRailLeft.remove(sectionIndex);
+      }
+
+      if (canRight) {
+        _canScrollRailRight.add(sectionIndex);
+      } else {
+        _canScrollRailRight.remove(sectionIndex);
+      }
+    });
+  }
+
+  Future<void> _scrollProductRail(int sectionIndex, bool forward) async {
+    final controller = _productRailControllers[sectionIndex];
+    if (controller == null || !controller.hasClients) {
+      return;
+    }
+
+    const delta = _productRailCardWidth * 1.75;
+    final target = forward
+        ? controller.offset + delta
+        : controller.offset - delta;
+    final clampedTarget = target.clamp(
+      controller.position.minScrollExtent,
+      controller.position.maxScrollExtent,
+    );
+
+    await controller.animateTo(
+      clampedTarget.toDouble(),
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _pruneProductRailControllers(List<_HomeSection> sections) {
+    final activeRailIndexes = <int>{};
+    for (var index = 0; index < sections.length; index++) {
+      if (sections[index].type == _HomeSectionType.productRail) {
+        activeRailIndexes.add(index);
+      }
+    }
+
+    final staleIndexes = _productRailControllers.keys
+        .where((index) => !activeRailIndexes.contains(index))
+        .toList();
+
+    for (final index in staleIndexes) {
+      _productRailControllers.remove(index)?.dispose();
+      _canScrollRailLeft.remove(index);
+      _canScrollRailRight.remove(index);
+    }
   }
 
   Future<void> _fetchFeed() async {
@@ -99,6 +194,7 @@ class _HomePageState extends State<HomePage> {
         reels: reels,
         videos: videos,
       );
+      _pruneProductRailControllers(sections);
 
       if (!mounted) return;
       setState(() {
@@ -305,12 +401,14 @@ class _HomePageState extends State<HomePage> {
           onRefresh: _fetchFeed,
           child: ListView.builder(
             padding: EdgeInsets.symmetric(vertical: 16, horizontal: pagePadding),
+            cacheExtent: _listCacheExtent,
             itemCount: _sections.length,
             itemBuilder: (context, index) {
               final section = _sections[index];
               switch (section.type) {
                 case _HomeSectionType.productRail:
                   return _buildProductRail(
+                    index,
                     section.data as List<ProductModel>,
                     constraints.maxWidth,
                   );
@@ -341,48 +439,111 @@ class _HomePageState extends State<HomePage> {
     required Widget child,
     required double maxWidth,
   }) {
+    final constrainedWidth = math.min(maxWidth, _pageMaxWidth);
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Align(
         alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: math.min(maxWidth, _pageMaxWidth),
-          ),
+        child: SizedBox(
+          width: constrainedWidth,
           child: child,
         ),
       ),
     );
   }
 
-  Widget _buildProductRail(List<ProductModel> products, double viewportWidth) {
+  Widget _buildProductRail(
+    int sectionIndex,
+    List<ProductModel> products,
+    double viewportWidth,
+  ) {
+    final railWidth = math.min(
+      _mediaCardMaxWidth,
+      math.min(viewportWidth, _pageMaxWidth),
+    );
+    final controller = _getProductRailController(sectionIndex);
+    final canScrollLeft = _canScrollRailLeft.contains(sectionIndex);
+    final canScrollRight = _canScrollRailRight.contains(sectionIndex);
+
     return _buildSectionShell(
       maxWidth: viewportWidth,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 10),
-            child: Text(
-              'Products',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
+      child: Align(
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: railWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 4, right: 2, bottom: 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Products',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                    _buildRailArrowButton(
+                      icon: Icons.chevron_left_rounded,
+                      isEnabled: canScrollLeft,
+                      onPressed: () => _scrollProductRail(sectionIndex, false),
+                    ),
+                    const SizedBox(width: 6),
+                    _buildRailArrowButton(
+                      icon: Icons.chevron_right_rounded,
+                      isEnabled: canScrollRight,
+                      onPressed: () => _scrollProductRail(sectionIndex, true),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: _productRailHeight,
+                child: ListView.separated(
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  cacheExtent: _listCacheExtent,
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  itemCount: products.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    return _buildProductTile(products[index]);
+                  },
+                ),
+              ),
+            ],
           ),
-          SizedBox(
-            height: _productRailHeight,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              itemCount: products.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                return _buildProductTile(products[index]);
-              },
-            ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRailArrowButton({
+    required IconData icon,
+    required bool isEnabled,
+    required VoidCallback onPressed,
+  }) {
+    final surfaceColor = Theme.of(context).cardColor;
+
+    return Material(
+      color: isEnabled ? surfaceColor : surfaceColor.withAlpha(140),
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: isEnabled ? onPressed : null,
+        borderRadius: BorderRadius.circular(999),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Icon(
+            icon,
+            size: 22,
+            color: isEnabled ? null : Colors.grey,
           ),
-        ],
+        ),
       ),
     );
   }
@@ -408,10 +569,10 @@ class _HomePageState extends State<HomePage> {
                     Container(
                       color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
                       child: product.images.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: UrlHelper.getPlatformUrl(product.images.first),
+                          ? _buildCachedImage(
+                              product.images.first,
                               fit: BoxFit.cover,
-                              errorWidget: (_, __, ___) => const Icon(Icons.shopping_bag),
+                              errorWidget: const Icon(Icons.shopping_bag),
                             )
                           : const Icon(Icons.shopping_bag),
                     ),
@@ -557,10 +718,10 @@ class _HomePageState extends State<HomePage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          CachedNetworkImage(
-            imageUrl: UrlHelper.getPlatformUrl(imageUrl),
+          _buildCachedImage(
+            imageUrl,
             fit: BoxFit.cover,
-            errorWidget: (_, __, ___) => Container(
+            errorWidget: Container(
               color: Colors.grey[200],
               child: const Icon(Icons.broken_image_outlined, size: 40),
             ),
@@ -599,7 +760,7 @@ class _HomePageState extends State<HomePage> {
     return _buildSectionShell(
       maxWidth: viewportWidth,
       child: Align(
-        alignment: Alignment.centerLeft,
+        alignment: Alignment.center,
         child: ConstrainedBox(
           constraints: BoxConstraints(
             maxWidth: math.min(maxWidth, viewportWidth),
@@ -682,6 +843,25 @@ class _HomePageState extends State<HomePage> {
               ),
             )
           : null,
+    );
+  }
+
+  Widget _buildCachedImage(
+    String imageUrl, {
+    BoxFit fit = BoxFit.cover,
+    Widget? errorWidget,
+  }) {
+    final resolvedUrl = UrlHelper.getPlatformUrl(imageUrl);
+
+    return CachedNetworkImage(
+      imageUrl: resolvedUrl,
+      cacheKey: resolvedUrl,
+      fit: fit,
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
+      useOldImageOnUrlChange: true,
+      errorWidget: (_, __, ___) => errorWidget ?? const SizedBox.shrink(),
     );
   }
 }
