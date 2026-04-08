@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -665,65 +666,93 @@ class _ProductShareCard extends StatelessWidget {
     final imageUrl = product.images.isNotEmpty
         ? UrlHelper.getPlatformUrl(product.images.first)
         : '';
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    final isOwnProduct = currentUserId != null && currentUserId == product.sellerId;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: inverted
-            ? Colors.white.withValues(alpha: 0.14)
-            : Theme.of(context).scaffoldBackgroundColor,
+    void openProduct() {
+      final route = isOwnProduct
+          ? '/shop/${product.id}?own_preview=1'
+          : '/shop/${product.id}';
+      context.push(route);
+    }
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: openProduct,
         borderRadius: BorderRadius.circular(16),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: imageUrl.isEmpty
-                ? Container(
-                    width: 56,
-                    height: 56,
-                    color: Colors.black12,
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.shopping_bag_outlined,
-                      color: inverted ? Colors.white : null,
-                    ),
-                  )
-                : Image.network(
-                    imageUrl,
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                  ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: inverted
+                ? Colors.white.withValues(alpha: 0.14)
+                : Theme.of(context).scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(16),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  product.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: inverted ? Colors.white : null,
-                    fontWeight: FontWeight.w700,
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: imageUrl.isEmpty
+                    ? Container(
+                        width: 56,
+                        height: 56,
+                        color: Colors.black12,
+                        alignment: Alignment.center,
+                        child: Icon(
+                          Icons.shopping_bag_outlined,
+                          color: inverted ? Colors.white : null,
+                        ),
+                      )
+                    : Image.network(
+                        imageUrl,
+                        width: 56,
+                        height: 56,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                fit: FlexFit.loose,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: inverted ? Colors.white : null,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '\$${product.price.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: inverted
+                              ? Colors.white.withValues(alpha: 0.9)
+                              : AppColors.electricBlue,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  '\$${product.price.toStringAsFixed(2)}',
-                  style: TextStyle(
-                    color: inverted
-                        ? Colors.white.withValues(alpha: 0.9)
-                        : AppColors.electricBlue,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
+              ),
+              Icon(
+                Icons.open_in_new,
+                size: 16,
+                color: inverted
+                    ? Colors.white.withValues(alpha: 0.85)
+                    : Theme.of(context).hintColor,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

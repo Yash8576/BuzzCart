@@ -217,7 +217,6 @@ class _ShopPageState extends State<ShopPage> {
           onPressed: () => context.go('/shop'),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.favorite_outline), onPressed: () {}),
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: () {
