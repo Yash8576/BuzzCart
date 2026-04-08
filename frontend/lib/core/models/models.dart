@@ -295,6 +295,7 @@ class ProductModel {
   String? get countryOfOrigin => _metadataString('country_of_origin');
   String? get specificationPdfUrl => _metadataString('specification_pdf_url');
   List<String> get mediaVideos => _metadataStringList('media_videos');
+  List<Map<String, dynamic>> get mediaQueue => _metadataMediaQueue('media_queue');
   List<String> get bulletPoints => _metadataStringList('bullet_points');
   List<String> get searchTerms => _metadataStringList('search_terms');
 
@@ -372,6 +373,23 @@ class ProductModel {
     return value
         .map((item) => item?.toString().trim() ?? '')
         .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
+  List<Map<String, dynamic>> _metadataMediaQueue(String key) {
+    final value = metadata[key];
+    if (value is! List) {
+      return const [];
+    }
+
+    return value
+        .whereType<Map>()
+        .map((entry) => <String, dynamic>{
+              'type': entry['type']?.toString().trim().toLowerCase() ?? 'image',
+              'url': entry['url']?.toString().trim() ?? '',
+              'name': entry['name']?.toString().trim() ?? '',
+            })
+        .where((entry) => (entry['url'] as String).isNotEmpty)
         .toList();
   }
 }

@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -52,8 +50,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final List<_EditableFieldRow> _manualSpecificationRows = [];
   final List<TextEditingController> _bulletPointControllers = [];
 
-  final List<XFile> _imageFiles = [];
-  final List<XFile> _videoFiles = [];
+  final List<_QueuedProductMedia> _mediaQueue = [];
   XFile? _specificationPdf;
 
   String _brandOrigin = 'own';
@@ -130,6 +127,56 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _bulletPointControllers.add(controller);
   }
 
+  void _addMediaItems(List<XFile> files, _QueuedMediaKind kind) {
+    if (files.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      for (final file in files) {
+        _mediaQueue.add(
+          _QueuedProductMedia(
+            id: DateTime.now().microsecondsSinceEpoch.toString(),
+            file: file,
+            kind: kind,
+          ),
+        );
+      }
+    });
+    _markDirty();
+  }
+
+  void _shuffleMediaQueue() {
+    if (_mediaQueue.length < 2) {
+      return;
+    }
+    setState(() {
+      _mediaQueue.shuffle();
+    });
+    _markDirty();
+  }
+
+  void _removeMediaAt(int index) {
+    if (index < 0 || index >= _mediaQueue.length) {
+      return;
+    }
+    setState(() {
+      _mediaQueue.removeAt(index);
+    });
+    _markDirty();
+  }
+
+  void _reorderMediaQueue(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) {
+        newIndex -= 1;
+      }
+      final item = _mediaQueue.removeAt(oldIndex);
+      _mediaQueue.insert(newIndex, item);
+    });
+    _markDirty();
+  }
+
   Future<void> _pickImages() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.image,
@@ -152,14 +199,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
-    setState(() {
-      for (final file in pickedFiles) {
-        if (_imageFiles.length < 8) {
-          _imageFiles.add(file);
-        }
-      }
-    });
-    _markDirty();
+    _addMediaItems(pickedFiles, _QueuedMediaKind.image);
   }
 
   Future<void> _pickVideos() async {
@@ -184,14 +224,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
-    setState(() {
-      for (final file in pickedFiles) {
-        if (_videoFiles.length < 4) {
-          _videoFiles.add(file);
-        }
-      }
-    });
-    _markDirty();
+    _addMediaItems(pickedFiles, _QueuedMediaKind.video);
   }
 
   Future<void> _pickSpecificationPdf() async {
@@ -281,7 +314,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
-    if (_imageFiles.isEmpty && _videoFiles.isEmpty) {
+    final authProvider = context.read<AuthProvider>();
+
+    if (_mediaQueue.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Add at least one product photo or video.'),
@@ -296,20 +331,25 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     try {
       final uploadedImageUrls = <String>[];
-      for (final file in _imageFiles) {
-        final result = await _api.uploadProductImage(file);
-        final url = result['url'] as String?;
-        if (url != null && url.isNotEmpty) {
-          uploadedImageUrls.add(url);
-        }
-      }
-
       final uploadedVideoUrls = <String>[];
-      for (final file in _videoFiles) {
-        final result = await _api.uploadVideo(file);
+      final uploadedMediaQueue = <Map<String, dynamic>>[];
+
+      for (final item in _mediaQueue) {
+        final result = item.kind == _QueuedMediaKind.image
+            ? await _api.uploadProductImage(item.file)
+            : await _api.uploadVideo(item.file);
         final url = result['url'] as String?;
         if (url != null && url.isNotEmpty) {
-          uploadedVideoUrls.add(url);
+          uploadedMediaQueue.add({
+            'type': item.kind.apiValue,
+            'url': url,
+            'name': item.file.name,
+          });
+          if (item.kind == _QueuedMediaKind.image) {
+            uploadedImageUrls.add(url);
+          } else {
+            uploadedVideoUrls.add(url);
+          }
         }
       }
 
@@ -339,7 +379,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
           .where((value) => value.isNotEmpty)
           .toList();
 
-      final authProvider = context.read<AuthProvider>();
       final sellerName = authProvider.user?.name ?? '';
       final resolvedBrandName = _brandOrigin == 'own'
           ? (sellerName.isNotEmpty
@@ -398,6 +437,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         'item_model_number': _itemModelNumberController.text.trim(),
         'country_of_origin': _countryOfOriginController.text.trim(),
         'specification_pdf_url': specificationPdfUrl,
+        'media_queue': uploadedMediaQueue,
         'media_videos': uploadedVideoUrls,
       }..removeWhere((key, value) {
           if (value == null) {
@@ -1116,9 +1156,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ),
             const SizedBox(height: 16),
             _buildSectionCard(
-              title: 'Media & Documents',
+              title: 'Media Queue',
               subtitle:
-                  'Add photos and/or videos, plus the optional PDF specification sheet.',
+                  'Add photos and videos, then drag to reorder or shuffle the queue before publishing.',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1129,12 +1169,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       OutlinedButton.icon(
                         onPressed: _pickImages,
                         icon: const Icon(Icons.add_photo_alternate_outlined),
-                        label: Text('Add Photos (${_imageFiles.length}/8)'),
+                        label: Text('Add Photos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.image).length})'),
                       ),
                       OutlinedButton.icon(
                         onPressed: _pickVideos,
                         icon: const Icon(Icons.videocam_outlined),
-                        label: Text('Add Videos (${_videoFiles.length}/4)'),
+                        label: Text('Add Videos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.video).length})'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _mediaQueue.length > 1 ? _shuffleMediaQueue : null,
+                        icon: const Icon(Icons.shuffle),
+                        label: const Text('Shuffle Queue'),
                       ),
                       OutlinedButton.icon(
                         onPressed: _pickSpecificationPdf,
@@ -1147,58 +1192,55 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       ),
                     ],
                   ),
-                  if (_imageFiles.isNotEmpty) ...[
+                  if (_mediaQueue.isEmpty) ...[
                     const SizedBox(height: 16),
-                    Text(
-                      'Photos',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text('No media added yet.'),
                     ),
-                    const SizedBox(height: 8),
+                  ],
+                  if (_mediaQueue.isNotEmpty) ...[
+                    const SizedBox(height: 16),
                     SizedBox(
-                      height: 112,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _imageFiles.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      height: _mediaQueue.length * 88.0 > 420.0 ? 420.0 : _mediaQueue.length * 88.0,
+                      child: ReorderableListView.builder(
+                        buildDefaultDragHandles: false,
+                        physics: const NeverScrollableScrollPhysics(),
+                        shrinkWrap: true,
+                        itemCount: _mediaQueue.length,
+                        onReorder: _reorderMediaQueue,
                         itemBuilder: (context, index) {
-                          return _MediaPreviewCard(
-                            file: _imageFiles[index],
-                            isVideo: false,
-                            onRemove: () {
-                              setState(() {
-                                _imageFiles.removeAt(index);
-                              });
-                              _markDirty();
-                            },
+                          final item = _mediaQueue[index];
+                          return Card(
+                            key: ValueKey(item.id),
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              leading: _QueuedMediaPreview(item: item),
+                              title: Text(item.file.name),
+                              subtitle: Text(item.kind.label),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () => _removeMediaAt(index),
+                                  ),
+                                  ReorderableDragStartListener(
+                                    index: index,
+                                    child: const Icon(Icons.drag_handle),
+                                  ),
+                                ],
+                              ),
+                            ),
                           );
                         },
                       ),
                     ),
-                  ],
-                  if (_videoFiles.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    ...List.generate(_videoFiles.length, (index) {
-                      final file = _videoFiles[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: const Icon(Icons.videocam),
-                          title: Text(file.name),
-                          subtitle: const Text('Product video'),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () {
-                              setState(() {
-                                _videoFiles.removeAt(index);
-                              });
-                              _markDirty();
-                            },
-                          ),
-                        ),
-                      );
-                    }),
                   ],
                   if (_specificationPdf != null) ...[
                     const SizedBox(height: 16),
@@ -1263,78 +1305,53 @@ class _EditableFieldRow {
   }
 }
 
-class _MediaPreviewCard extends StatelessWidget {
-  final XFile file;
-  final bool isVideo;
-  final VoidCallback onRemove;
+enum _QueuedMediaKind { image, video }
 
-  const _MediaPreviewCard({
+extension on _QueuedMediaKind {
+  String get label => this == _QueuedMediaKind.image ? 'Photo' : 'Video';
+  String get apiValue => this == _QueuedMediaKind.image ? 'image' : 'video';
+}
+
+class _QueuedProductMedia {
+  final String id;
+  final XFile file;
+  final _QueuedMediaKind kind;
+
+  _QueuedProductMedia({
+    required this.id,
     required this.file,
-    required this.isVideo,
-    required this.onRemove,
+    required this.kind,
   });
+}
+
+class _QueuedMediaPreview extends StatelessWidget {
+  final _QueuedProductMedia item;
+
+  const _QueuedMediaPreview({required this.item});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 104,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.grey.shade100,
+      width: 56,
+      height: 56,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(10),
+            color: Colors.grey.shade100,
+          ),
+          child: item.kind == _QueuedMediaKind.image
+              ? _ImagePreview(file: item.file)
+              : const Center(
+                  child: Icon(
+                    Icons.play_circle_fill,
+                    size: 32,
+                    color: Colors.black54,
+                  ),
                 ),
-                child: isVideo
-                    ? const Center(
-                        child: Icon(
-                          Icons.play_circle_fill,
-                          size: 42,
-                          color: Colors.black54,
-                        ),
-                      )
-                    : _ImagePreview(file: file),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 6,
-            right: 6,
-            child: InkWell(
-              onTap: onRemove,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: Colors.black54,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.close, size: 14, color: Colors.white),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 8,
-            right: 8,
-            bottom: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                file.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 11),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

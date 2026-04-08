@@ -24,6 +24,11 @@ class _ShopPageState extends State<ShopPage> {
   static const double _maxTileWidth = 260;
   static const double _detailImageMaxSize = 420;
   static const double _detailImageMinSize = 240;
+  static const int _infiniteCarouselSeed = 1000;
+
+  final PageController _mediaPageController = PageController(
+    initialPage: _infiniteCarouselSeed,
+  );
 
   int _calculateGridColumns(double availableWidth) {
     if (availableWidth <= 0) return 1;
@@ -53,6 +58,12 @@ class _ShopPageState extends State<ShopPage> {
   String _category = '';
   int _currentImageIndex = 0;
   int _quantity = 1;
+
+  @override
+  void dispose() {
+    _mediaPageController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -191,7 +202,7 @@ class _ShopPageState extends State<ShopPage> {
     }
 
     final product = _productDetail!;
-    final images = product.images;
+    final mediaQueue = _buildMediaQueue(product);
 
     return Scaffold(
       appBar: AppBar(
@@ -219,7 +230,7 @@ class _ShopPageState extends State<ShopPage> {
           Expanded(
             child: ListView(
               children: [
-                if (images.isNotEmpty)
+                if (mediaQueue.isNotEmpty)
                   LayoutBuilder(
                     builder: (context, constraints) {
                       final availableWidth = constraints.maxWidth;
@@ -227,6 +238,7 @@ class _ShopPageState extends State<ShopPage> {
                         _detailImageMinSize,
                         _detailImageMaxSize,
                       );
+                      final activeMediaIndex = _currentImageIndex % mediaQueue.length;
 
                       return Center(
                         child: SizedBox(
@@ -235,19 +247,80 @@ class _ShopPageState extends State<ShopPage> {
                             aspectRatio: 1,
                             child: Stack(
                               children: [
-                                PageView.builder(
-                                  itemCount: images.length,
-                                  onPageChanged: (index) => setState(() => _currentImageIndex = index),
-                                  itemBuilder: (context, index) => Image.network(
-                                    UrlHelper.getPlatformUrl(images[index]),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: Colors.grey[300],
-                                      child: const Icon(Icons.image, size: 64),
-                                    ),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: PageView.builder(
+                                    controller: _mediaPageController,
+                                    onPageChanged: (index) => setState(() => _currentImageIndex = index),
+                                    itemBuilder: (context, index) {
+                                      final media = mediaQueue[index % mediaQueue.length];
+                                      final mediaType = (media['type'] as String?) ?? 'image';
+                                      final mediaUrl = (media['url'] as String?) ?? '';
+                                      if (mediaType == 'video') {
+                                        return Container(
+                                          color: Colors.black,
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              Container(
+                                                decoration: const BoxDecoration(
+                                                  gradient: LinearGradient(
+                                                    begin: Alignment.topLeft,
+                                                    end: Alignment.bottomRight,
+                                                    colors: [Colors.black87, Colors.black54],
+                                                  ),
+                                                ),
+                                              ),
+                                              Center(
+                                                child: Column(
+                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.play_circle_fill,
+                                                      size: 76,
+                                                      color: Colors.white,
+                                                    ),
+                                                    const SizedBox(height: 12),
+                                                    Text(
+                                                      media['name'] as String? ?? 'Product video',
+                                                      textAlign: TextAlign.center,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight: FontWeight.w600,
+                                                      ),
+                                                      maxLines: 2,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                    if (mediaUrl.isNotEmpty) ...[
+                                                      const SizedBox(height: 8),
+                                                      const Text(
+                                                        'Swipe or use arrows to continue',
+                                                        style: TextStyle(
+                                                          color: Colors.white70,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
+
+                                      return Image.network(
+                                        UrlHelper.getPlatformUrl(mediaUrl),
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          color: Colors.grey[300],
+                                          child: const Icon(Icons.image, size: 64),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
-                                if (images.length > 1)
+                                if (mediaQueue.length > 1)
                                   Positioned(
                                     bottom: 16,
                                     left: 0,
@@ -255,17 +328,47 @@ class _ShopPageState extends State<ShopPage> {
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: List.generate(
-                                        images.length,
+                                        mediaQueue.length,
                                         (index) => Container(
                                           margin: const EdgeInsets.symmetric(horizontal: 4),
                                           width: 8,
                                           height: 8,
                                           decoration: BoxDecoration(
                                             shape: BoxShape.circle,
-                                            color: _currentImageIndex == index
+                                            color: activeMediaIndex == index
                                                 ? Colors.white
                                                 : Colors.white54,
                                           ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (mediaQueue.length > 1)
+                                  Positioned(
+                                    left: 8,
+                                    top: 0,
+                                    bottom: 0,
+                                    child: Center(
+                                      child: _CarouselArrowButton(
+                                        icon: Icons.chevron_left,
+                                        onPressed: () => _mediaPageController.previousPage(
+                                          duration: const Duration(milliseconds: 250),
+                                          curve: Curves.easeOut,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (mediaQueue.length > 1)
+                                  Positioned(
+                                    right: 8,
+                                    top: 0,
+                                    bottom: 0,
+                                    child: Center(
+                                      child: _CarouselArrowButton(
+                                        icon: Icons.chevron_right,
+                                        onPressed: () => _mediaPageController.nextPage(
+                                          duration: const Duration(milliseconds: 250),
+                                          curve: Curves.easeOut,
                                         ),
                                       ),
                                     ),
@@ -444,6 +547,31 @@ class _ShopPageState extends State<ShopPage> {
     );
   }
 
+  List<Map<String, dynamic>> _buildMediaQueue(ProductModel product) {
+    if (product.mediaQueue.isNotEmpty) {
+      return product.mediaQueue;
+    }
+
+    final fallbackQueue = <Map<String, dynamic>>[
+      ...product.images.map(
+        (url) => <String, dynamic>{
+          'type': 'image',
+          'url': url,
+          'name': 'Product photo',
+        },
+      ),
+      ...product.mediaVideos.map(
+        (url) => <String, dynamic>{
+          'type': 'video',
+          'url': url,
+          'name': 'Product video',
+        },
+      ),
+    ];
+
+    return fallbackQueue;
+  }
+
   Widget _buildProductGrid() {
     return Scaffold(
       appBar: AppBar(
@@ -553,6 +681,28 @@ class _ShopPageState extends State<ShopPage> {
                 );
               },
             ),
+    );
+  }
+}
+
+class _CarouselArrowButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _CarouselArrowButton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withAlpha(120),
+      shape: const CircleBorder(),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, color: Colors.white),
+      ),
     );
   }
 }
