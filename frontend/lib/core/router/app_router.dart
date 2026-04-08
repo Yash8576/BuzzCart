@@ -91,7 +91,12 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             path: '/shop/:productId',
             builder: (context, state) {
               final productId = state.pathParameters['productId']!;
-              return ShopPage(productId: productId);
+              final ownPreview =
+                  state.uri.queryParameters['own_preview'] == '1';
+              return ShopPage(
+                productId: productId,
+                allowOwnProductPreview: ownPreview,
+              );
             },
           ),
           GoRoute(

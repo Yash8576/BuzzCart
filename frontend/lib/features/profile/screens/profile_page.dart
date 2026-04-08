@@ -460,6 +460,10 @@ class _ProfilePageState extends State<ProfilePage>
     }
   }
 
+  void _previewOwnProduct(ProductModel product) {
+    context.push('/shop/${product.id}?own_preview=1');
+  }
+
   String _capitalizeLabel(String value) {
     if (value.isEmpty) {
       return value;
@@ -1808,10 +1812,17 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (context, index) {
         final product = _products[index];
         final deletingKey = 'product:${product.id}';
+        final canManageOwnListing = isOwnProfile && currentUser?.isSeller == true;
         return InkWell(
           onTap: _isDeleting(deletingKey)
               ? null
-              : () => context.go('/shop/${product.id}'),
+              : () {
+                  if (canManageOwnListing) {
+                    _previewOwnProduct(product);
+                  } else {
+                    context.go('/shop/${product.id}');
+                  }
+                },
           borderRadius: BorderRadius.circular(18),
           child: Container(
             padding: const EdgeInsets.all(12),
@@ -1929,7 +1940,7 @@ class _ProfilePageState extends State<ProfilePage>
                     ],
                   ),
                 ),
-                if (isOwnProfile && currentUser?.isSeller == true)
+                if (canManageOwnListing)
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: Column(
@@ -1942,6 +1953,21 @@ class _ProfilePageState extends State<ProfilePage>
                               : () => _manageProduct(product),
                           icon: const Icon(Icons.edit_note_outlined, size: 16),
                           label: const Text('Manage'),
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        OutlinedButton.icon(
+                          onPressed: _isDeleting(deletingKey)
+                              ? null
+                              : () => _previewOwnProduct(product),
+                          icon: const Icon(Icons.remove_red_eye_outlined, size: 16),
+                          label: const Text('Preview'),
                           style: OutlinedButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(

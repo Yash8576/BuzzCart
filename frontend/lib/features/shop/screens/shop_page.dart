@@ -11,8 +11,13 @@ import '../../../core/utils/url_helper.dart';
 
 class ShopPage extends StatefulWidget {
   final String? productId;
+  final bool allowOwnProductPreview;
 
-  const ShopPage({super.key, this.productId});
+  const ShopPage({
+    super.key,
+    this.productId,
+    this.allowOwnProductPreview = false,
+  });
 
   @override
   State<ShopPage> createState() => _ShopPageState();
@@ -98,7 +103,7 @@ class _ShopPageState extends State<ShopPage> {
       setState(() => _loading = true);
       final currentUserId = context.read<AuthProvider>().user?.id;
       final data = await _api.getProduct(widget.productId!);
-      if (data.sellerId == currentUserId) {
+      if (!widget.allowOwnProductPreview && data.sellerId == currentUserId) {
         if (!mounted) {
           return;
         }
@@ -203,6 +208,7 @@ class _ShopPageState extends State<ShopPage> {
 
     final product = _productDetail!;
     final mediaQueue = _buildMediaQueue(product);
+    final isOwnPreviewMode = widget.allowOwnProductPreview;
 
     return Scaffold(
       appBar: AppBar(
@@ -497,51 +503,69 @@ class _ShopPageState extends State<ShopPage> {
                         ),
                       ],
                       const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          const Text('Quantity:', style: TextStyle(fontSize: 16)),
-                          const SizedBox(width: 16),
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline),
-                            onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                      if (!isOwnPreviewMode)
+                        Row(
+                          children: [
+                            const Text('Quantity:', style: TextStyle(fontSize: 16)),
+                            const SizedBox(width: 16),
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
+                            ),
+                            Text('$_quantity', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle_outline),
+                              onPressed: () => setState(() => _quantity++),
+                            ),
+                          ],
+                        )
+                      else
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Text('$_quantity', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline),
-                            onPressed: () => setState(() => _quantity++),
+                          child: const Text(
+                            'Preview mode: cart actions are disabled for your own listing.',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                           ),
-                        ],
-                      ),
+                        ),
                     ],
                   ),
                 ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(26),
-                  offset: const Offset(0, -2),
-                  blurRadius: 8,
-                ),
-              ],
-            ),
-            child: SafeArea(
-              child: SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: _handleAddToCart,
-                  icon: const Icon(Icons.shopping_cart),
-                  label: const Text('Add to Cart'),
+          if (!isOwnPreviewMode)
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(26),
+                    offset: const Offset(0, -2),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: _handleAddToCart,
+                    icon: const Icon(Icons.shopping_cart),
+                    label: const Text('Add to Cart'),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
