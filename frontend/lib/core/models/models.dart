@@ -581,8 +581,8 @@ class CartModel {
 }
 
 class FeedItem {
-  final String type; // 'product', 'video', 'reel'
-  final dynamic data; // ProductModel, VideoModel, or ReelModel
+  final String type; // 'product', 'video', 'reel', or 'post'
+  final dynamic data; // ProductModel, VideoModel, ReelModel, or PostModel
 
   FeedItem({
     required this.type,
@@ -603,6 +603,9 @@ class FeedItem {
         break;
       case 'reel':
         parsedData = ReelModel.fromJson(data);
+        break;
+      case 'post':
+        parsedData = PostModel.fromJson(data);
         break;
       default:
         throw Exception('Unknown feed item type: $type');

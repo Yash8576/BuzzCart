@@ -5,7 +5,6 @@ class UploadContentProvider extends ChangeNotifier {
   String _selectedMediaType = 'photo';
   final List<XFile> _selectedFiles = [];
   String _caption = '';
-  String _visibility = 'public'; // 'public', 'followers', 'close_friends'
   bool _hasUnsavedWork = false;
   VoidCallback? _onUploadSuccess;
   String _photoAspectRatio = 'square'; // 'square', 'portrait', 'landscape'
@@ -13,7 +12,6 @@ class UploadContentProvider extends ChangeNotifier {
   String get selectedMediaType => _selectedMediaType;
   List<XFile> get selectedFiles => List.unmodifiable(_selectedFiles);
   String get caption => _caption;
-  String get visibility => _visibility;
   bool get hasUnsavedWork => _hasUnsavedWork;
   String get photoAspectRatio => _photoAspectRatio;
 
@@ -58,17 +56,10 @@ class UploadContentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setVisibility(String visibility) {
-    _visibility = visibility;
-    _hasUnsavedWork = true;
-    notifyListeners();
-  }
-
   void clearAll() {
     _selectedMediaType = 'photo';
     _selectedFiles.clear();
     _caption = '';
-    _visibility = 'public';
     _photoAspectRatio = 'square';
     _hasUnsavedWork = false;
     notifyListeners();

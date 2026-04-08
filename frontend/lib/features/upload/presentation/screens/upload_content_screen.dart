@@ -323,7 +323,6 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           imageFile: file,
           caption: caption,
           createPost: true,
-          visibility: provider.visibility,
         );
         if (result['success'] == true) {
           if (mounted) {
@@ -776,56 +775,6 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                     alignLabelWithHint: true,
                   ),
                 ),
-
-                const SizedBox(height: 20),
-
-                // Visibility selector (for photos)
-                if (provider.selectedMediaType == 'photo')
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Who can see this?',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          RadioGroup<String>(
-                            groupValue: provider.visibility,
-                            onChanged: (value) {
-                              if (value != null) {
-                                provider.setVisibility(value);
-                              }
-                            },
-                            child: const Column(
-                              children: [
-                                RadioListTile<String>(
-                                  title: Text('Public'),
-                                  subtitle: Text('Everyone can see this'),
-                                  value: 'public',
-                                ),
-                                RadioListTile<String>(
-                                  title: Text('Followers'),
-                                  subtitle: Text('Only your followers'),
-                                  value: 'followers',
-                                ),
-                                RadioListTile<String>(
-                                  title: Text('Close Friends'),
-                                  subtitle: Text('Your close friends only'),
-                                  value: 'close_friends',
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
 
                 const SizedBox(height: 20),
 

@@ -123,7 +123,6 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		// Get caption and create_post flag from form data
 		caption := c.PostForm("caption")
 		createPost := c.DefaultPostForm("create_post", "false") == "true"
-		visibility := c.DefaultPostForm("visibility", "followers") // followers, public, close_friends
 
 		// Upload to MinIO
 		storageClient := storage.GetStorageClient()
@@ -155,11 +154,8 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		var postID *string
 		var followerCount int
 		if createPost {
-			// Get user's privacy profile
-			var privacyProfile string
-			err := db.QueryRowContext(ctx, "SELECT privacy_profile FROM users WHERE id = $1", userID).Scan(&privacyProfile)
-			if err == nil {
-				isPrivate := privacyProfile == "private"
+			isPrivate, visibility, visibilityErr := resolvePostVisibilityForBucket(db, userID, contentBucketPhotos)
+			if visibilityErr == nil {
 				pID := uuid.New().String()
 				postID = &pID
 

@@ -79,27 +79,44 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 			CreatedAt:     time.Now(),
 		}
 
+		createdAt := reel.CreatedAt
+
 		// Insert into content_items table
 		_, err = db.Exec(
 			`INSERT INTO content_items (id, creator_id, content_type, title, description, video_url, thumbnail_url, view_count, like_count, created_at) 
 			 VALUES ($1, $2, 'reel', $3, $4, $5, $6, $7, $8, $9)`,
 			reel.ID, reel.CreatorID, reel.Caption, reel.Caption, reel.URL, reel.Thumbnail,
-			reel.Views, reel.Likes, reel.CreatedAt,
+			reel.Views, reel.Likes, createdAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reel"})
 			return
 		}
 
-		// Also insert into user_media for profile gallery
-		_, err = db.Exec(
+		// Also insert into user_media for profile gallery and shared posts feed
+		var mediaID string
+		err = db.QueryRow(
 			`INSERT INTO user_media (user_id, media_type, media_url, thumbnail_url, caption, content_id) 
-			 VALUES ($1, 'reel', $2, $3, $4, $5)`,
+			 VALUES ($1, 'reel', $2, $3, $4, $5)
+			 RETURNING id`,
 			userID, reel.URL, reel.Thumbnail, reel.Caption, reel.ID,
-		)
+		).Scan(&mediaID)
 		if err != nil {
-			// Log but don't fail the request
 			c.Writer.Header().Add("X-Media-Gallery-Error", "Failed to add to media gallery")
+		} else {
+			thumbnailURL := &reel.Thumbnail
+			if _, err := createFeedPostForMedia(
+				db,
+				userID,
+				mediaID,
+				reel.Caption,
+				"reel",
+				reel.URL,
+				thumbnailURL,
+				createdAt,
+			); err != nil {
+				c.Writer.Header().Add("X-Feed-Post-Error", "Failed to publish reel to feed")
+			}
 		}
 
 		c.JSON(http.StatusOK, reel)
@@ -114,6 +131,7 @@ func GetReels(db *sql.DB) gin.HandlerFunc {
 			 FROM content_items ci
 			 JOIN users u ON ci.creator_id = u.id
 			 WHERE ci.content_type = 'reel'
+			   AND COALESCE(u.privacy_profile::text, 'public') = 'public'
 			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		if err != nil {

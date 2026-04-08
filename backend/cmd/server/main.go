@@ -217,7 +217,7 @@ func main() {
 			feed.GET("/followers", middleware.Auth(cfg.JWTSecret), handlers.GetFollowersFeed(db))
 
 			// Discovery feed (optional auth) - ranked public posts
-			feed.GET("/discovery", handlers.GetDiscoveryFeed(db))
+			feed.GET("/discovery", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetDiscoveryFeed(db))
 
 			// User profile feed - specific user's posts
 			feed.GET("/user/:user_id", handlers.GetUserPosts(db))

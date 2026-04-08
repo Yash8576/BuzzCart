@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"strings"
 )
@@ -83,4 +84,55 @@ func visibilityBucketAllowed(mode string, rawPreferences string, bucket string, 
 	default:
 		return true
 	}
+}
+
+func contentBucketForMediaType(mediaType string) string {
+	switch strings.ToLower(mediaType) {
+	case "photo":
+		return contentBucketPhotos
+	case "video":
+		return contentBucketVideos
+	case "reel":
+		return contentBucketReels
+	default:
+		return contentBucketPhotos
+	}
+}
+
+func resolvePostVisibilityForBucket(db *sql.DB, userID string, bucket string) (bool, string, error) {
+	var privacyProfile string
+	var visibilityMode string
+	var visibilityPreferencesRaw string
+
+	err := db.QueryRow(
+		`SELECT
+			COALESCE(privacy_profile::text, 'public'),
+			COALESCE(visibility_mode, 'public'),
+			COALESCE(visibility_preferences::text, '{"photos": true, "videos": true, "reels": true, "purchases": true}')
+		 FROM users
+		 WHERE id = $1`,
+		userID,
+	).Scan(&privacyProfile, &visibilityMode, &visibilityPreferencesRaw)
+	if err != nil {
+		return false, "", err
+	}
+
+	if strings.EqualFold(privacyProfile, "private") {
+		return true, "followers", nil
+	}
+
+	mode := strings.ToLower(visibilityMode)
+	if mode == "private" {
+		return true, "followers", nil
+	}
+
+	if mode == "custom" {
+		preferences := parseVisibilityPreferences(visibilityPreferencesRaw, mode)
+		if preferences[strings.ToLower(bucket)] {
+			return false, "public", nil
+		}
+		return false, "followers", nil
+	}
+
+	return false, "public", nil
 }

@@ -8,6 +8,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../content/presentation/widgets/post_card.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -17,26 +18,8 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  static const double _gridSpacing = 16;
-  static const double _minTileWidth = 180;
-  static const double _maxTileWidth = 280;
-
-  int _calculateGridColumns(double availableWidth) {
-    if (availableWidth <= 0) return 1;
-
-    var columns = ((availableWidth + _gridSpacing) / (_minTileWidth + _gridSpacing)).floor();
-    if (columns < 1) columns = 1;
-
-    while (columns > 1) {
-      final tileWidth = (availableWidth - (columns - 1) * _gridSpacing) / columns;
-      if (tileWidth <= _maxTileWidth) {
-        break;
-      }
-      columns++;
-    }
-
-    return columns;
-  }
+  static const double _productTileMinWidth = 220;
+  static const double _productTileMaxWidth = 340;
 
   List<FeedItem> _feed = [];
   bool _isLoading = true;
@@ -59,6 +42,7 @@ class _HomePageState extends State<HomePage> {
       final currentUserId = context.read<AuthProvider>().user?.id;
       final results = await Future.wait([
         api.getProducts().catchError((_) => <ProductModel>[]),
+        api.getDiscoveryFeed(limit: 30).catchError((_) => FeedResponse(posts: [])),
         api.getVideos().catchError((_) => <VideoModel>[]),
         api.getReels().catchError((_) => <ReelModel>[]),
       ]);
@@ -66,15 +50,31 @@ class _HomePageState extends State<HomePage> {
       final products = (results[0] as List<ProductModel>)
           .where((product) => product.sellerId != currentUserId)
           .toList();
-      final videos = (results[1] as List<VideoModel>)
-          .where((video) => video.creatorId != currentUserId)
+      final posts = (results[1] as FeedResponse).posts
+          .where((post) => post.userId != currentUserId)
           .toList();
-      final reels = (results[2] as List<ReelModel>)
-          .where((reel) => reel.creatorId != currentUserId)
+      final publishedMediaUrls = posts
+          .where((post) => post.mediaType == 'video' || post.mediaType == 'reel')
+          .map((post) => post.mediaUrl)
+          .toSet();
+      final videos = (results[2] as List<VideoModel>)
+          .where(
+            (video) =>
+                video.creatorId != currentUserId &&
+                !publishedMediaUrls.contains(video.url),
+          )
+          .toList();
+      final reels = (results[3] as List<ReelModel>)
+          .where(
+            (reel) =>
+                reel.creatorId != currentUserId &&
+                !publishedMediaUrls.contains(reel.url),
+          )
           .toList();
 
       final feed = <FeedItem>[
         ...products.map((product) => FeedItem(type: 'product', data: product)),
+        ...posts.map((post) => FeedItem(type: 'post', data: post)),
         ...videos.map((video) => FeedItem(type: 'video', data: video)),
         ...reels.map((reel) => FeedItem(type: 'reel', data: reel)),
       ]..sort((a, b) {
@@ -99,12 +99,54 @@ class _HomePageState extends State<HomePage> {
     switch (item.type) {
       case 'product':
         return (item.data as ProductModel).createdAt;
+      case 'post':
+        return (item.data as PostModel).createdAt;
       case 'video':
         return (item.data as VideoModel).createdAt;
       case 'reel':
         return (item.data as ReelModel).createdAt;
       default:
         return '';
+    }
+  }
+
+  Future<void> _handleLike(PostModel post) async {
+    final updatedPost = post.copyWith(
+      isLiked: !post.isLiked,
+      likeCount: post.isLiked ? post.likeCount - 1 : post.likeCount + 1,
+    );
+
+    setState(() {
+      final index = _feed.indexWhere(
+        (item) => item.type == 'post' && (item.data as PostModel).id == post.id,
+      );
+      if (index != -1) {
+        _feed[index] = FeedItem(type: 'post', data: updatedPost);
+      }
+    });
+
+    try {
+      if (updatedPost.isLiked) {
+        await context.read<ApiService>().likePost(post.id);
+      } else {
+        await context.read<ApiService>().unlikePost(post.id);
+      }
+    } catch (e) {
+      setState(() {
+        final index = _feed.indexWhere(
+          (item) => item.type == 'post' && (item.data as PostModel).id == post.id,
+        );
+        if (index != -1) {
+          _feed[index] = FeedItem(type: 'post', data: post);
+        }
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update like: $e'),
+          backgroundColor: AppColors.destructive,
+        ),
+      );
     }
   }
 
@@ -173,33 +215,32 @@ class _HomePageState extends State<HomePage> {
 
     return RefreshIndicator(
       onRefresh: _fetchFeed,
-      child: LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = _calculateGridColumns(constraints.maxWidth - 32);
-        return GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns,
-          crossAxisSpacing: _gridSpacing,
-          mainAxisSpacing: _gridSpacing,
-          childAspectRatio: 0.75,
-        ),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 12),
         itemCount: _feed.length,
         itemBuilder: (context, index) {
           final item = _feed[index];
           switch (item.type) {
-          case 'product':
-            return _buildProductCard(item.data as ProductModel, index);
-          case 'video':
-            return _buildVideoCard(item.data as VideoModel, index);
-          case 'reel':
-            return _buildReelCard(item.data as ReelModel, index);
-          default:
-            return const SizedBox();
+            case 'product':
+              return _buildProductCard(item.data as ProductModel, index);
+            case 'post':
+              final post = item.data as PostModel;
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                clipBehavior: Clip.antiAlias,
+                child: PostCard(
+                  post: post,
+                  onLike: () => _handleLike(post),
+                ),
+              );
+            case 'video':
+              return _buildVideoCard(item.data as VideoModel, index);
+            case 'reel':
+              return _buildReelCard(item.data as ReelModel, index);
+            default:
+              return const SizedBox.shrink();
           }
         },
-        );
-      },
       ),
     );
   }
@@ -207,107 +248,122 @@ class _HomePageState extends State<HomePage> {
   Widget _buildProductCard(ProductModel product, int index) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.go('/shop/${product.id}'),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Product image
-            Expanded(
-              child: Stack(
-                children: [
-                  Container(
-                    width: double.infinity,
-                    color: isDark
-                        ? AppColors.darkMuted
-                        : AppColors.lightMuted,
-                    child: product.images.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: UrlHelper.getPlatformUrl(product.images[0]),
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                              color: isDark
-                                  ? AppColors.darkMuted
-                                  : AppColors.lightMuted,
-                            ),
-                            errorWidget: (context, url, error) =>
-                                const Icon(Icons.error),
-                          )
-                        : const Icon(Icons.shopping_bag),
-                  ),
-                  // Add to cart button
-                  Positioned(
-                    bottom: 12,
-                    right: 12,
-                    child: Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(100),
-                      elevation: 2,
-                      child: InkWell(
-                        onTap: () => _handleAddToCart(product.id),
-                        borderRadius: BorderRadius.circular(100),
-                        child: const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(
-                            Icons.shopping_bag,
-                            size: 20,
-                            color: Colors.black,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Product info
-            Padding(
-              padding: const EdgeInsets.all(12),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: _productTileMinWidth,
+            maxWidth: _productTileMaxWidth,
+          ),
+          child: Card(
+            margin: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => context.go('/shop/${product.id}'),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    product.title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
+                  // Product image
+                  AspectRatio(
+                    aspectRatio: 16 / 10,
+                    child: Stack(
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          color: isDark
+                              ? AppColors.darkMuted
+                              : AppColors.lightMuted,
+                          child: product.images.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: UrlHelper.getPlatformUrl(product.images[0]),
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(
+                                    color: isDark
+                                        ? AppColors.darkMuted
+                                        : AppColors.lightMuted,
+                                  ),
+                                  errorWidget: (context, url, error) =>
+                                      const Icon(Icons.error),
+                                )
+                              : const Icon(Icons.shopping_bag),
                         ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '\$${product.price.toStringAsFixed(2)}',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
+                        // Add to cart button
+                        Positioned(
+                          bottom: 12,
+                          right: 12,
+                          child: Material(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(100),
+                            elevation: 2,
+                            child: InkWell(
+                              onTap: () => _handleAddToCart(product.id),
+                              borderRadius: BorderRadius.circular(100),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.shopping_bag,
+                                  size: 20,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                  ),
-                  if ((product.brandName ?? '').isNotEmpty ||
-                      product.sellerName.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      product.brandName ?? product.sellerName,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      ],
                     ),
-                  ],
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.visibility, size: 14),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${product.views} views',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
+                  ),
+                  // Product info
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          product.title,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w500,
+                              ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '\$${product.price.toStringAsFixed(2)}',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                        if ((product.brandName ?? '').isNotEmpty ||
+                            product.sellerName.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            product.brandName ?? product.sellerName,
+                            style: Theme.of(context).textTheme.bodySmall,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.visibility, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${product.views} views',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -317,6 +373,7 @@ class _HomePageState extends State<HomePage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => context.go('/videos/${video.id}'),
@@ -427,6 +484,7 @@ class _HomePageState extends State<HomePage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => context.go('/reels?id=${reel.id}'),

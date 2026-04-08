@@ -296,7 +296,6 @@ class ApiService {
   Future<Map<String, dynamic>> createPost({
     required String mediaId,
     String? caption,
-    String visibility = 'followers',
     List<String>? taggedUsers,
     List<String>? hashtags,
   }) async {
@@ -307,7 +306,6 @@ class ApiService {
       if (caption != null && caption.isNotEmpty) {
         data['caption'] = caption;
       }
-      data['visibility'] = visibility;
       if (taggedUsers != null && taggedUsers.isNotEmpty) {
         data['tagged_users'] = taggedUsers;
       }
@@ -345,7 +343,6 @@ class ApiService {
     required XFile imageFile,
     String? caption,
     bool createPost = false,
-    String visibility = 'followers',
   }) async {
     try {
       // Ensure token is loaded
@@ -364,7 +361,6 @@ class ApiService {
         ),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
         'create_post': createPost.toString(),
-        if (createPost) 'visibility': visibility,
       });
 
       final response = await _dio.post(

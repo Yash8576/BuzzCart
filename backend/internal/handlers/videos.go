@@ -81,27 +81,44 @@ func CreateVideo(db *sql.DB) gin.HandlerFunc {
 			CreatedAt:     time.Now(),
 		}
 
+		createdAt := video.CreatedAt
+
 		// Insert into content_items table
 		_, err = db.Exec(
 			`INSERT INTO content_items (id, creator_id, content_type, title, description, video_url, thumbnail_url, duration_seconds, view_count, like_count, created_at) 
 			 VALUES ($1, $2, 'video', $3, $4, $5, $6, $7, $8, $9, $10)`,
 			video.ID, video.CreatorID, video.Title, video.Description, video.URL, video.Thumbnail, video.Duration,
-			video.Views, video.Likes, video.CreatedAt,
+			video.Views, video.Likes, createdAt,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create video"})
 			return
 		}
 
-		// Also insert into user_media for profile gallery
-		_, err = db.Exec(
+		// Also insert into user_media for profile gallery and shared posts feed
+		var mediaID string
+		err = db.QueryRow(
 			`INSERT INTO user_media (user_id, media_type, media_url, thumbnail_url, caption, duration_seconds, content_id) 
-			 VALUES ($1, 'video', $2, $3, $4, $5, $6)`,
+			 VALUES ($1, 'video', $2, $3, $4, $5, $6)
+			 RETURNING id`,
 			userID, video.URL, video.Thumbnail, video.Description, video.Duration, video.ID,
-		)
+		).Scan(&mediaID)
 		if err != nil {
-			// Log but don't fail the request
 			c.Writer.Header().Add("X-Media-Gallery-Error", "Failed to add to media gallery")
+		} else {
+			thumbnailURL := &video.Thumbnail
+			if _, err := createFeedPostForMedia(
+				db,
+				userID,
+				mediaID,
+				video.Description,
+				"video",
+				video.URL,
+				thumbnailURL,
+				createdAt,
+			); err != nil {
+				c.Writer.Header().Add("X-Feed-Post-Error", "Failed to publish video to feed")
+			}
 		}
 
 		c.JSON(http.StatusOK, video)
@@ -116,6 +133,7 @@ func GetVideos(db *sql.DB) gin.HandlerFunc {
 			 FROM content_items ci
 			 JOIN users u ON ci.creator_id = u.id
 			 WHERE ci.content_type = 'video'
+			   AND COALESCE(u.privacy_profile::text, 'public') = 'public'
 			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)
 		if err != nil {

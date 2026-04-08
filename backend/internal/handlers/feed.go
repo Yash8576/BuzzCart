@@ -145,7 +145,7 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Discovery query: Public posts or non-private follower posts
+		// Discovery query: content globally visible by account-level visibility settings
 		// Ranked by engagement score (pre-computed) and recency
 		query := `
 			SELECT 
@@ -170,7 +170,19 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 		query += `
 			FROM posts p
 			JOIN users u ON p.user_id = u.id
-			WHERE (p.visibility = 'public' OR (p.visibility = 'followers' AND p.is_private = FALSE))
+			WHERE COALESCE(u.privacy_profile::text, 'public') = 'public'
+			  AND (
+				LOWER(COALESCE(u.visibility_mode, 'public')) = 'public'
+				OR (
+					LOWER(COALESCE(u.visibility_mode, 'public')) = 'custom'
+					AND CASE p.media_type
+						WHEN 'photo' THEN COALESCE((u.visibility_preferences ->> 'photos')::boolean, true)
+						WHEN 'video' THEN COALESCE((u.visibility_preferences ->> 'videos')::boolean, true)
+						WHEN 'reel' THEN COALESCE((u.visibility_preferences ->> 'reels')::boolean, true)
+						ELSE true
+					END
+				)
+			  )
 		`
 
 		args := []interface{}{}
@@ -405,29 +417,21 @@ func CreatePost(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Get user's privacy profile
-		var privacyProfile string
-		err := db.QueryRow("SELECT privacy_profile FROM users WHERE id = $1", userID).Scan(&privacyProfile)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get user profile"})
-			return
-		}
-
-		isPrivate := privacyProfile == "private"
-		visibility := input.Visibility
-		if visibility == "" {
-			visibility = "followers" // Default visibility
-		}
-
 		// Get media details from user_media
 		var mediaType, mediaURL string
 		var thumbnailURL sql.NullString
-		err = db.QueryRow(
+		err := db.QueryRow(
 			"SELECT media_type, media_url, thumbnail_url FROM user_media WHERE id = $1 AND user_id = $2",
 			input.MediaID, userID,
 		).Scan(&mediaType, &mediaURL, &thumbnailURL)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Media not found or does not belong to you"})
+			return
+		}
+
+		isPrivate, visibility, err := resolvePostVisibilityForBucket(db, userID, contentBucketForMediaType(mediaType))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve account visibility"})
 			return
 		}
 
