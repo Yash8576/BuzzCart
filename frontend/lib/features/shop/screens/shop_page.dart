@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -107,25 +109,12 @@ class _ShopPageState extends State<ShopPage> {
         if (!mounted) {
           return;
         }
-        setState(() {
-          _productDetail = null;
-          _loading = false;
-        });
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) {
-            return;
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Your own products are managed from your profile warehouse'),
-            ),
-          );
-          context.go('/profile');
-        });
+        context.go('/profile');
         return;
       }
       setState(() {
         _productDetail = data;
+        _quantity = data.stockQuantity > 0 ? 1 : 0;
         _loading = false;
       });
     } catch (e) {
@@ -133,10 +122,41 @@ class _ShopPageState extends State<ShopPage> {
     }
   }
 
-  Future<void> _handleAddToCart() async {
+  int _cartQuantityForProduct(List<CartItemModel> items, String productId) {
+    for (final item in items) {
+      if (item.product.id == productId) {
+        return item.quantity;
+      }
+    }
+    return 0;
+  }
+
+  int _remainingStockForProduct(ProductModel product, int inCartQuantity) {
+    if (product.stockQuantity <= 0) {
+      return 0;
+    }
+    final remaining = product.stockQuantity - inCartQuantity;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  Future<void> _handleAddToCart(ProductModel product, int remainingStock) async {
+    final quantityToAdd = math.min(_quantity, remainingStock);
+    if (quantityToAdd < 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Max stock already in cart')),
+        );
+      }
+      return;
+    }
+
     final added = await context
         .read<CartProvider>()
-        .addToCart(widget.productId!, quantity: _quantity);
+        .addToCart(
+          widget.productId!,
+          quantity: quantityToAdd,
+          maxQuantity: remainingStock,
+        );
     if (!mounted) {
       return;
     }
@@ -144,8 +164,105 @@ class _ShopPageState extends State<ShopPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          added ? 'Added $_quantity item(s) to cart!' : 'Failed to add to cart',
+          added ? 'Added $quantityToAdd item(s) to cart!' : 'Failed to add to cart',
         ),
+      ),
+    );
+  }
+
+  bool _isLowStock(ProductModel product) =>
+      product.stockQuantity > 0 && product.stockQuantity < 10;
+
+  int _selectedQuantityFor(int remainingStock) {
+    if (remainingStock <= 0) {
+      return 0;
+    }
+    return math.min(_quantity, remainingStock);
+  }
+
+  Widget _buildQuantitySelector(ProductModel product, int remainingStock) {
+    final selectedQuantity = _selectedQuantityFor(remainingStock);
+    final canDecrease = selectedQuantity > 1;
+    final canIncrease = selectedQuantity > 0 && selectedQuantity < remainingStock;
+    final showMax = remainingStock == 0 || selectedQuantity >= remainingStock;
+
+    Widget buildStepButton({
+      required IconData icon,
+      required VoidCallback? onTap,
+    }) {
+      final theme = Theme.of(context);
+      final isEnabled = onTap != null;
+
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: isEnabled
+                ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                : theme.colorScheme.onSurface.withValues(alpha: 0.08),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: isEnabled
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          Text(
+            'Qty',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[700],
+            ),
+          ),
+          buildStepButton(
+            icon: Icons.remove,
+            onTap: canDecrease
+                ? () => setState(() => _quantity = selectedQuantity - 1)
+                : null,
+          ),
+          Text(
+            '$selectedQuantity',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          if (canIncrease)
+            buildStepButton(
+              icon: Icons.add,
+              onTap: () => setState(() => _quantity = selectedQuantity + 1),
+            )
+          else
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  showMax ? (product.stockQuantity > 0 ? 'Max' : 'Out') : 'Out',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -209,6 +326,9 @@ class _ShopPageState extends State<ShopPage> {
     final product = _productDetail!;
     final mediaQueue = _buildMediaQueue(product);
     final isOwnPreviewMode = widget.allowOwnProductPreview;
+    final cartItems = context.watch<CartProvider>().cart.items;
+    final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
+    final remainingStock = _remainingStockForProduct(product, inCartQuantity);
 
     return Scaffold(
       appBar: AppBar(
@@ -423,7 +543,10 @@ class _ShopPageState extends State<ShopPage> {
                             Chip(label: Text(product.category)),
                           if (product.condition.isNotEmpty)
                             Chip(label: Text(product.condition.toUpperCase())),
-                          Chip(label: Text('Stock: ${product.stockQuantity}')),
+                          if (product.stockQuantity <= 0)
+                            const Chip(label: Text('Out of stock'))
+                          else if (_isLowStock(product))
+                            const Chip(label: Text('Low stock')),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -502,23 +625,7 @@ class _ShopPageState extends State<ShopPage> {
                         ),
                       ],
                       const SizedBox(height: 24),
-                      if (!isOwnPreviewMode)
-                        Row(
-                          children: [
-                            const Text('Quantity:', style: TextStyle(fontSize: 16)),
-                            const SizedBox(width: 16),
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: _quantity > 1 ? () => setState(() => _quantity--) : null,
-                            ),
-                            Text('$_quantity', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            IconButton(
-                              icon: const Icon(Icons.add_circle_outline),
-                              onPressed: () => setState(() => _quantity++),
-                            ),
-                          ],
-                        )
-                      else
+                      if (isOwnPreviewMode)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -554,17 +661,32 @@ class _ShopPageState extends State<ShopPage> {
                 ],
               ),
               child: SafeArea(
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: _handleAddToCart,
-                    icon: const Icon(Icons.shopping_cart),
-                    label: const Text('Add to Cart'),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 5,
+                      child: _buildQuantitySelector(product, remainingStock),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 7,
+                      child: SizedBox(
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: remainingStock > 0
+                              ? () => _handleAddToCart(product, remainingStock)
+                              : null,
+                          icon: const Icon(Icons.shopping_cart),
+                          label: Text(
+                            remainingStock > 0 ? 'Add to Cart' : 'Out of stock',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   ),
                 ),
               ),
-            ),
         ],
       ),
     );

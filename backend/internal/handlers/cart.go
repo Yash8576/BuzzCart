@@ -11,6 +11,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func getProductStockQuantity(db *sql.DB, productID string) (int, error) {
+	product, err := getProductByID(db, productID)
+	if err != nil {
+		product, err = getProductByIDLegacy(db, productID)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	if product.StockQuantity < 0 {
+		return 0, nil
+	}
+
+	return product.StockQuantity, nil
+}
+
 func GetCart(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
@@ -46,6 +62,34 @@ func GetCart(db *sql.DB) gin.HandlerFunc {
 		if err := json.Unmarshal(itemsJSON, &items); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse cart items"})
 			return
+		}
+
+		itemsChanged := false
+		for i := range items {
+			stockQty, stockErr := getProductStockQuantity(db, items[i].ProductID)
+			if stockErr != nil {
+				continue
+			}
+
+			if items[i].StockQuantity != stockQty {
+				items[i].StockQuantity = stockQty
+				itemsChanged = true
+			}
+
+			if items[i].Quantity > stockQty {
+				items[i].Quantity = stockQty
+				itemsChanged = true
+			}
+		}
+
+		if itemsChanged {
+			itemsData, marshalErr := json.Marshal(items)
+			if marshalErr == nil {
+				_, _ = db.Exec(
+					"UPDATE carts SET items = $1, updated_at = $2 WHERE user_id = $3",
+					itemsData, time.Now(), userID,
+				)
+			}
 		}
 
 		// Calculate totals
@@ -104,11 +148,21 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 		}
 
 		cartItem := models.CartItem{
-			ProductID: product.ID,
-			Title:     product.Title,
-			Price:     product.Price,
-			Image:     image,
-			Quantity:  req.Quantity,
+			ProductID:     product.ID,
+			Title:         product.Title,
+			Price:         product.Price,
+			Image:         image,
+			Quantity:      req.Quantity,
+			StockQuantity: product.StockQuantity,
+		}
+
+		if product.StockQuantity <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Product is out of stock"})
+			return
+		}
+
+		if cartItem.Quantity > product.StockQuantity {
+			cartItem.Quantity = product.StockQuantity
 		}
 
 		// Find or create cart
@@ -130,7 +184,12 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 			found := false
 			for i, item := range items {
 				if item.ProductID == req.ProductID {
-					items[i].Quantity += req.Quantity
+					updatedQty := item.Quantity + req.Quantity
+					if updatedQty > product.StockQuantity {
+						updatedQty = product.StockQuantity
+					}
+					items[i].Quantity = updatedQty
+					items[i].StockQuantity = product.StockQuantity
 					found = true
 					break
 				}
@@ -211,6 +270,25 @@ func UpdateCartItem(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		stockQty, stockErr := getProductStockQuantity(db, req.ProductID)
+		if stockErr == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		if stockErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+			return
+		}
+
+		if stockQty <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Product is out of stock"})
+			return
+		}
+
+		if req.Quantity > stockQty {
+			req.Quantity = stockQty
+		}
+
 		// Get current cart items
 		var itemsJSON []byte
 		err := db.QueryRow("SELECT items FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON)
@@ -226,6 +304,7 @@ func UpdateCartItem(db *sql.DB) gin.HandlerFunc {
 		for i, item := range items {
 			if item.ProductID == req.ProductID {
 				items[i].Quantity = req.Quantity
+				items[i].StockQuantity = stockQty
 				break
 			}
 		}

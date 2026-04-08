@@ -247,11 +247,12 @@ type ProductSimple struct {
 }
 
 type CartItem struct {
-	ProductID string  `json:"product_id" db:"product_id"`
-	Title     string  `json:"title" db:"title"`
-	Price     float64 `json:"price" db:"price"`
-	Image     string  `json:"image" db:"image"`
-	Quantity  int     `json:"quantity" db:"quantity"`
+	ProductID     string  `json:"product_id" db:"product_id"`
+	Title         string  `json:"title" db:"title"`
+	Price         float64 `json:"price" db:"price"`
+	Image         string  `json:"image" db:"image"`
+	Quantity      int     `json:"quantity" db:"quantity"`
+	StockQuantity int     `json:"stock_quantity,omitempty" db:"stock_quantity"`
 }
 
 type Cart struct {

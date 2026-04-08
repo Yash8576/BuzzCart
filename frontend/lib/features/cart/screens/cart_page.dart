@@ -156,7 +156,12 @@ class _CartItemCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cartProvider = context.read<CartProvider>();
+    final cartProvider = context.watch<CartProvider>();
+    final maxQuantity = cartProvider.stockLimitFor(
+      item.product.id,
+      fallbackStock: item.product.stockQuantity,
+    );
+    final isAtMax = maxQuantity != null && item.quantity >= maxQuantity;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -204,6 +209,16 @@ class _CartItemCard extends StatelessWidget {
                     item.product.sellerName,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
+                  if (item.product.stockQuantity > 0 && item.product.stockQuantity < 10) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Low stock',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.orange.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Text(
                     '\$${item.product.price.toStringAsFixed(2)}',
@@ -225,6 +240,7 @@ class _CartItemCard extends StatelessWidget {
                           ? () => cartProvider.updateQuantity(
                                 item.product.id,
                                 item.quantity - 1,
+                                maxQuantity: maxQuantity,
                               )
                           : null,
                     ),
@@ -236,15 +252,55 @@ class _CartItemCard extends StatelessWidget {
                     ),
                     IconButton(
                       icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () => cartProvider.updateQuantity(
-                        item.product.id,
-                        item.quantity + 1,
-                      ),
+                      onPressed: !isAtMax
+                          ? () => cartProvider.updateQuantity(
+                                item.product.id,
+                                item.quantity + 1,
+                                maxQuantity: maxQuantity,
+                              )
+                          : null,
                     ),
+                    if (isAtMax)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Max',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey[700],
+                              ),
+                        ),
+                      ),
                   ],
                 ),
                 IconButton(
-                  onPressed: () => cartProvider.removeFromCart(item.product.id),
+                  onPressed: () async {
+                    final shouldRemove = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) {
+                        return AlertDialog(
+                          title: const Text('Remove item?'),
+                          content: Text(
+                            'Remove ${item.product.title} from your cart?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(true),
+                              child: const Text('Remove'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+
+                    if (shouldRemove == true) {
+                      await cartProvider.removeFromCart(item.product.id);
+                    }
+                  },
                   icon: const Icon(Icons.delete_outline),
                   color: AppColors.destructive,
                   tooltip: 'Remove from cart',

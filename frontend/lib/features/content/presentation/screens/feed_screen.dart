@@ -40,8 +40,10 @@ class _FeedScreenState extends State<FeedScreen> {
     }
   }
 
-  Future<void> _handleAddToCart(String productId) async {
-    final added = await context.read<CartProvider>().addToCart(productId);
+  Future<void> _handleAddToCart(String productId, [int? maxQuantity]) async {
+    final added = await context
+        .read<CartProvider>()
+        .addToCart(productId, maxQuantity: maxQuantity);
     if (!mounted) {
       return;
     }
@@ -88,7 +90,7 @@ class _FeedScreenState extends State<FeedScreen> {
           if (type == 'product') {
             return _ProductCard(
               product: data,
-              onAddToCart: () => _handleAddToCart(data['id']),
+              onAddToCart: () => _handleAddToCart(data['id'], data['stock_quantity'] as int?),
             );
           } else if (type == 'video' || type == 'reel') {
             return _VideoCard(

@@ -225,7 +225,10 @@ class _VideosPageState extends State<VideosPage> {
                                           onPressed: () async {
                                             final added = await context
                                                 .read<CartProvider>()
-                                                .addToCart(product['id']);
+                                                .addToCart(
+                                                  product['id'],
+                                                  maxQuantity: product['stock_quantity'] as int?,
+                                                );
                                             if (context.mounted) {
                                               ScaffoldMessenger.of(context).showSnackBar(
                                                 SnackBar(

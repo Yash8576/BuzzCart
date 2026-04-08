@@ -343,38 +343,80 @@ class _HomePageState extends State<HomePage> {
     return '${monthNames[createdAt.month - 1]} ${createdAt.day}, ${createdAt.year}';
   }
 
-  Future<void> _handleAddToCart(String productId) async {
-    final added = await context.read<CartProvider>().addToCart(productId);
+  int _cartQuantityForProduct(String productId, List<CartItemModel> cartItems) {
+    for (final item in cartItems) {
+      if (item.product.id == productId) {
+        return item.quantity;
+      }
+    }
+    return 0;
+  }
+
+  int _remainingStockForProduct(
+    ProductModel product,
+    List<CartItemModel> cartItems,
+  ) {
+    if (product.stockQuantity <= 0) {
+      return 0;
+    }
+
+    final inCart = _cartQuantityForProduct(product.id, cartItems);
+    final remaining = product.stockQuantity - inCart;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  void _showCartToast(
+    String message, {
+    required Color backgroundColor,
+  }) {
     if (!mounted) return;
 
-    if (added) {
-      final cart = context.read<CartProvider>().cart;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Added to cart. Total: \$${cart.total.toStringAsFixed(2)}',
-          ),
-          backgroundColor: AppColors.successGreen,
-          duration: const Duration(seconds: 2),
-          action: SnackBarAction(
-            label: 'Checkout',
-            textColor: Colors.white,
-            onPressed: () => context.go('/checkout'),
-          ),
-        ),
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _handleAddToCart(ProductModel product) async {
+    final cartItems = context.read<CartProvider>().cart.items;
+    final remainingStock = _remainingStockForProduct(product, cartItems);
+    if (remainingStock <= 0) {
+      _showCartToast(
+        'Max stock already in cart',
+        backgroundColor: AppColors.destructive,
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Failed to add to cart'),
-        backgroundColor: AppColors.destructive,
-      ),
+
+    final added = await context
+        .read<CartProvider>()
+        .addToCart(product.id, maxQuantity: remainingStock);
+    if (!mounted) return;
+    if (added) {
+      final cart = context.read<CartProvider>().cart;
+      _showCartToast(
+        'Added to cart. Total: \$${cart.total.toStringAsFixed(2)}',
+        backgroundColor: AppColors.successGreen,
+      );
+      return;
+    }
+
+    _showCartToast(
+      'Failed to add to cart',
+      backgroundColor: AppColors.destructive,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final cartItems = context.watch<CartProvider>().cart.items;
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -430,6 +472,7 @@ class _HomePageState extends State<HomePage> {
                     index,
                     section.data as List<ProductModel>,
                     constraints.maxWidth,
+                    cartItems,
                   );
                 case _HomeSectionType.post:
                   return _buildPostCard(
@@ -476,6 +519,7 @@ class _HomePageState extends State<HomePage> {
     int sectionIndex,
     List<ProductModel> products,
     double viewportWidth,
+    List<CartItemModel> cartItems,
   ) {
     final railWidth = math.min(
       _mediaCardMaxWidth,
@@ -531,7 +575,7 @@ class _HomePageState extends State<HomePage> {
                   itemCount: products.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
                   itemBuilder: (context, index) {
-                    return _buildProductTile(products[index]);
+                    return _buildProductTile(products[index], cartItems);
                   },
                 ),
               ),
@@ -568,8 +612,10 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildProductTile(ProductModel product) {
+  Widget _buildProductTile(ProductModel product, List<CartItemModel> cartItems) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final remainingStock = _remainingStockForProduct(product, cartItems);
+    final canAddToCart = remainingStock > 0;
 
     return SizedBox(
       width: _productRailCardWidth,
@@ -601,18 +647,23 @@ class _HomePageState extends State<HomePage> {
                       right: 10,
                       bottom: 10,
                       child: Material(
-                        color: Colors.white,
+                        color: canAddToCart
+                            ? Colors.white
+                            : Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(999),
                         elevation: 2,
                         child: InkWell(
-                          onTap: () => _handleAddToCart(product.id),
+                          onTap: canAddToCart
+                              ? () => _handleAddToCart(product)
+                              : null,
                           borderRadius: BorderRadius.circular(999),
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
                             child: Icon(
                               Icons.shopping_bag_outlined,
                               size: 18,
-                              color: Colors.black,
+                              color:
+                                  canAddToCart ? Colors.black : Colors.grey,
                             ),
                           ),
                         ),

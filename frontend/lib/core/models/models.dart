@@ -547,6 +547,7 @@ class CartItemModel {
             'title': json['title'] as String? ?? '',
             'description': '',
             'price': (json['price'] as num?)?.toDouble() ?? 0,
+            'stock_quantity': json['stock_quantity'] as int? ?? 0,
             'images': [
               if ((json['image'] as String?) != null &&
                   (json['image'] as String).isNotEmpty)
