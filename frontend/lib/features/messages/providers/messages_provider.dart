@@ -58,6 +58,8 @@ class MessagesProvider extends ChangeNotifier {
   bool get isLoadingConnections => _isLoadingConnections;
   bool get isLoadingThread => _isLoadingThread;
   bool get isSending => _isSending;
+    int get totalUnreadCount =>
+      _conversations.fold<int>(0, (sum, item) => sum + item.unreadCount);
 
   bool get hasSelectedConversation =>
       _selectedParticipant != null || _selectedConversationId != null;

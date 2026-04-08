@@ -351,6 +351,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   Widget _buildMobileHeader() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cart = context.watch<CartProvider>().cart;
+    final unreadMessages = context.watch<MessagesProvider>().totalUnreadCount;
     final location = GoRouterState.of(context).matchedLocation;
     final isHomePage = location == '/';
     final isProfilePage = location.startsWith('/profile');
@@ -507,9 +508,41 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                 ),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.message_outlined),
-            onPressed: () => _navigateTo('/messages'),
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.message_outlined),
+                onPressed: () => _navigateTo('/messages'),
+              ),
+              if (unreadMessages > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: const BoxDecoration(
+                      color: AppColors.electricBlue,
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      unreadMessages > 99 ? '99+' : '$unreadMessages',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -555,7 +588,9 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                      (location.startsWith(item.path) && item.path != '/');
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cartCount = context.watch<CartProvider>().cart.itemCount;
+    final unreadMessages = context.watch<MessagesProvider>().totalUnreadCount;
     final showCartBadge = item.path == '/cart' && cartCount > 0;
+    final showMessageBadge = item.path == '/messages' && unreadMessages > 0;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -585,7 +620,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                               ? AppColors.darkMutedForeground
                               : AppColors.lightMutedForeground),
                     ),
-                    if (showCartBadge)
+                    if (showCartBadge || showMessageBadge)
                       Positioned(
                         right: -9,
                         top: -8,
@@ -603,7 +638,11 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                             minHeight: 16,
                           ),
                           child: Text(
-                            cartCount > 99 ? '99+' : '$cartCount',
+                            showCartBadge
+                                ? (cartCount > 99 ? '99+' : '$cartCount')
+                                : (unreadMessages > 99
+                                    ? '99+'
+                                    : '$unreadMessages'),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 9,
