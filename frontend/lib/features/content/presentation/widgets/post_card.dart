@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../../../../core/models/models.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/url_helper.dart';
 
 /// Instagram-style post card widget
 class PostCard extends StatelessWidget {
@@ -60,7 +61,9 @@ class PostCard extends StatelessWidget {
             CircleAvatar(
               radius: 18,
               backgroundImage: post.authorAvatar != null
-                  ? CachedNetworkImageProvider(post.authorAvatar!)
+                  ? CachedNetworkImageProvider(
+                      UrlHelper.getPlatformUrl(post.authorAvatar!),
+                    )
                   : null,
               backgroundColor: AppColors.electricBlue,
               child: post.authorAvatar == null
@@ -116,7 +119,7 @@ class PostCard extends StatelessWidget {
       return AspectRatio(
         aspectRatio: 1.0, // Square aspect ratio like Instagram
         child: CachedNetworkImage(
-          imageUrl: post.mediaUrl,
+          imageUrl: UrlHelper.getPlatformUrl(post.mediaUrl),
           fit: BoxFit.cover,
           placeholder: (context, url) => Container(
             color: Colors.grey[200],
@@ -137,7 +140,7 @@ class PostCard extends StatelessWidget {
           children: [
             if (post.thumbnailUrl != null)
               CachedNetworkImage(
-                imageUrl: post.thumbnailUrl!,
+                imageUrl: UrlHelper.getPlatformUrl(post.thumbnailUrl!),
                 fit: BoxFit.cover,
                 placeholder: (context, url) => Container(
                   color: Colors.grey[200],

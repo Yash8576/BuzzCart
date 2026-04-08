@@ -72,16 +72,31 @@ class _HomePageState extends State<HomePage> {
           )
           .toList();
 
-      final feed = <FeedItem>[
-        ...products.map((product) => FeedItem(type: 'product', data: product)),
+      final mediaFeed = <FeedItem>[
         ...posts.map((post) => FeedItem(type: 'post', data: post)),
         ...videos.map((video) => FeedItem(type: 'video', data: video)),
         ...reels.map((reel) => FeedItem(type: 'reel', data: reel)),
       ]..sort((a, b) {
-          final aDate = DateTime.tryParse(_createdAtFor(a)) ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final bDate = DateTime.tryParse(_createdAtFor(b)) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final aDate = DateTime.tryParse(_createdAtFor(a)) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = DateTime.tryParse(_createdAtFor(b)) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
           return bDate.compareTo(aDate);
         });
+
+      final productFeed = products
+        ..sort((a, b) {
+          final aDate = DateTime.tryParse(a.createdAt) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = DateTime.tryParse(b.createdAt) ??
+              DateTime.fromMillisecondsSinceEpoch(0);
+          return bDate.compareTo(aDate);
+        });
+
+      final feed = _buildHomeFeed(
+        mediaItems: mediaFeed,
+        products: productFeed,
+      );
 
       setState(() {
         _feed = feed;
@@ -108,6 +123,42 @@ class _HomePageState extends State<HomePage> {
       default:
         return '';
     }
+  }
+
+  List<FeedItem> _buildHomeFeed({
+    required List<FeedItem> mediaItems,
+    required List<ProductModel> products,
+  }) {
+    if (mediaItems.isEmpty) {
+      return products
+          .map((product) => FeedItem(type: 'product', data: product))
+          .toList();
+    }
+
+    final feed = <FeedItem>[];
+    var mediaIndex = 0;
+    var productIndex = 0;
+
+    while (mediaIndex < mediaItems.length || productIndex < products.length) {
+      for (var i = 0; i < 3 && mediaIndex < mediaItems.length; i++) {
+        feed.add(mediaItems[mediaIndex++]);
+      }
+
+      if (productIndex < products.length) {
+        feed.add(FeedItem(type: 'product', data: products[productIndex++]));
+      }
+
+      if (mediaIndex >= mediaItems.length && productIndex < products.length) {
+        feed.addAll(
+          products
+              .skip(productIndex)
+              .map((product) => FeedItem(type: 'product', data: product)),
+        );
+        break;
+      }
+    }
+
+    return feed;
   }
 
   Future<void> _handleLike(PostModel post) async {

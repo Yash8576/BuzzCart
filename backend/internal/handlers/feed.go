@@ -15,6 +15,14 @@ import (
 	"github.com/lib/pq"
 )
 
+func feedTableExists(db *sql.DB, tableName string) bool {
+	var exists bool
+	if err := db.QueryRow("SELECT to_regclass($1) IS NOT NULL", tableName).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
+}
+
 // ============================================================================
 // INSTAGRAM-STYLE FEED HANDLERS
 // ============================================================================
@@ -145,38 +153,46 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Discovery query: content globally visible by account-level visibility settings
-		// Ranked by engagement score (pre-computed) and recency
+		// Discovery query: globally visible media from active public accounts.
+		// This version reads from user_media because the live database uses the
+		// legacy posts table shape without the newer feed columns.
+		includeInteractionColumns := false
+		if userID != "" && feedTableExists(db, "public.post_likes") && feedTableExists(db, "public.user_follows") {
+			includeInteractionColumns = true
+		}
+
 		query := `
 			SELECT 
-				p.id, p.user_id, p.media_id, p.caption, p.media_type, p.media_url, 
-				p.thumbnail_url, p.is_private, p.visibility, p.like_count, 
-				p.comment_count, p.share_count, p.view_count, p.created_at, p.updated_at,
+				um.id::text, um.user_id::text, um.id::text as media_id, COALESCE(um.caption, '') as caption, um.media_type::text, um.media_url, 
+				um.thumbnail_url, FALSE as is_private, 'public' as visibility, COALESCE(um.like_count, 0) as like_count, 
+				COALESCE(um.comment_count, 0) as comment_count, 0 as share_count, COALESCE(um.view_count, 0) as view_count, um.created_at, um.updated_at,
 				u.name as author_name, u.avatar as author_avatar, u.is_verified as author_verified,
 				COALESCE(
-					(p.like_count + p.comment_count * 3 + p.share_count * 5) / 
-					POWER(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - p.created_at)) / 3600.0 + 2, 1.8),
+					(COALESCE(um.like_count, 0) + COALESCE(um.comment_count, 0) * 3) / 
+					POWER(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - um.created_at)) / 3600.0 + 2, 1.8),
 					0
 				) as engagement_score
 		`
 
-		if userID != "" {
+		if includeInteractionColumns {
 			query += `,
-				EXISTS(SELECT 1 FROM post_likes WHERE post_id = p.id AND user_id = $1) as is_liked,
-				EXISTS(SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = p.user_id) as is_following
+				EXISTS(SELECT 1 FROM post_likes WHERE post_id = um.id AND user_id = $1) as is_liked,
+				EXISTS(SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = um.user_id) as is_following
 			`
 		}
 
 		query += `
-			FROM posts p
-			JOIN users u ON p.user_id = u.id
+			FROM user_media um
+			JOIN users u ON um.user_id = u.id
 			WHERE COALESCE(u.status::text, 'active') = 'active'
 			  AND COALESCE(u.privacy_profile::text, 'public') = 'public'
+			  AND um.is_archived = FALSE
+			  AND um.media_type IN ('photo', 'video', 'reel')
 			  AND (
 				LOWER(COALESCE(u.visibility_mode, 'public')) = 'public'
 				OR (
 					LOWER(COALESCE(u.visibility_mode, 'public')) = 'custom'
-					AND CASE p.media_type
+					AND CASE um.media_type::text
 						WHEN 'photo' THEN COALESCE((u.visibility_preferences ->> 'photos')::boolean, true)
 						WHEN 'video' THEN COALESCE((u.visibility_preferences ->> 'videos')::boolean, true)
 						WHEN 'reel' THEN COALESCE((u.visibility_preferences ->> 'reels')::boolean, true)
@@ -189,25 +205,25 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 		args := []interface{}{}
 		argIndex := 1
 
-		if userID != "" {
+		if includeInteractionColumns {
 			args = append(args, userID)
 			argIndex++
 		}
 
 		// Exclude posts from users the current user already follows (optional - for pure discovery)
 		if userID != "" && c.Query("exclude_following") == "true" {
-			query += fmt.Sprintf(" AND p.user_id NOT IN (SELECT following_id FROM user_follows WHERE follower_id = $%d)", argIndex)
+			query += fmt.Sprintf(" AND um.user_id NOT IN (SELECT following_id FROM user_follows WHERE follower_id = $%d)", argIndex)
 			args = append(args, userID)
 			argIndex++
 		}
 
 		if !cursorTime.IsZero() {
-			query += fmt.Sprintf(" AND p.created_at < $%d", argIndex)
+			query += fmt.Sprintf(" AND um.created_at < $%d", argIndex)
 			args = append(args, cursorTime)
 			argIndex++
 		}
 
-		query += " ORDER BY engagement_score DESC, p.created_at DESC LIMIT $" + strconv.Itoa(argIndex)
+		query += " ORDER BY engagement_score DESC, um.created_at DESC LIMIT $" + strconv.Itoa(argIndex)
 		args = append(args, limit+1)
 
 		rows, err := db.Query(query, args...)
@@ -232,7 +248,7 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 				&post.AuthorVerified, &engagementScore,
 			}
 
-			if userID != "" {
+			if includeInteractionColumns {
 				scanArgs = append(scanArgs, &post.IsLiked, &post.IsFollowing)
 			}
 
