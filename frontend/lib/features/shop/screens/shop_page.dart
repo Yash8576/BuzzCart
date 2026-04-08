@@ -614,7 +614,7 @@ class _ShopPageState extends State<ShopPage> {
                   padding: const EdgeInsets.all(12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
-                    childAspectRatio: 0.75,
+                    childAspectRatio: 0.72,
                     crossAxisSpacing: _gridSpacing,
                     mainAxisSpacing: _gridSpacing,
                   ),
@@ -648,7 +648,7 @@ class _ShopPageState extends State<ShopPage> {
                                 children: [
                                   Text(
                                     product.title,
-                                    maxLines: 2,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontWeight: FontWeight.w500),
                                   ),
