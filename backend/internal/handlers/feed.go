@@ -170,7 +170,8 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 		query += `
 			FROM posts p
 			JOIN users u ON p.user_id = u.id
-			WHERE COALESCE(u.privacy_profile::text, 'public') = 'public'
+			WHERE COALESCE(u.status::text, 'active') = 'active'
+			  AND COALESCE(u.privacy_profile::text, 'public') = 'public'
 			  AND (
 				LOWER(COALESCE(u.visibility_mode, 'public')) = 'public'
 				OR (
@@ -292,8 +293,9 @@ func GetUserPosts(db *sql.DB) gin.HandlerFunc {
 
 		// Check privacy: can the current user see this profile's posts?
 		var targetPrivacy string
+		var targetStatus string
 		var isFollowing bool
-		err := db.QueryRow("SELECT privacy_profile FROM users WHERE id = $1", profileUserID).Scan(&targetPrivacy)
+		err := db.QueryRow("SELECT COALESCE(privacy_profile::text, 'public'), COALESCE(status::text, 'active') FROM users WHERE id = $1", profileUserID).Scan(&targetPrivacy, &targetStatus)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 			return
@@ -307,6 +309,11 @@ func GetUserPosts(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Privacy check: if private account and not following, return empty
+		if targetStatus != "active" && currentUserID != profileUserID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This account is hibernated"})
+			return
+		}
+
 		if targetPrivacy == "private" && currentUserID != profileUserID && !isFollowing {
 			c.JSON(http.StatusForbidden, gin.H{"error": "This account is private"})
 			return

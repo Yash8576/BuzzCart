@@ -100,21 +100,27 @@ func contentBucketForMediaType(mediaType string) string {
 }
 
 func resolvePostVisibilityForBucket(db *sql.DB, userID string, bucket string) (bool, string, error) {
+	var status string
 	var privacyProfile string
 	var visibilityMode string
 	var visibilityPreferencesRaw string
 
 	err := db.QueryRow(
 		`SELECT
+			COALESCE(status::text, 'active'),
 			COALESCE(privacy_profile::text, 'public'),
 			COALESCE(visibility_mode, 'public'),
 			COALESCE(visibility_preferences::text, '{"photos": true, "videos": true, "reels": true, "purchases": true}')
 		 FROM users
 		 WHERE id = $1`,
 		userID,
-	).Scan(&privacyProfile, &visibilityMode, &visibilityPreferencesRaw)
+	).Scan(&status, &privacyProfile, &visibilityMode, &visibilityPreferencesRaw)
 	if err != nil {
 		return false, "", err
+	}
+
+	if !strings.EqualFold(status, "active") {
+		return true, "followers", nil
 	}
 
 	if strings.EqualFold(privacyProfile, "private") {

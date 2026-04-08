@@ -22,6 +22,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _isSaving = false;
   bool _pendingVisibilitySave = false;
   Timer? _visibilitySaveDebounce;
+  bool _isHibernated = false;
   String _visibilityMode = 'public';
   Map<String, bool> _visibilityPreferences = const {
     'photos': true,
@@ -58,23 +59,56 @@ class _SettingsPageState extends State<SettingsPage> {
     final preferences = Map<String, bool>.from(user.visibilityPreferences as Map<String, bool>);
 
     setState(() {
-      _visibilityMode = user.isSeller ? 'public' : visibilityMode;
+      _isHibernated = (user.status as String?)?.toLowerCase() == 'inactive';
+      _visibilityMode = user.isSeller ? 'custom' : visibilityMode;
       _visibilityPreferences = {
         'photos': preferences['photos'] ?? true,
         'videos': preferences['videos'] ?? true,
         'reels': preferences['reels'] ?? true,
         'purchases': preferences['purchases'] ?? true,
       };
-
-      if (user.isSeller) {
-        _visibilityPreferences = const {
-          'photos': true,
-          'videos': true,
-          'reels': true,
-          'purchases': true,
-        };
-      }
     });
+  }
+
+  Future<void> _updateSellerHibernate(bool value, AuthProvider authProvider) async {
+    if (_isSaving) {
+      return;
+    }
+
+    final previousValue = _isHibernated;
+    setState(() {
+      _isHibernated = value;
+      _isSaving = true;
+    });
+
+    try {
+      await authProvider.updateProfile({
+        'status': value ? 'inactive' : 'active',
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            value
+                ? 'Account hibernated. Your profile is hidden until you unhibernate.'
+                : 'Account unhibernated. Your profile is public again.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isHibernated = previousValue;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update hibernate mode: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   Future<void> _saveVisibilitySettings(
@@ -91,7 +125,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     setState(() => _isSaving = true);
     try {
-      final visibilityMode = user.isSeller ? 'public' : _visibilityMode;
+        final visibilityMode = user.isSeller ? 'custom' : _visibilityMode;
       final privacyProfile = visibilityMode == 'private' ? 'PRIVATE' : 'PUBLIC';
       final visibilityPreferences = visibilityMode == 'custom'
           ? _visibilityPreferences
@@ -333,42 +367,54 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ),
                 if (authProvider.isSeller)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                     child: Text(
-                      'Seller accounts are always public.',
-                      style: TextStyle(color: Colors.grey),
+                      _isHibernated
+                          ? 'Your seller account is hibernated and hidden from others.'
+                          : 'Seller account visibility is custom. Configure what stays visible, or hibernate to hide everything.',
+                      style: const TextStyle(color: Colors.grey),
                     ),
                   ),
-                RadioGroup<String>(
-                  groupValue: _visibilityMode,
-                  onChanged: (value) {
-                    if (authProvider.isSeller || value == null) {
-                      return;
-                    }
-                    _updateVisibilityMode(value, authProvider);
-                  },
-                  child: const Column(
-                    children: [
-                      RadioListTile<String>(
-                        title: Text('Public'),
-                        subtitle: Text('Anyone can view your profile and content'),
-                        value: 'public',
-                      ),
-                      RadioListTile<String>(
-                        title: Text('Private'),
-                        subtitle: Text('Only followers can view your account'),
-                        value: 'private',
-                      ),
-                      RadioListTile<String>(
-                        title: Text('Custom'),
-                        subtitle: Text('Choose what stays public and what stays private'),
-                        value: 'custom',
-                      ),
-                    ],
+                if (authProvider.isSeller)
+                  SwitchListTile(
+                    title: const Text('Hibernate Account'),
+                    subtitle: const Text('Hide your profile and content until you turn this off'),
+                    value: _isHibernated,
+                    onChanged: _isSaving
+                        ? null
+                        : (value) => _updateSellerHibernate(value, authProvider),
                   ),
-                ),
-                if (_visibilityMode == 'custom' && !authProvider.isSeller) ...[
+                if (!authProvider.isSeller)
+                  RadioGroup<String>(
+                    groupValue: _visibilityMode,
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      _updateVisibilityMode(value, authProvider);
+                    },
+                    child: const Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: Text('Public'),
+                          subtitle: Text('Anyone can view your profile and content'),
+                          value: 'public',
+                        ),
+                        RadioListTile<String>(
+                          title: Text('Private'),
+                          subtitle: Text('Only followers can view your account'),
+                          value: 'private',
+                        ),
+                        RadioListTile<String>(
+                          title: Text('Custom'),
+                          subtitle: Text('Choose what stays public and what stays private'),
+                          value: 'custom',
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_visibilityMode == 'custom' || authProvider.isSeller) ...[
                   const Divider(height: 1),
                   SwitchListTile(
                     title: const Text('Photos'),

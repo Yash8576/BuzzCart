@@ -228,8 +228,8 @@ func Register(db *sql.DB) gin.HandlerFunc {
 			CreatedAt:             time.Now(),
 		}
 		if req.AccountType == models.AccountTypeSeller {
-			user.VisibilityMode = "public"
-			user.VisibilityPreferences = defaultVisibilityPreferences("public")
+			user.VisibilityMode = "custom"
+			user.VisibilityPreferences = defaultVisibilityPreferences("custom")
 		}
 
 		username, err := generateUniqueUsername(db, req.Email)
@@ -426,6 +426,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 		updatedName := current.Name
 		updatedBio := current.Bio
 		updatedAvatar := currentAvatar
+		updatedStatus := current.Status
 		updatedPrivacyProfile := current.PrivacyProfile
 		updatedVisibilityMode := strings.ToLower(current.VisibilityMode)
 		updatedPreferences := current.VisibilityPreferences
@@ -439,6 +440,9 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 		if req.Avatar != nil {
 			updatedAvatar = sql.NullString{String: *req.Avatar, Valid: strings.TrimSpace(*req.Avatar) != ""}
 		}
+		if req.Status != nil {
+			updatedStatus = models.AccountStatus(strings.ToLower(string(*req.Status)))
+		}
 		if req.PrivacyProfile != nil {
 			updatedPrivacyProfile = *req.PrivacyProfile
 		}
@@ -450,22 +454,31 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 		}
 
 		if current.AccountType == models.AccountTypeSeller {
+			switch updatedStatus {
+			case models.StatusActive, models.StatusInactive:
+				// allowed for seller self-managed hibernate mode
+			default:
+				updatedStatus = models.StatusActive
+			}
 			updatedPrivacyProfile = models.PrivacyPublic
-			updatedVisibilityMode = "public"
-			updatedPreferences = defaultVisibilityPreferences("public")
-		}
+			updatedVisibilityMode = "custom"
+			updatedPreferences = normalizeVisibilityPreferences("custom", updatedPreferences)
+		} else {
+			// Consumers cannot change status through this endpoint.
+			updatedStatus = current.Status
 
-		switch updatedVisibilityMode {
-		case "private":
-			updatedPrivacyProfile = models.PrivacyPrivate
-			updatedPreferences = defaultVisibilityPreferences("private")
-		case "custom":
-			updatedPrivacyProfile = models.PrivacyPublic
-			updatedPreferences = normalizeVisibilityPreferences(updatedVisibilityMode, updatedPreferences)
-		default:
-			updatedVisibilityMode = "public"
-			updatedPrivacyProfile = models.PrivacyPublic
-			updatedPreferences = defaultVisibilityPreferences("public")
+			switch updatedVisibilityMode {
+			case "private":
+				updatedPrivacyProfile = models.PrivacyPrivate
+				updatedPreferences = defaultVisibilityPreferences("private")
+			case "custom":
+				updatedPrivacyProfile = models.PrivacyPublic
+				updatedPreferences = normalizeVisibilityPreferences(updatedVisibilityMode, updatedPreferences)
+			default:
+				updatedVisibilityMode = "public"
+				updatedPrivacyProfile = models.PrivacyPublic
+				updatedPreferences = defaultVisibilityPreferences("public")
+			}
 		}
 
 		updatedPreferencesJSON, err := json.Marshal(updatedPreferences)
@@ -476,9 +489,9 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 
 		_, err = db.Exec(`
 			UPDATE users
-			SET name = $1, bio = $2, avatar = $3, privacy_profile = $4, visibility_mode = $5, visibility_preferences = $6, updated_at = $7
-			WHERE id = $8
-		`, updatedName, updatedBio, updatedAvatar, updatedPrivacyProfile, updatedVisibilityMode, updatedPreferencesJSON, time.Now(), userID)
+			SET name = $1, bio = $2, avatar = $3, status = $4, privacy_profile = $5, visibility_mode = $6, visibility_preferences = $7, updated_at = $8
+			WHERE id = $9
+		`, updatedName, updatedBio, updatedAvatar, updatedStatus, updatedPrivacyProfile, updatedVisibilityMode, updatedPreferencesJSON, time.Now(), userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update profile"})
 			return
@@ -526,6 +539,11 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
+
+		if user.Status != models.StatusActive && viewerID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "This account is hibernated"})
+			return
+		}
 
 		user.CanViewConnections = user.PrivacyProfile != models.PrivacyPrivate || viewerID == userID
 		if viewerID != "" && viewerID != userID {

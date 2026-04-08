@@ -133,6 +133,7 @@ func GetVideos(db *sql.DB) gin.HandlerFunc {
 			 FROM content_items ci
 			 JOIN users u ON ci.creator_id = u.id
 			 WHERE ci.content_type = 'video'
+			   AND COALESCE(u.status::text, 'active') = 'active'
 			   AND COALESCE(u.privacy_profile::text, 'public') = 'public'
 			 ORDER BY ci.created_at DESC LIMIT 20`,
 		)

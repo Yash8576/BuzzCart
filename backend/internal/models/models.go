@@ -144,6 +144,7 @@ type ProfileUpdate struct {
 	Name                  *string         `json:"name,omitempty"`
 	Bio                   *string         `json:"bio,omitempty"`
 	Avatar                *string         `json:"avatar,omitempty"`
+	Status                *AccountStatus  `json:"status,omitempty"`
 	PrivacyProfile        *PrivacyProfile `json:"privacy_profile,omitempty"`
 	VisibilityMode        *string         `json:"visibility_mode,omitempty"`
 	VisibilityPreferences map[string]bool `json:"visibility_preferences,omitempty"`

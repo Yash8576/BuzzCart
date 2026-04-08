@@ -475,16 +475,38 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		ctx, cancel := database.NewContext()
 		defer cancel()
 
+		var status string
 		var visibilityMode string
 		var visibilityPreferencesJSON string
+		var privacyProfile string
 		var err error
 		err = db.QueryRowContext(ctx,
-			"SELECT COALESCE(visibility_mode, 'public'), COALESCE(visibility_preferences::text, '{\"photos\": true, \"videos\": true, \"reels\": true, \"purchases\": true}') FROM users WHERE id = $1",
+			"SELECT COALESCE(status::text, 'active'), COALESCE(privacy_profile::text, 'public'), COALESCE(visibility_mode, 'public'), COALESCE(visibility_preferences::text, '{\"photos\": true, \"videos\": true, \"reels\": true, \"purchases\": true}') FROM users WHERE id = $1",
 			userID,
-		).Scan(&visibilityMode, &visibilityPreferencesJSON)
+		).Scan(&status, &privacyProfile, &visibilityMode, &visibilityPreferencesJSON)
 		if err != nil {
+			status = "active"
+			privacyProfile = "public"
 			visibilityMode = "public"
 			visibilityPreferencesJSON = ""
+		}
+
+		if requestingUserID != userID {
+			if strings.ToLower(status) != "active" {
+				c.JSON(http.StatusOK, []gin.H{})
+				return
+			}
+			if strings.ToLower(privacyProfile) == "private" {
+				var isFollowing bool
+				err = db.QueryRowContext(ctx,
+					"SELECT EXISTS(SELECT 1 FROM user_follows WHERE follower_id = $1 AND following_id = $2)",
+					requestingUserID, userID,
+				).Scan(&isFollowing)
+				if err != nil || !isFollowing {
+					c.JSON(http.StatusOK, []gin.H{})
+					return
+				}
+			}
 		}
 
 		bucket := ""
@@ -510,15 +532,6 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		`
 
 		args := []interface{}{userID}
-
-		// Privacy check: if requesting user is different, check if profile is private
-		if requestingUserID != userID && requestingUserID != "" {
-			query += ` AND (
-				NOT EXISTS (SELECT 1 FROM users WHERE id = um.user_id AND privacy_profile = 'PRIVATE')
-				OR EXISTS (SELECT 1 FROM user_follows WHERE follower_id = $2 AND following_id = $1)
-			)`
-			args = append(args, requestingUserID)
-		}
 
 		argIndex := len(args) + 1
 		if mediaType != "" {
