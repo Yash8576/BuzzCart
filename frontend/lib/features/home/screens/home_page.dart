@@ -67,7 +67,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     final canLeft = controller.offset > 2;
-    final canRight = controller.offset < controller.position.maxScrollExtent - 2;
+    final canRight =
+        controller.offset < controller.position.maxScrollExtent - 2;
     final wasLeft = _canScrollRailLeft.contains(sectionIndex);
     final wasRight = _canScrollRailRight.contains(sectionIndex);
 
@@ -97,9 +98,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     const delta = _productRailCardWidth * 1.75;
-    final target = forward
-        ? controller.offset + delta
-        : controller.offset - delta;
+    final target =
+        forward ? controller.offset + delta : controller.offset - delta;
     final clampedTarget = target.clamp(
       controller.position.minScrollExtent,
       controller.position.maxScrollExtent,
@@ -142,7 +142,9 @@ class _HomePageState extends State<HomePage> {
       final currentUserId = context.read<AuthProvider>().user?.id;
       final results = await Future.wait([
         api.getProducts().catchError((_) => <ProductModel>[]),
-        api.getDiscoveryFeed(limit: 30).catchError((_) => FeedResponse(posts: [])),
+        api
+            .getDiscoveryFeed(limit: 30)
+            .catchError((_) => FeedResponse(posts: [])),
         api.getVideos().catchError((_) => <VideoModel>[]),
         api.getReels().catchError((_) => <ReelModel>[]),
       ]);
@@ -154,7 +156,8 @@ class _HomePageState extends State<HomePage> {
           (a, b) => _parseDate(b.createdAt).compareTo(_parseDate(a.createdAt)),
         );
 
-      final posts = (results[1] as FeedResponse).posts
+      final posts = (results[1] as FeedResponse)
+          .posts
           .where((post) => post.userId != currentUserId)
           .toList()
         ..sort(
@@ -162,7 +165,8 @@ class _HomePageState extends State<HomePage> {
         );
 
       final publishedMediaUrls = posts
-          .where((post) => post.mediaType == 'video' || post.mediaType == 'reel')
+          .where(
+              (post) => post.mediaType == 'video' || post.mediaType == 'reel')
           .map((post) => post.mediaUrl)
           .toSet();
 
@@ -210,7 +214,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  List<List<ProductModel>> _chunkProducts(List<ProductModel> products, int chunkSize) {
+  List<List<ProductModel>> _chunkProducts(
+      List<ProductModel> products, int chunkSize) {
     final chunks = <List<ProductModel>>[];
     for (var i = 0; i < products.length; i += chunkSize) {
       final end = math.min(i + chunkSize, products.length);
@@ -250,20 +255,25 @@ class _HomePageState extends State<HomePage> {
         }
       }
 
-      final selectedType = availableTypes[random.nextInt(availableTypes.length)];
+      final selectedType =
+          availableTypes[random.nextInt(availableTypes.length)];
 
       switch (selectedType) {
         case _HomeSectionType.productRail:
-          sections.add(_HomeSection(type: selectedType, data: rails.removeAt(0)));
+          sections
+              .add(_HomeSection(type: selectedType, data: rails.removeAt(0)));
           break;
         case _HomeSectionType.post:
-          sections.add(_HomeSection(type: selectedType, data: postQueue.removeAt(0)));
+          sections.add(
+              _HomeSection(type: selectedType, data: postQueue.removeAt(0)));
           break;
         case _HomeSectionType.reel:
-          sections.add(_HomeSection(type: selectedType, data: reelQueue.removeAt(0)));
+          sections.add(
+              _HomeSection(type: selectedType, data: reelQueue.removeAt(0)));
           break;
         case _HomeSectionType.video:
-          sections.add(_HomeSection(type: selectedType, data: videoQueue.removeAt(0)));
+          sections.add(
+              _HomeSection(type: selectedType, data: videoQueue.removeAt(0)));
           break;
       }
     }
@@ -349,13 +359,12 @@ class _HomePageState extends State<HomePage> {
           action: SnackBarAction(
             label: 'Checkout',
             textColor: Colors.white,
-            onPressed: () => context.go('/cart'),
+            onPressed: () => context.go('/checkout'),
           ),
         ),
       );
       return;
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Failed to add to cart'),
@@ -409,7 +418,8 @@ class _HomePageState extends State<HomePage> {
         return RefreshIndicator(
           onRefresh: _fetchFeed,
           child: ListView.builder(
-            padding: EdgeInsets.symmetric(vertical: 16, horizontal: pagePadding),
+            padding:
+                EdgeInsets.symmetric(vertical: 16, horizontal: pagePadding),
             cacheExtent: _listCacheExtent,
             itemCount: _sections.length,
             itemBuilder: (context, index) {
@@ -491,9 +501,10 @@ class _HomePageState extends State<HomePage> {
                     Expanded(
                       child: Text(
                         'Products',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                ),
                       ),
                     ),
                     _buildRailArrowButton(
@@ -576,7 +587,8 @@ class _HomePageState extends State<HomePage> {
                   fit: StackFit.expand,
                   children: [
                     Container(
-                      color: isDark ? AppColors.darkMuted : AppColors.lightMuted,
+                      color:
+                          isDark ? AppColors.darkMuted : AppColors.lightMuted,
                       child: product.images.isNotEmpty
                           ? _buildCachedImage(
                               product.images.first,
@@ -628,10 +640,11 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 2),
                       Text(
                         '\$${product.price.toStringAsFixed(2)}',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              height: 1.0,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.0,
+                                ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -658,7 +671,8 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildPostCard(PostModel post, double viewportWidth) {
     return _buildMediaCard(
-      maxWidth: post.mediaType == 'reel' ? _reelCardMaxWidth : _mediaCardMaxWidth,
+      maxWidth:
+          post.mediaType == 'reel' ? _reelCardMaxWidth : _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: null,
       media: _buildPostMedia(post),
@@ -795,7 +809,10 @@ class _HomePageState extends State<HomePage> {
                             children: [
                               Text(
                                 creatorName,
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
                                       fontWeight: FontWeight.w700,
                                     ),
                                 maxLines: 1,
@@ -804,7 +821,10 @@ class _HomePageState extends State<HomePage> {
                               const SizedBox(height: 2),
                               Text(
                                 _formatFeedTime(createdAt),
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
                                       color: Colors.grey[600],
                                     ),
                               ),

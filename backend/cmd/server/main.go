@@ -183,6 +183,7 @@ func main() {
 		{
 			cart.GET("", handlers.GetCart(db))
 			cart.POST("/add", handlers.AddToCart(db))
+			cart.POST("/checkout", handlers.CheckoutCart(db))
 			cart.POST("/remove", handlers.RemoveFromCart(db))
 			cart.POST("/update", handlers.UpdateCartItem(db))
 			cart.DELETE("/clear", handlers.ClearCart(db))
@@ -204,6 +205,7 @@ func main() {
 
 		// User media routes
 		api.GET("/users/:user_id/media", handlers.GetUserMedia(db))
+		api.GET("/users/:user_id/purchases", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetUserPurchases(db))
 		api.DELETE("/users/media/:media_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteUserMedia(db))
 
 		// Follow routes

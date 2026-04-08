@@ -42,7 +42,8 @@ class ApiService {
         return handler.next(options);
       },
       onError: (error, handler) {
-        debugPrint('API Error [${error.response?.statusCode}]: ${error.message}');
+        debugPrint(
+            'API Error [${error.response?.statusCode}]: ${error.message}');
         if (error.response != null) {
           debugPrint('  Response body: ${error.response!.data}');
           debugPrint('  Request URL: ${error.requestOptions.uri}');
@@ -55,7 +56,7 @@ class ApiService {
 
   Future<void> _loadToken() async {
     if (_isTokenLoaded) return;
-    
+
     try {
       _token = await _storage.read(key: 'buzz_token');
       if (_token != null) {
@@ -165,7 +166,7 @@ class ApiService {
       // Map account type to role and convert to lowercase for backend
       final accountTypeLower = accountType.toLowerCase();
       String role = accountType == 'SELLER' ? 'seller' : 'consumer';
-      
+
       final data = {
         'email': email,
         'password': password,
@@ -174,12 +175,12 @@ class ApiService {
         'role': role,
         'privacy_profile': privacyProfile.toLowerCase(),
       };
-      
+
       // Add phone number if provided
       if (phoneNumber != null && phoneNumber.isNotEmpty) {
         data['phone_number'] = phoneNumber;
       }
-      
+
       final response = await _dio.post('/auth/register', data: data);
 
       final token = response.data['access_token'] as String;
@@ -351,7 +352,8 @@ class ApiService {
       // Use bytes-based upload for cross-platform (web + mobile) support
       final bytes = await imageFile.readAsBytes();
       final fileName = imageFile.name;
-      debugPrint('[uploadPhoto] fileName=$fileName, size=${bytes.length}, mime=${_getImageMediaType(fileName)}');
+      debugPrint(
+          '[uploadPhoto] fileName=$fileName, size=${bytes.length}, mime=${_getImageMediaType(fileName)}');
 
       final formData = FormData.fromMap({
         'image': MultipartFile.fromBytes(
@@ -374,7 +376,8 @@ class ApiService {
 
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     } catch (e) {
       debugPrint('[uploadPhoto] Unexpected error: $e');
@@ -407,7 +410,8 @@ class ApiService {
 
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -416,7 +420,8 @@ class ApiService {
     try {
       await _dio.delete('/upload/avatar');
     } on DioException catch (e) {
-      debugPrint('[deleteAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[deleteAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -482,13 +487,16 @@ class ApiService {
     }
   }
 
-  Future<List<NetworkPurchaseModel>> getNetworkPurchases({int limit = 10}) async {
+  Future<List<NetworkPurchaseModel>> getNetworkPurchases(
+      {int limit = 10}) async {
     try {
-      final response = await _dio.get('/products/network-purchases', queryParameters: {
+      final response =
+          await _dio.get('/products/network-purchases', queryParameters: {
         'limit': limit,
       });
       return (response.data as List)
-          .map((item) => NetworkPurchaseModel.fromJson(item as Map<String, dynamic>))
+          .map((item) =>
+              NetworkPurchaseModel.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e) {
       // Return empty list if endpoint not implemented yet
@@ -533,7 +541,8 @@ class ApiService {
         'url': url,
         'thumbnail': thumbnail,
         if (duration != null) 'duration': duration,
-        if (productIds != null && productIds.isNotEmpty) 'product_ids': productIds,
+        if (productIds != null && productIds.isNotEmpty)
+          'product_ids': productIds,
       });
       return response.data as Map<String, dynamic>;
     } catch (e) {
@@ -572,7 +581,8 @@ class ApiService {
         'url': url,
         'thumbnail': thumbnail,
         if (caption != null && caption.isNotEmpty) 'caption': caption,
-        if (productIds != null && productIds.isNotEmpty) 'product_ids': productIds,
+        if (productIds != null && productIds.isNotEmpty)
+          'product_ids': productIds,
       });
       return response.data as Map<String, dynamic>;
     } catch (e) {
@@ -638,6 +648,43 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> checkoutCart({
+    required String shippingAddressLine1,
+    required String shippingCity,
+    required String shippingState,
+    required String shippingPostalCode,
+    required String shippingCountry,
+    String shippingAddressLine2 = '',
+    String phoneNumber = '',
+  }) async {
+    try {
+      final response = await _dio.post('/cart/checkout', data: {
+        'shipping_address_line1': shippingAddressLine1,
+        'shipping_address_line2': shippingAddressLine2,
+        'shipping_city': shippingCity,
+        'shipping_state': shippingState,
+        'shipping_postal_code': shippingPostalCode,
+        'shipping_country': shippingCountry,
+        'phone_number': phoneNumber,
+      });
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<ProductModel>> getUserPurchases(String userId) async {
+    try {
+      final response = await _dio.get('/users/$userId/purchases');
+      return (response.data as List? ?? [])
+          .map((item) => ProductModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching user purchases: $e');
+      return [];
+    }
+  }
+
   // Search API
   Future<Map<String, dynamic>> search(String query) async {
     try {
@@ -669,8 +716,7 @@ class ApiService {
     try {
       final response = await _dio.get('/users/$userId/followers');
       return (response.data as List? ?? [])
-          .map((item) =>
-              SocialUserModel.fromJson(item as Map<String, dynamic>))
+          .map((item) => SocialUserModel.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e) {
       rethrow;
@@ -681,8 +727,7 @@ class ApiService {
     try {
       final response = await _dio.get('/users/$userId/following');
       return (response.data as List? ?? [])
-          .map((item) =>
-              SocialUserModel.fromJson(item as Map<String, dynamic>))
+          .map((item) => SocialUserModel.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e) {
       rethrow;
@@ -719,7 +764,8 @@ class ApiService {
     String conversationId,
   ) async {
     try {
-      final response = await _dio.get('/messages/conversations/$conversationId');
+      final response =
+          await _dio.get('/messages/conversations/$conversationId');
       return ConversationThreadModel.fromJson(
         response.data as Map<String, dynamic>,
       );
@@ -816,8 +862,8 @@ class ApiService {
       debugPrint('[uploadImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName,
-            contentType: _getImageMediaType(fileName)),
+        'image': MultipartFile.fromBytes(bytes,
+            filename: fileName, contentType: _getImageMediaType(fileName)),
       });
 
       final response = await _dio.post(
@@ -833,7 +879,8 @@ class ApiService {
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -856,11 +903,12 @@ class ApiService {
   Future<Map<String, dynamic>> uploadProductImage(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
-      debugPrint('[uploadProductImage] fileName=${file.name}, size=${bytes.length}');
+      debugPrint(
+          '[uploadProductImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName,
-            contentType: _getImageMediaType(fileName)),
+        'image': MultipartFile.fromBytes(bytes,
+            filename: fileName, contentType: _getImageMediaType(fileName)),
       });
 
       final response = await _dio.post(
@@ -873,7 +921,8 @@ class ApiService {
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadProductImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadProductImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -881,7 +930,8 @@ class ApiService {
   Future<Map<String, dynamic>> uploadProductDocument(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
-      debugPrint('[uploadProductDocument] fileName=${file.name}, size=${bytes.length}');
+      debugPrint(
+          '[uploadProductDocument] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
         'document': MultipartFile.fromBytes(
@@ -901,20 +951,23 @@ class ApiService {
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadProductDocument] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadProductDocument] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
 
   // Upload user photo with caption (saves to user_media table)
-  Future<Map<String, dynamic>> uploadUserPhoto(XFile file, {String? caption}) async {
+  Future<Map<String, dynamic>> uploadUserPhoto(XFile file,
+      {String? caption}) async {
     try {
       final bytes = await file.readAsBytes();
-      debugPrint('[uploadUserPhoto] fileName=${file.name}, size=${bytes.length}');
+      debugPrint(
+          '[uploadUserPhoto] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName,
-            contentType: _getImageMediaType(fileName)),
+        'image': MultipartFile.fromBytes(bytes,
+            filename: fileName, contentType: _getImageMediaType(fileName)),
         if (caption != null && caption.isNotEmpty) 'caption': caption,
       });
 
@@ -928,38 +981,40 @@ class ApiService {
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {
-      debugPrint('[uploadUserPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadUserPhoto] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
 
   // Get user media for profile gallery
-  Future<List<MediaItem>> getUserMedia(String userId, {String? type, int limit = 50}) async {
+  Future<List<MediaItem>> getUserMedia(String userId,
+      {String? type, int limit = 50}) async {
     try {
       final queryParams = <String, dynamic>{
         'limit': limit.toString(),
         if (type != null) 'type': type,
       };
-      
+
       debugPrint('Fetching user media for user: $userId, type: $type');
-      
+
       final response = await _dio.get(
         '/users/$userId/media',
         queryParameters: queryParams,
       );
-      
+
       debugPrint('Response received: ${response.statusCode}');
-      
+
       if (response.data == null) {
         debugPrint('Response data is null');
         return [];
       }
-      
+
       if (response.data is! List) {
         debugPrint('Response data is not a List: ${response.data.runtimeType}');
         return [];
       }
-      
+
       final List<MediaItem> items = (response.data as List)
           .map((item) {
             try {
@@ -971,7 +1026,7 @@ class ApiService {
           })
           .whereType<MediaItem>() // Filter out null values
           .toList();
-      
+
       debugPrint('Parsed ${items.length} media items');
       return items;
     } catch (e) {
@@ -998,7 +1053,8 @@ class ApiService {
   }
 
   // Review APIs
-  Future<List<ReviewModel>> getProductReviews(String productId, {int limit = 50}) async {
+  Future<List<ReviewModel>> getProductReviews(String productId,
+      {int limit = 50}) async {
     try {
       final response = await _dio.get(
         '/products/$productId/reviews',
@@ -1024,8 +1080,10 @@ class ApiService {
       final response = await _dio.post('/reviews', data: {
         'product_id': productId,
         'rating': rating,
-        if (reviewTitle != null && reviewTitle.isNotEmpty) 'review_title': reviewTitle,
-        if (reviewText != null && reviewText.isNotEmpty) 'review_text': reviewText,
+        if (reviewTitle != null && reviewTitle.isNotEmpty)
+          'review_title': reviewTitle,
+        if (reviewText != null && reviewText.isNotEmpty)
+          'review_text': reviewText,
         'is_private': isPrivate,
         if (imageUrls != null && imageUrls.isNotEmpty) 'images': imageUrls,
       });
@@ -1038,11 +1096,12 @@ class ApiService {
   Future<String> uploadReviewImage(XFile file) async {
     try {
       final bytes = await file.readAsBytes();
-      debugPrint('[uploadReviewImage] fileName=${file.name}, size=${bytes.length}');
+      debugPrint(
+          '[uploadReviewImage] fileName=${file.name}, size=${bytes.length}');
       final fileName = file.name;
       final formData = FormData.fromMap({
-        'image': MultipartFile.fromBytes(bytes, filename: fileName,
-            contentType: _getImageMediaType(fileName)),
+        'image': MultipartFile.fromBytes(bytes,
+            filename: fileName, contentType: _getImageMediaType(fileName)),
       });
 
       final response = await _dio.post(
@@ -1055,7 +1114,8 @@ class ApiService {
       );
       return response.data['url'] as String;
     } on DioException catch (e) {
-      debugPrint('[uploadReviewImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
+      debugPrint(
+          '[uploadReviewImage] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
   }
@@ -1076,7 +1136,8 @@ class ApiService {
     }
   }
 
-  Future<ReviewModel> updateReviewPrivacy(String reviewId, bool isPrivate) async {
+  Future<ReviewModel> updateReviewPrivacy(
+      String reviewId, bool isPrivate) async {
     try {
       final response = await _dio.patch('/reviews/$reviewId/privacy', data: {
         'is_private': isPrivate,

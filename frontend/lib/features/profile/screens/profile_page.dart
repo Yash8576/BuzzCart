@@ -15,7 +15,7 @@ import '../../../core/utils/url_helper.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? userId;
-  
+
   const ProfilePage({super.key, this.userId});
 
   @override
@@ -43,7 +43,8 @@ class _ProfilePageState extends State<ProfilePage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this); // Changed from 3 to 4
+    _tabController =
+        TabController(length: 4, vsync: this); // Changed from 3 to 4
     _fetchUserContent();
   }
 
@@ -56,20 +57,21 @@ class _ProfilePageState extends State<ProfilePage>
   Future<void> _fetchUserContent() async {
     debugPrint('Fetching user content...');
     setState(() => _loading = true);
-    
+
     final currentUser = context.read<AuthProvider>().user;
     if (currentUser == null) {
       debugPrint('No user found');
       setState(() => _loading = false);
       return;
     }
-    
+
     // Determine which user profile to fetch
     final targetUserId = widget.userId ?? currentUser.id;
     final isOwnProfile = targetUserId == currentUser.id;
-    
-    debugPrint('Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
-    
+
+    debugPrint(
+        'Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
+
     // If viewing another user's profile, fetch their user info
     if (!isOwnProfile && widget.userId != null) {
       try {
@@ -93,11 +95,21 @@ class _ProfilePageState extends State<ProfilePage>
       _profileUser = profileJson;
     }
 
-    final canViewPhotos = isOwnProfile || _isBucketVisible('photos', isOwnProfile: false);
-    final canViewVideos = isOwnProfile || _isBucketVisible('videos', isOwnProfile: false);
-    final canViewReels = isOwnProfile || _isBucketVisible('reels', isOwnProfile: false);
-    final canViewPurchases = isOwnProfile || _isBucketVisible('purchases', isOwnProfile: false);
-    
+    final isSellerProfile = isOwnProfile
+        ? currentUser.isSeller
+        : (_profileUser?['account_type']?.toString().toLowerCase() ==
+                'seller' ||
+            _profileUser?['role']?.toString().toLowerCase() == 'seller');
+
+    final canViewPhotos =
+        isOwnProfile || _isBucketVisible('photos', isOwnProfile: false);
+    final canViewVideos =
+        isOwnProfile || _isBucketVisible('videos', isOwnProfile: false);
+    final canViewReels =
+        isOwnProfile || _isBucketVisible('reels', isOwnProfile: false);
+    final canViewPurchases =
+        isOwnProfile || _isBucketVisible('purchases', isOwnProfile: false);
+
     // Fetch each type independently to prevent one failure from blocking others
     final photos = canViewPhotos
         ? await _api.getUserMedia(targetUserId, type: 'photo').catchError((e) {
@@ -105,30 +117,36 @@ class _ProfilePageState extends State<ProfilePage>
             return <MediaItem>[];
           })
         : <MediaItem>[];
-    
+
     final videos = canViewVideos
         ? await _api.getUserMedia(targetUserId, type: 'video').catchError((e) {
             debugPrint('Error fetching videos: $e');
             return <MediaItem>[];
           })
         : <MediaItem>[];
-    
+
     final reels = canViewReels
         ? await _api.getUserMedia(targetUserId, type: 'reel').catchError((e) {
             debugPrint('Error fetching reels: $e');
             return <MediaItem>[];
           })
         : <MediaItem>[];
-    
+
     final products = canViewPurchases
-        ? await _api.getSellerProducts(targetUserId).catchError((e) {
-            debugPrint('Error fetching products: $e');
-            return <ProductModel>[];
-          })
+        ? (!isSellerProfile)
+            ? await _api.getUserPurchases(targetUserId).catchError((e) {
+                debugPrint('Error fetching user purchases: $e');
+                return <ProductModel>[];
+              })
+            : await _api.getSellerProducts(targetUserId).catchError((e) {
+                debugPrint('Error fetching products: $e');
+                return <ProductModel>[];
+              })
         : <ProductModel>[];
-    
-    debugPrint('Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
-    
+
+    debugPrint(
+        'Fetch complete - Photos: ${photos.length}, Videos: ${videos.length}, Reels: ${reels.length}, Products: ${products.length}');
+
     setState(() {
       _photos = photos;
       _videos = videos;
@@ -136,7 +154,7 @@ class _ProfilePageState extends State<ProfilePage>
       _products = products;
       _loading = false;
     });
-    
+
     debugPrint('State updated - Photos count: ${_photos.length}');
   }
 
@@ -144,7 +162,9 @@ class _ProfilePageState extends State<ProfilePage>
     final authProvider = context.read<AuthProvider>();
     final currentUser = context.read<AuthProvider>().user;
     final targetUserId = widget.userId;
-    if (currentUser == null || targetUserId == null || _isRelationshipUpdating) {
+    if (currentUser == null ||
+        targetUserId == null ||
+        _isRelationshipUpdating) {
       return;
     }
 
@@ -328,7 +348,8 @@ class _ProfilePageState extends State<ProfilePage>
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Delete $itemLabel?'),
-        content: Text('This will permanently remove this $itemLabel from your published content.'),
+        content: Text(
+            'This will permanently remove this $itemLabel from your published content.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -470,8 +491,10 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildProductOwnerSummary() {
-    final totalViews = _products.fold<int>(0, (sum, product) => sum + product.views);
-    final totalBuys = _products.fold<int>(0, (sum, product) => sum + product.buys);
+    final totalViews =
+        _products.fold<int>(0, (sum, product) => sum + product.views);
+    final totalBuys =
+        _products.fold<int>(0, (sum, product) => sum + product.buys);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -505,7 +528,10 @@ class _ProfilePageState extends State<ProfilePage>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -518,7 +544,8 @@ class _ProfilePageState extends State<ProfilePage>
               children: [
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -637,7 +664,8 @@ class _ProfilePageState extends State<ProfilePage>
   Future<void> _showAvatarEditOptions() async {
     final authProvider = context.read<AuthProvider>();
     final currentUser = authProvider.user;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser?.id;
     if (!isOwnProfile || currentUser == null || _isAvatarUpdating) {
       return;
     }
@@ -660,7 +688,10 @@ class _ProfilePageState extends State<ProfilePage>
               children: [
                 CircleAvatar(
                   radius: 24,
-                  backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.14),
                   child: Icon(
                     Icons.edit,
                     color: Theme.of(context).colorScheme.primary,
@@ -766,7 +797,8 @@ class _ProfilePageState extends State<ProfilePage>
       } else {
         if (mounted) {
           messenger.showSnackBar(
-            const SnackBar(content: Text('Unable to open selected cloud photo')),
+            const SnackBar(
+                content: Text('Unable to open selected cloud photo')),
           );
         }
         return;
@@ -915,7 +947,8 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<String> _ensureLocalImagePath(XFile file) async {
     final originalPath = file.path;
-    if (originalPath.isNotEmpty && (kIsWeb || File(originalPath).existsSync())) {
+    if (originalPath.isNotEmpty &&
+        (kIsWeb || File(originalPath).existsSync())) {
       return originalPath;
     }
 
@@ -926,7 +959,8 @@ class _ProfilePageState extends State<ProfilePage>
     final bytes = await file.readAsBytes();
     final tempDir = Directory.systemTemp;
     final extension = _safeImageExtension(file.name);
-    final tempPath = '${tempDir.path}${Platform.pathSeparator}avatar_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final tempPath =
+        '${tempDir.path}${Platform.pathSeparator}avatar_${DateTime.now().microsecondsSinceEpoch}.$extension';
     final tempFile = File(tempPath);
     await tempFile.writeAsBytes(bytes, flush: true);
     return tempFile.path;
@@ -959,7 +993,8 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   String _profileVisibilityMode() {
-    return (_profileUser?['visibility_mode']?.toString() ?? 'public').toLowerCase();
+    return (_profileUser?['visibility_mode']?.toString() ?? 'public')
+        .toLowerCase();
   }
 
   bool _isBucketVisible(String bucket, {required bool isOwnProfile}) {
@@ -982,7 +1017,10 @@ class _ProfilePageState extends State<ProfilePage>
           const SizedBox(height: 16),
           Text(
             title,
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[700]),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700]),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1010,21 +1048,26 @@ class _ProfilePageState extends State<ProfilePage>
 
     // Use profile user if viewing someone else's profile, otherwise use logged-in user
     final displayUser = _profileUser;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser.id;
     final isSellerProfile = isOwnProfile
         ? currentUser.isSeller
         : (displayUser?['account_type']?.toString().toLowerCase() == 'seller' ||
             displayUser?['role']?.toString().toLowerCase() == 'seller');
     final productsTabLabel = isSellerProfile ? 'Products' : 'Purchases';
-    final avatarRaw = (isOwnProfile ? currentUser.avatar : displayUser?['avatar'])?.toString();
-    final avatarUrl = avatarRaw != null && avatarRaw.trim().isNotEmpty ? avatarRaw : null;
-    final avatarBaseUrl = avatarUrl == null ? null : UrlHelper.getPlatformUrl(avatarUrl);
+    final avatarRaw =
+        (isOwnProfile ? currentUser.avatar : displayUser?['avatar'])
+            ?.toString();
+    final avatarUrl =
+        avatarRaw != null && avatarRaw.trim().isNotEmpty ? avatarRaw : null;
+    final avatarBaseUrl =
+        avatarUrl == null ? null : UrlHelper.getPlatformUrl(avatarUrl);
     final avatarDisplayUrl = avatarBaseUrl == null
         ? null
         : '$avatarBaseUrl${avatarBaseUrl.contains('?') ? '&' : '?'}v=$_avatarVersion';
     final providerPreviewPath = authProvider.pendingAvatarPreviewPath;
-    final hasLocalPreview =
-        _localAvatarPreviewPath != null && _previewPathExists(_localAvatarPreviewPath);
+    final hasLocalPreview = _localAvatarPreviewPath != null &&
+        _previewPathExists(_localAvatarPreviewPath);
     final hasProviderPreview =
         providerPreviewPath != null && _previewPathExists(providerPreviewPath);
     ImageProvider? avatarImageProvider;
@@ -1041,7 +1084,7 @@ class _ProfilePageState extends State<ProfilePage>
     final postsCount = _photos.length + _videos.length + _reels.length;
     final isFollowing = displayUser?['is_following'] == true;
     final isConnection = displayUser?['is_connection'] == true;
-    
+
     // If loading and no profile user data yet
     if (_loading && displayUser == null && !isOwnProfile) {
       return Scaffold(
@@ -1079,7 +1122,8 @@ class _ProfilePageState extends State<ProfilePage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       GestureDetector(
-                        onLongPress: isOwnProfile ? _showAvatarEditOptions : null,
+                        onLongPress:
+                            isOwnProfile ? _showAvatarEditOptions : null,
                         child: SizedBox(
                           width: 84,
                           height: 84,
@@ -1090,7 +1134,8 @@ class _ProfilePageState extends State<ProfilePage>
                                 height: 84,
                                 padding: const EdgeInsets.all(4),
                                 decoration: BoxDecoration(
-                                  color: Theme.of(context).scaffoldBackgroundColor,
+                                  color:
+                                      Theme.of(context).scaffoldBackgroundColor,
                                   shape: BoxShape.circle,
                                 ),
                                 child: ClipOval(
@@ -1135,14 +1180,16 @@ class _ProfilePageState extends State<ProfilePage>
                                 Positioned.fill(
                                   child: Container(
                                     decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.35),
+                                      color:
+                                          Colors.black.withValues(alpha: 0.35),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Center(
                                       child: SizedBox(
                                         width: 20,
                                         height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
                                       ),
                                     ),
                                   ),
@@ -1184,7 +1231,9 @@ class _ProfilePageState extends State<ProfilePage>
                                         label: 'Followers',
                                         count: isOwnProfile
                                             ? currentUser.followersCount
-                                            : (displayUser?['followers_count'] ?? 0),
+                                            : (displayUser?[
+                                                    'followers_count'] ??
+                                                0),
                                         onTap: () => _showSocialUsers(
                                           title: 'Followers',
                                           followers: true,
@@ -1196,7 +1245,9 @@ class _ProfilePageState extends State<ProfilePage>
                                         label: 'Following',
                                         count: isOwnProfile
                                             ? currentUser.followingCount
-                                            : (displayUser?['following_count'] ?? 0),
+                                            : (displayUser?[
+                                                    'following_count'] ??
+                                                0),
                                         onTap: () => _showSocialUsers(
                                           title: 'Following',
                                           followers: false,
@@ -1245,8 +1296,9 @@ class _ProfilePageState extends State<ProfilePage>
                       ] else ...[
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed:
-                                _isRelationshipUpdating ? null : _handleFollowAction,
+                            onPressed: _isRelationshipUpdating
+                                ? null
+                                : _handleFollowAction,
                             icon: _isRelationshipUpdating
                                 ? const SizedBox(
                                     width: 16,
@@ -1354,19 +1406,23 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   bool _hasLocalPreviewBytes() {
-    return _localAvatarPreviewBytes != null && _localAvatarPreviewBytes!.isNotEmpty;
+    return _localAvatarPreviewBytes != null &&
+        _localAvatarPreviewBytes!.isNotEmpty;
   }
 
   Widget _buildPhotosGrid() {
-    debugPrint('Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
-    
+    debugPrint(
+        'Building photos grid - Loading: $_loading, Photos: ${_photos.length}');
+
     final currentUser = context.read<AuthProvider>().user;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
-    final bucketVisible = _isBucketVisible('photos', isOwnProfile: isOwnProfile);
-    
+    final bucketVisible =
+        _isBucketVisible('photos', isOwnProfile: isOwnProfile);
+
     if (_loading) return const Center(child: CircularProgressIndicator());
-    
+
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _photos.isEmpty) {
       return _buildHiddenSectionMessage(
@@ -1381,13 +1437,14 @@ class _ProfilePageState extends State<ProfilePage>
         'This user chose to hide their photos',
       );
     }
-    
+
     if (_photos.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.photo_library_outlined, size: 64, color: Colors.grey),
+            const Icon(Icons.photo_library_outlined,
+                size: 64, color: Colors.grey),
             const SizedBox(height: 16),
             const Text('No photos yet'),
             if (isOwnProfile) ...[
@@ -1419,38 +1476,41 @@ class _ProfilePageState extends State<ProfilePage>
           onTap: _isDeleting(deletingKey)
               ? null
               : () {
-            // Show full screen photo
-            showDialog(
-              context: context,
-              builder: (context) => Dialog(
-                backgroundColor: Colors.transparent,
-                child: Stack(
-                  children: [
-                    Center(
-                      child: Image.network(
-                        UrlHelper.getPlatformUrl(photo.mediaUrl),
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          debugPrint('Error loading fullscreen image: $error');
-                          return const Center(
-                            child: Icon(Icons.broken_image, size: 64, color: Colors.white),
-                          );
-                        },
+                  // Show full screen photo
+                  showDialog(
+                    context: context,
+                    builder: (context) => Dialog(
+                      backgroundColor: Colors.transparent,
+                      child: Stack(
+                        children: [
+                          Center(
+                            child: Image.network(
+                              UrlHelper.getPlatformUrl(photo.mediaUrl),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                debugPrint(
+                                    'Error loading fullscreen image: $error');
+                                return const Center(
+                                  child: Icon(Icons.broken_image,
+                                      size: 64, color: Colors.white),
+                                );
+                              },
+                            ),
+                          ),
+                          Positioned(
+                            top: 40,
+                            right: 20,
+                            child: IconButton(
+                              icon: const Icon(Icons.close,
+                                  color: Colors.white, size: 30),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    Positioned(
-                      top: 40,
-                      right: 20,
-                      child: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white, size: 30),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+                  );
+                },
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -1466,9 +1526,12 @@ class _ProfilePageState extends State<ProfilePage>
                       child: const Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                          Icon(Icons.broken_image,
+                              color: Colors.grey, size: 32),
                           SizedBox(height: 4),
-                          Text('Error', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                          Text('Error',
+                              style:
+                                  TextStyle(fontSize: 10, color: Colors.grey)),
                         ],
                       ),
                     );
@@ -1501,12 +1564,14 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildVideosGrid() {
     final currentUser = context.read<AuthProvider>().user;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
-    final bucketVisible = _isBucketVisible('videos', isOwnProfile: isOwnProfile);
-    
+    final bucketVisible =
+        _isBucketVisible('videos', isOwnProfile: isOwnProfile);
+
     if (_loading) return const Center(child: CircularProgressIndicator());
-    
+
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _videos.isEmpty) {
       return _buildHiddenSectionMessage(
@@ -1521,7 +1586,7 @@ class _ProfilePageState extends State<ProfilePage>
         'This user chose to hide their videos',
       );
     }
-    
+
     if (_videos.isEmpty) {
       return const Center(child: Text('No videos yet'));
     }
@@ -1538,14 +1603,17 @@ class _ProfilePageState extends State<ProfilePage>
         final video = _videos[index];
         final deletingKey = 'media:${video.id}';
         return InkWell(
-          onTap: _isDeleting(deletingKey) ? null : () => context.go('/videos/${video.id}'),
+          onTap: _isDeleting(deletingKey)
+              ? null
+              : () => context.go('/videos/${video.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [
               Opacity(
                 opacity: _isDeleting(deletingKey) ? 0.45 : 1,
                 child: Image.network(
-                  UrlHelper.getPlatformUrl(video.thumbnailUrl ?? video.mediaUrl),
+                  UrlHelper.getPlatformUrl(
+                      video.thumbnailUrl ?? video.mediaUrl),
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
@@ -1556,8 +1624,8 @@ class _ProfilePageState extends State<ProfilePage>
                 ),
               ),
               const Center(
-                child: Icon(Icons.play_circle_fill,
-                    color: Colors.white, size: 48),
+                child:
+                    Icon(Icons.play_circle_fill, color: Colors.white, size: 48),
               ),
               if (isOwnProfile)
                 _buildDeleteOverlay(
@@ -1573,12 +1641,13 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildReelsGrid() {
     final currentUser = context.read<AuthProvider>().user;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
     final bucketVisible = _isBucketVisible('reels', isOwnProfile: isOwnProfile);
-    
+
     if (_loading) return const Center(child: CircularProgressIndicator());
-    
+
     // Show private account message if not own profile and account is private and no content
     if (!isOwnProfile && isPrivate && _reels.isEmpty) {
       return _buildHiddenSectionMessage(
@@ -1593,7 +1662,7 @@ class _ProfilePageState extends State<ProfilePage>
         'This user chose to hide their reels',
       );
     }
-    
+
     if (_reels.isEmpty) {
       return const Center(child: Text('No reels yet'));
     }
@@ -1628,8 +1697,8 @@ class _ProfilePageState extends State<ProfilePage>
                 ),
               ),
               const Center(
-                child: Icon(Icons.play_circle_fill,
-                    color: Colors.white, size: 36),
+                child:
+                    Icon(Icons.play_circle_fill, color: Colors.white, size: 36),
               ),
               if (isOwnProfile)
                 _buildDeleteOverlay(
@@ -1645,9 +1714,11 @@ class _ProfilePageState extends State<ProfilePage>
 
   Widget _buildProductsGrid() {
     final currentUser = context.read<AuthProvider>().user;
-    final isOwnProfile = widget.userId == null || widget.userId == currentUser?.id;
+    final isOwnProfile =
+        widget.userId == null || widget.userId == currentUser?.id;
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
-    final bucketVisible = _isBucketVisible('purchases', isOwnProfile: isOwnProfile);
+    final bucketVisible =
+        _isBucketVisible('purchases', isOwnProfile: isOwnProfile);
 
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (!isOwnProfile && isPrivate && _products.isEmpty) {
@@ -1668,7 +1739,8 @@ class _ProfilePageState extends State<ProfilePage>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.inventory_2_outlined, size: 56, color: Colors.grey),
+              const Icon(Icons.inventory_2_outlined,
+                  size: 56, color: Colors.grey),
               const SizedBox(height: 12),
               const Text('Your warehouse is empty'),
               const SizedBox(height: 12),
@@ -1691,12 +1763,17 @@ class _ProfilePageState extends State<ProfilePage>
         final product = _products[index];
         final deletingKey = 'product:${product.id}';
         return InkWell(
-          onTap: _isDeleting(deletingKey) ? null : () => context.go('/shop/${product.id}'),
+          onTap: _isDeleting(deletingKey)
+              ? null
+              : () => context.go('/shop/${product.id}'),
           borderRadius: BorderRadius.circular(18),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.24),
+              color: Theme.of(context)
+                  .colorScheme
+                  .surfaceContainerHighest
+                  .withValues(alpha: 0.24),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Row(
@@ -1709,7 +1786,9 @@ class _ProfilePageState extends State<ProfilePage>
                       child: Opacity(
                         opacity: _isDeleting(deletingKey) ? 0.45 : 1,
                         child: Image.network(
-                          UrlHelper.getPlatformUrl(product.images.isNotEmpty ? product.images[0] : ''),
+                          UrlHelper.getPlatformUrl(product.images.isNotEmpty
+                              ? product.images[0]
+                              : ''),
                           fit: BoxFit.cover,
                           width: 92,
                           height: 92,
@@ -1771,8 +1850,10 @@ class _ProfilePageState extends State<ProfilePage>
                               _formatProductRating(product),
                               style: TextStyle(
                                 fontSize: 12,
-                                color:
-                                    Theme.of(context).textTheme.bodySmall?.color,
+                                color: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.color,
                               ),
                             ),
                           ),
@@ -1917,7 +1998,8 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => tabBar.preferredSize.height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
       color: Theme.of(context).scaffoldBackgroundColor,
       child: tabBar,

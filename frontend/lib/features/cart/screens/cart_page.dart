@@ -121,9 +121,10 @@ class CartPage extends StatelessWidget {
                     ),
                     Text(
                       '\$${cart.total.toStringAsFixed(2)}',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                      style:
+                          Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                     ),
                   ],
                 ),
@@ -132,14 +133,7 @@ class CartPage extends StatelessWidget {
                   width: double.infinity,
                   height: 48,
                   child: ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Proceeding to checkout!'),
-                          backgroundColor: AppColors.successGreen,
-                        ),
-                      );
-                    },
+                    onPressed: () => context.go('/checkout'),
                     icon: const Icon(Icons.credit_card),
                     label: Text(
                       'Proceed to Checkout - \$${cart.total.toStringAsFixed(2)}',
@@ -182,7 +176,8 @@ class _CartItemCard extends StatelessWidget {
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: CachedNetworkImage(
-                        imageUrl: UrlHelper.getPlatformUrl(item.product.images[0]),
+                        imageUrl:
+                            UrlHelper.getPlatformUrl(item.product.images[0]),
                         fit: BoxFit.cover,
                         errorWidget: (context, url, error) =>
                             const Icon(Icons.shopping_bag),
