@@ -166,17 +166,6 @@ class _ProductCard extends StatelessWidget {
                       color: AppColors.electricBlue,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.visibility, size: 14, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${product['views'] ?? 0} views',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -256,7 +245,8 @@ class _VideoCard extends StatelessWidget {
                     bottom: 12,
                     left: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.black54,
                         borderRadius: BorderRadius.circular(20),
@@ -264,11 +254,13 @@ class _VideoCard extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.shopping_bag, size: 14, color: Colors.white),
+                          const Icon(Icons.shopping_bag,
+                              size: 14, color: Colors.white),
                           const SizedBox(width: 4),
                           Text(
                             '${video['products'].length} Products',
-                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 12),
                           ),
                         ],
                       ),
@@ -293,18 +285,21 @@ class _VideoCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(Icons.visibility, size: 14, color: Colors.grey),
+                      const Icon(Icons.visibility,
+                          size: 14, color: Colors.grey),
                       const SizedBox(width: 4),
                       Text(
                         '${video['views'] ?? 0} views',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                       const SizedBox(width: 16),
                       const Icon(Icons.favorite, size: 14, color: Colors.grey),
                       const SizedBox(width: 4),
                       Text(
                         '${video['likes'] ?? 0} likes',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style:
+                            const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
                   ),

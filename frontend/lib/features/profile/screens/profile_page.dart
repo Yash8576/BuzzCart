@@ -464,6 +464,47 @@ class _ProfilePageState extends State<ProfilePage>
     return '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})';
   }
 
+  String _formatPurchaseRelativeTime(String value) {
+    DateTime purchasedAt;
+    try {
+      purchasedAt = DateTime.parse(value).toLocal();
+    } catch (_) {
+      return 'just now';
+    }
+
+    final now = DateTime.now();
+    final difference = now.difference(purchasedAt);
+
+    if (difference.inSeconds < 60) {
+      final seconds = difference.inSeconds <= 0 ? 1 : difference.inSeconds;
+      return '$seconds ${seconds == 1 ? 'second' : 'seconds'} ago';
+    }
+    if (difference.inMinutes < 60) {
+      final minutes = difference.inMinutes;
+      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+    }
+    if (difference.inHours < 24) {
+      final hours = difference.inHours;
+      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+    }
+    if (difference.inDays < 30) {
+      final days = difference.inDays;
+      return '$days ${days == 1 ? 'day' : 'days'} ago';
+    }
+    if (difference.inDays < 365) {
+      final months = difference.inDays ~/ 30;
+      return '$months ${months == 1 ? 'month' : 'months'} ago';
+    }
+
+    final years = difference.inDays ~/ 365;
+    return '$years ${years == 1 ? 'year' : 'years'} ago';
+  }
+
+  String _formatPurchaseTimeline(ProductModel product) {
+    final count = product.buys < 0 ? 0 : product.buys;
+    return 'Bought $count ${count == 1 ? 'time' : 'times'} ${_formatPurchaseRelativeTime(product.createdAt)}';
+  }
+
   Widget _buildProductMetricChip({
     required IconData icon,
     required String label,
@@ -491,8 +532,6 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Widget _buildProductOwnerSummary() {
-    final totalViews =
-        _products.fold<int>(0, (sum, product) => sum + product.views);
     final totalBuys =
         _products.fold<int>(0, (sum, product) => sum + product.buys);
 
@@ -502,15 +541,7 @@ class _ProfilePageState extends State<ProfilePage>
         children: [
           Expanded(
             child: _buildOwnerMetricCard(
-              label: 'Total Views',
-              value: '$totalViews',
-              icon: Icons.visibility_outlined,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildOwnerMetricCard(
-              label: 'Total Buys',
+              label: 'Total Purchases',
               value: '$totalBuys',
               icon: Icons.shopping_bag_outlined,
             ),
@@ -1716,6 +1747,11 @@ class _ProfilePageState extends State<ProfilePage>
     final currentUser = context.read<AuthProvider>().user;
     final isOwnProfile =
         widget.userId == null || widget.userId == currentUser?.id;
+    final displayUser = _profileUser;
+    final isSellerProfile = isOwnProfile
+        ? (currentUser?.isSeller ?? false)
+        : (displayUser?['account_type']?.toString().toLowerCase() == 'seller' ||
+            displayUser?['role']?.toString().toLowerCase() == 'seller');
     final isPrivate = _profileUser?['privacy_profile'] == 'private';
     final bucketVisible =
         _isBucketVisible('purchases', isOwnProfile: isOwnProfile);
@@ -1860,20 +1896,26 @@ class _ProfilePageState extends State<ProfilePage>
                         ],
                       ),
                       const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildProductMetricChip(
-                            icon: Icons.visibility_outlined,
-                            label: '${product.views} views',
+                      if (isSellerProfile)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _buildProductMetricChip(
+                              icon: Icons.shopping_bag_outlined,
+                              label:
+                                  '${product.buys} ${product.buys == 1 ? 'purchase' : 'purchases'}',
+                            ),
+                          ],
+                        )
+                      else
+                        Text(
+                          _formatPurchaseTimeline(product),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
                           ),
-                          _buildProductMetricChip(
-                            icon: Icons.shopping_bag_outlined,
-                            label: '${product.buys} buys',
-                          ),
-                        ],
-                      ),
+                        ),
                     ],
                   ),
                 ),
