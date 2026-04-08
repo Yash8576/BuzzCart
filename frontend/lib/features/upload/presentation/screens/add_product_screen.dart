@@ -51,6 +51,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final List<TextEditingController> _bulletPointControllers = [];
 
   final List<_QueuedProductMedia> _mediaQueue = [];
+  int _mediaQueueSequence = 0;
   XFile? _specificationPdf;
 
   String _brandOrigin = 'own';
@@ -136,7 +137,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       for (final file in files) {
         _mediaQueue.add(
           _QueuedProductMedia(
-            id: DateTime.now().microsecondsSinceEpoch.toString(),
+            id: 'media-${_mediaQueueSequence++}',
             file: file,
             kind: kind,
           ),
@@ -1206,40 +1207,37 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   ],
                   if (_mediaQueue.isNotEmpty) ...[
                     const SizedBox(height: 16),
-                    SizedBox(
-                      height: _mediaQueue.length * 88.0 > 420.0 ? 420.0 : _mediaQueue.length * 88.0,
-                      child: ReorderableListView.builder(
-                        buildDefaultDragHandles: false,
-                        physics: const NeverScrollableScrollPhysics(),
-                        shrinkWrap: true,
-                        itemCount: _mediaQueue.length,
-                        onReorder: _reorderMediaQueue,
-                        itemBuilder: (context, index) {
-                          final item = _mediaQueue[index];
-                          return Card(
-                            key: ValueKey(item.id),
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: ListTile(
-                              leading: _QueuedMediaPreview(item: item),
-                              title: Text(item.file.name),
-                              subtitle: Text(item.kind.label),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.close),
-                                    onPressed: () => _removeMediaAt(index),
-                                  ),
-                                  ReorderableDragStartListener(
-                                    index: index,
-                                    child: const Icon(Icons.drag_handle),
-                                  ),
-                                ],
-                              ),
+                    ReorderableListView.builder(
+                      buildDefaultDragHandles: false,
+                      physics: const NeverScrollableScrollPhysics(),
+                      shrinkWrap: true,
+                      itemCount: _mediaQueue.length,
+                      onReorder: _reorderMediaQueue,
+                      itemBuilder: (context, index) {
+                        final item = _mediaQueue[index];
+                        return Card(
+                          key: ValueKey(item.id),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            leading: _QueuedMediaPreview(item: item),
+                            title: Text(item.file.name),
+                            subtitle: Text(item.kind.label),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.close),
+                                  onPressed: () => _removeMediaAt(index),
+                                ),
+                                ReorderableDragStartListener(
+                                  index: index,
+                                  child: const Icon(Icons.drag_handle),
+                                ),
+                              ],
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                   if (_specificationPdf != null) ...[
