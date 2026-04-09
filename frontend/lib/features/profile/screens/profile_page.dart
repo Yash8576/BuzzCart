@@ -909,6 +909,51 @@ class _ProfilePageState extends State<ProfilePage>
         return;
       }
 
+      if (Platform.isWindows) {
+        setState(() {
+          _isAvatarUpdating = true;
+          _localAvatarPreviewPath = localImagePath;
+          _localAvatarPreviewBytes = null;
+        });
+
+        final uploadResult = await _api.uploadAvatar(
+          XFile(
+            localImagePath,
+            name: sourceImage.name.isNotEmpty
+                ? sourceImage.name
+                : 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            mimeType: 'image/jpeg',
+          ),
+        );
+        if (!mounted) {
+          return;
+        }
+
+        debugPrint('[ProfileAvatar] uploadAvatar response: $uploadResult');
+
+        final avatarUrl = uploadResult['avatar_url']?.toString();
+        if (avatarUrl == null || avatarUrl.trim().isEmpty) {
+          throw Exception('Avatar upload succeeded but no URL was returned');
+        }
+
+        authProvider.updateAvatarUrl(avatarUrl);
+        if (!mounted) {
+          return;
+        }
+        await authProvider.setPendingAvatarPreviewPath(null);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          _localAvatarPreviewBytes = null;
+          _localAvatarPreviewPath = null;
+        });
+
+        _showAvatarSnackBar('Profile photo updated successfully');
+        return;
+      }
+
       final croppedFile = await ImageCropper().cropImage(
         sourcePath: localImagePath,
         aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),

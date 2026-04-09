@@ -205,6 +205,19 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       final ratioX = aspectRatio.ratio >= 1 ? aspectRatio.ratio : 1.0;
       final ratioY = aspectRatio.ratio < 1 ? (1.0 / aspectRatio.ratio) : 1.0;
 
+      if (Platform.isWindows) {
+        if (mounted) {
+          provider.addFile(originalImage);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image added without cropping on Windows'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+        return;
+      }
+
       final croppedFile = await ImageCropper().cropImage(
         sourcePath: imagePath,
         aspectRatio: CropAspectRatio(
@@ -332,9 +345,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     }
   }
 
-  Future<void> _uploadContent() async {
-    final provider = context.read<UploadContentProvider>();
-
+  Future<void> _uploadContent(UploadContentProvider provider) async {
     if (provider.selectedFiles.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -445,7 +456,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             actions: [
               if (provider.selectedFiles.isNotEmpty && !_isUploading)
                 TextButton(
-                  onPressed: _uploadContent,
+                  onPressed: () => _uploadContent(provider),
                   child: const Text(
                     'Upload',
                     style: TextStyle(
@@ -841,7 +852,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                 // Upload button (main)
                 if (provider.selectedFiles.isNotEmpty)
                   ElevatedButton(
-                    onPressed: _isUploading ? null : _uploadContent,
+                    onPressed:
+                        _isUploading ? null : () => _uploadContent(provider),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       minimumSize: const Size.fromHeight(50),
