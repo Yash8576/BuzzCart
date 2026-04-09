@@ -321,6 +321,27 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 				o.created_at,
 				COALESCE(u.id::text, ''),
 				COALESCE(u.name, u.username, ''),
+				COALESCE((
+					SELECT ROUND(AVG(pr.rating)::NUMERIC, 1)::FLOAT8
+					FROM product_ratings pr
+					WHERE pr.product_id = oi.product_id
+						AND pr.is_private = false
+						AND pr.moderation_status = 'approved'
+				), 0),
+				COALESCE((
+					SELECT COUNT(*)
+					FROM product_ratings pr
+					WHERE pr.product_id = oi.product_id
+						AND pr.is_private = false
+						AND pr.moderation_status = 'approved'
+				), 0),
+				COALESCE((
+					SELECT pr.rating
+					FROM product_ratings pr
+					WHERE pr.product_id = oi.product_id
+						AND pr.user_id = o.user_id
+					LIMIT 1
+				), 0),
 				COALESCE(oi.metadata, '{}'::jsonb),
 				COALESCE((
 					SELECT pi.image_url
@@ -347,14 +368,17 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 		products := make([]models.Product, 0)
 		for rows.Next() {
 			var (
-				product     models.Product
-				quantity    int
-				unitPrice   float64
-				purchasedAt time.Time
-				sellerID    string
-				sellerName  string
-				itemMetaRaw []byte
-				fallbackImg string
+				product      models.Product
+				quantity     int
+				unitPrice    float64
+				purchasedAt  time.Time
+				sellerID     string
+				sellerName   string
+				globalRating float64
+				reviewsCount int
+				yourRating   int
+				itemMetaRaw  []byte
+				fallbackImg  string
 			)
 			if err := rows.Scan(
 				&product.ID,
@@ -364,6 +388,9 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 				&purchasedAt,
 				&sellerID,
 				&sellerName,
+				&globalRating,
+				&reviewsCount,
+				&yourRating,
 				&itemMetaRaw,
 				&fallbackImg,
 			); err != nil {
@@ -393,12 +420,13 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 			product.Tags = []string{}
 			product.SellerID = sellerID
 			product.SellerName = sellerName
-			product.Rating = 0
-			product.ReviewsCount = 0
+			product.Rating = globalRating
+			product.ReviewsCount = reviewsCount
 			product.Views = 0
 			product.Buys = quantity
 			product.Metadata = map[string]any{
 				"purchased_quantity": quantity,
+				"your_rating":        yourRating,
 			}
 			product.CreatedAt = purchasedAt
 			products = append(products, product)

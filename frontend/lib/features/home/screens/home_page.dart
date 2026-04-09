@@ -612,7 +612,8 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildProductTile(ProductModel product, List<CartItemModel> cartItems) {
+  Widget _buildProductTile(
+      ProductModel product, List<CartItemModel> cartItems) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final remainingStock = _remainingStockForProduct(product, cartItems);
     final canAddToCart = remainingStock > 0;
@@ -647,9 +648,8 @@ class _HomePageState extends State<HomePage> {
                       right: 10,
                       bottom: 10,
                       child: Material(
-                        color: canAddToCart
-                            ? Colors.white
-                            : Colors.grey.shade300,
+                        color:
+                            canAddToCart ? Colors.white : Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(999),
                         elevation: 2,
                         child: InkWell(
@@ -662,8 +662,7 @@ class _HomePageState extends State<HomePage> {
                             child: Icon(
                               Icons.shopping_bag_outlined,
                               size: 18,
-                              color:
-                                  canAddToCart ? Colors.black : Colors.grey,
+                              color: canAddToCart ? Colors.black : Colors.grey,
                             ),
                           ),
                         ),
@@ -722,11 +721,12 @@ class _HomePageState extends State<HomePage> {
                           ),
                           const SizedBox(width: 2),
                           Text(
-                            product.rating.toStringAsFixed(1),
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey[700],
-                                  fontWeight: FontWeight.w600,
-                                ),
+                            '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.grey[700],
+                                      fontWeight: FontWeight.w600,
+                                    ),
                           ),
                         ],
                       ),

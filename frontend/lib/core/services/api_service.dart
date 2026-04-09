@@ -1111,7 +1111,7 @@ class ApiService {
     List<String>? imageUrls,
   }) async {
     try {
-      final response = await _dio.post('/reviews', data: {
+      final response = await _dio.post('/products/$productId/reviews', data: {
         'product_id': productId,
         'rating': rating,
         if (reviewTitle != null && reviewTitle.isNotEmpty)
@@ -1120,6 +1120,30 @@ class ApiService {
           'review_text': reviewText,
         'is_private': isPrivate,
         if (imageUrls != null && imageUrls.isNotEmpty) 'images': imageUrls,
+      });
+      return ReviewModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ReviewModel> updateReview({
+    required String reviewId,
+    required String productId,
+    required int rating,
+    String? reviewTitle,
+    String? reviewText,
+    bool isPrivate = false,
+  }) async {
+    try {
+      final response = await _dio.put('/reviews/$reviewId', data: {
+        'product_id': productId,
+        'rating': rating,
+        if (reviewTitle != null && reviewTitle.isNotEmpty)
+          'review_title': reviewTitle,
+        if (reviewText != null && reviewText.isNotEmpty)
+          'review_text': reviewText,
+        'is_private': isPrivate,
       });
       return ReviewModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {

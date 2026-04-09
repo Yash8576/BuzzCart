@@ -471,11 +471,28 @@ class _ProfilePageState extends State<ProfilePage>
     return value[0].toUpperCase() + value.substring(1);
   }
 
+  double _effectiveProductRating(ProductModel product) {
+    return product.rating;
+  }
+
   String _formatProductRating(ProductModel product) {
-    if (product.reviewsCount <= 0 || product.rating <= 0) {
+    final effectiveRating = _effectiveProductRating(product);
+    if (effectiveRating <= 0 || product.reviewsCount <= 0) {
       return 'No ratings';
     }
-    return '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})';
+    return '${effectiveRating.toStringAsFixed(1)} (${product.reviewsCount})';
+  }
+
+  int? _yourProductRating(ProductModel product) {
+    final raw = product.metadata['your_rating'];
+    if (raw is num && raw > 0) {
+      return raw.toInt();
+    }
+    final parsed = int.tryParse('${raw ?? ''}');
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
   }
 
   String _formatPurchaseRelativeTime(String value) {
@@ -887,8 +904,10 @@ class _ProfilePageState extends State<ProfilePage>
     final messenger = ScaffoldMessenger.of(context);
     final primaryColor = Theme.of(context).primaryColor;
     final viewportSize = MediaQuery.sizeOf(context);
-    final webCropWidth = (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
-    final webCropHeight = (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
+    final webCropWidth =
+        (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
+    final webCropHeight =
+        (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
 
     try {
       final localImagePath = await _ensureLocalImagePath(sourceImage);
@@ -1825,13 +1844,24 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (context, index) {
         final product = _products[index];
         final deletingKey = 'product:${product.id}';
-        final canManageOwnListing = isOwnProfile && currentUser?.isSeller == true;
+        final canManageOwnListing =
+            isOwnProfile && currentUser?.isSeller == true;
+        final canManagePurchasedOrder = isOwnProfile && !isSellerProfile;
+        final yourRating = _yourProductRating(product);
         return InkWell(
           onTap: _isDeleting(deletingKey)
               ? null
-              : () {
+              : () async {
                   if (canManageOwnListing) {
                     _previewOwnProduct(product);
+                  } else if (canManagePurchasedOrder) {
+                    final updated = await context.push<bool>(
+                      '/orders/manage',
+                      extra: product,
+                    );
+                    if (updated == true && mounted) {
+                      await _fetchUserContent();
+                    }
                   } else {
                     context.go('/shop/${product.id}');
                   }
@@ -1906,11 +1936,11 @@ class _ProfilePageState extends State<ProfilePage>
                       Row(
                         children: [
                           Icon(
-                            product.reviewsCount > 0
+                            _effectiveProductRating(product) > 0
                                 ? Icons.star_rounded
                                 : Icons.star_outline_rounded,
                             size: 16,
-                            color: product.reviewsCount > 0
+                            color: _effectiveProductRating(product) > 0
                                 ? Colors.amber[700]
                                 : Colors.grey,
                           ),
@@ -1979,7 +2009,8 @@ class _ProfilePageState extends State<ProfilePage>
                           onPressed: _isDeleting(deletingKey)
                               ? null
                               : () => _previewOwnProduct(product),
-                          icon: const Icon(Icons.remove_red_eye_outlined, size: 16),
+                          icon: const Icon(Icons.remove_red_eye_outlined,
+                              size: 16),
                           label: const Text('Preview'),
                           style: OutlinedButton.styleFrom(
                             visualDensity: VisualDensity.compact,
@@ -1994,10 +2025,49 @@ class _ProfilePageState extends State<ProfilePage>
                           'Stock ${product.stockQuantity}',
                           style: TextStyle(
                             fontSize: 11,
-                            color: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.color,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (canManagePurchasedOrder)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final updated = await context.push<bool>(
+                              '/orders/manage',
+                              extra: product,
+                            );
+                            if (updated == true && mounted) {
+                              await _fetchUserContent();
+                            }
+                          },
+                          icon:
+                              const Icon(Icons.receipt_long_outlined, size: 16),
+                          label: const Text('Manage Order'),
+                          style: OutlinedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          yourRating == null
+                              ? 'Your rating: Not rated'
+                              : 'Your rating: ${yourRating.toStringAsFixed(1)}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],

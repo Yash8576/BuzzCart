@@ -89,9 +89,8 @@ class _ShopPageState extends State<ShopPage> {
       final currentUserId = context.read<AuthProvider>().user?.id;
       final data = await _api.getProducts();
       setState(() {
-        _allProducts = data
-            .where((product) => product.sellerId != currentUserId)
-            .toList();
+        _allProducts =
+            data.where((product) => product.sellerId != currentUserId).toList();
         _applyCategoryFilter();
         _loading = false;
       });
@@ -139,7 +138,8 @@ class _ShopPageState extends State<ShopPage> {
     return remaining > 0 ? remaining : 0;
   }
 
-  Future<void> _handleAddToCart(ProductModel product, int remainingStock) async {
+  Future<void> _handleAddToCart(
+      ProductModel product, int remainingStock) async {
     final quantityToAdd = math.min(_quantity, remainingStock);
     if (quantityToAdd < 1) {
       if (mounted) {
@@ -150,9 +150,7 @@ class _ShopPageState extends State<ShopPage> {
       return;
     }
 
-    final added = await context
-        .read<CartProvider>()
-        .addToCart(
+    final added = await context.read<CartProvider>().addToCart(
           widget.productId!,
           quantity: quantityToAdd,
           maxQuantity: remainingStock,
@@ -164,7 +162,9 @@ class _ShopPageState extends State<ShopPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          added ? 'Added $quantityToAdd item(s) to cart!' : 'Failed to add to cart',
+          added
+              ? 'Added $quantityToAdd item(s) to cart!'
+              : 'Failed to add to cart',
         ),
       ),
     );
@@ -183,7 +183,8 @@ class _ShopPageState extends State<ShopPage> {
   Widget _buildQuantitySelector(ProductModel product, int remainingStock) {
     final selectedQuantity = _selectedQuantityFor(remainingStock);
     final canDecrease = selectedQuantity > 1;
-    final canIncrease = selectedQuantity > 0 && selectedQuantity < remainingStock;
+    final canIncrease =
+        selectedQuantity > 0 && selectedQuantity < remainingStock;
     final showMax = remainingStock == 0 || selectedQuantity >= remainingStock;
 
     Widget buildStepButton({
@@ -219,7 +220,10 @@ class _ShopPageState extends State<ShopPage> {
       height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -273,7 +277,8 @@ class _ShopPageState extends State<ShopPage> {
       return;
     }
     _products = _allProducts
-        .where((product) => product.category.toLowerCase() == _category.toLowerCase())
+        .where((product) =>
+            product.category.toLowerCase() == _category.toLowerCase())
         .toList();
   }
 
@@ -363,7 +368,8 @@ class _ShopPageState extends State<ShopPage> {
                         _detailImageMinSize,
                         _detailImageMaxSize,
                       );
-                      final activeMediaIndex = _currentImageIndex % mediaQueue.length;
+                      final activeMediaIndex =
+                          _currentImageIndex % mediaQueue.length;
 
                       return Center(
                         child: SizedBox(
@@ -376,11 +382,15 @@ class _ShopPageState extends State<ShopPage> {
                                   borderRadius: BorderRadius.circular(16),
                                   child: PageView.builder(
                                     controller: _mediaPageController,
-                                    onPageChanged: (index) => setState(() => _currentImageIndex = index),
+                                    onPageChanged: (index) => setState(
+                                        () => _currentImageIndex = index),
                                     itemBuilder: (context, index) {
-                                      final media = mediaQueue[index % mediaQueue.length];
-                                      final mediaType = (media['type'] as String?) ?? 'image';
-                                      final mediaUrl = (media['url'] as String?) ?? '';
+                                      final media =
+                                          mediaQueue[index % mediaQueue.length];
+                                      final mediaType =
+                                          (media['type'] as String?) ?? 'image';
+                                      final mediaUrl =
+                                          (media['url'] as String?) ?? '';
                                       if (mediaType == 'video') {
                                         return Container(
                                           color: Colors.black,
@@ -392,13 +402,17 @@ class _ShopPageState extends State<ShopPage> {
                                                   gradient: LinearGradient(
                                                     begin: Alignment.topLeft,
                                                     end: Alignment.bottomRight,
-                                                    colors: [Colors.black87, Colors.black54],
+                                                    colors: [
+                                                      Colors.black87,
+                                                      Colors.black54
+                                                    ],
                                                   ),
                                                 ),
                                               ),
                                               Center(
                                                 child: Column(
-                                                  mainAxisAlignment: MainAxisAlignment.center,
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
                                                   children: [
                                                     const Icon(
                                                       Icons.play_circle_fill,
@@ -407,16 +421,22 @@ class _ShopPageState extends State<ShopPage> {
                                                     ),
                                                     const SizedBox(height: 12),
                                                     Text(
-                                                      media['name'] as String? ?? 'Product video',
-                                                      textAlign: TextAlign.center,
+                                                      media['name']
+                                                              as String? ??
+                                                          'Product video',
+                                                      textAlign:
+                                                          TextAlign.center,
                                                       style: const TextStyle(
                                                         color: Colors.white,
-                                                        fontWeight: FontWeight.w600,
+                                                        fontWeight:
+                                                            FontWeight.w600,
                                                       ),
                                                       maxLines: 2,
-                                                      overflow: TextOverflow.ellipsis,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                     ),
-                                                    if (mediaUrl.isNotEmpty) ...[
+                                                    if (mediaUrl
+                                                        .isNotEmpty) ...[
                                                       const SizedBox(height: 8),
                                                       const Text(
                                                         'Swipe or use arrows to continue',
@@ -439,7 +459,8 @@ class _ShopPageState extends State<ShopPage> {
                                         fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) => Container(
                                           color: Colors.grey[300],
-                                          child: const Icon(Icons.image, size: 64),
+                                          child:
+                                              const Icon(Icons.image, size: 64),
                                         ),
                                       );
                                     },
@@ -451,11 +472,13 @@ class _ShopPageState extends State<ShopPage> {
                                     left: 0,
                                     right: 0,
                                     child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: List.generate(
                                         mediaQueue.length,
                                         (index) => Container(
-                                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                                          margin: const EdgeInsets.symmetric(
+                                              horizontal: 4),
                                           width: 8,
                                           height: 8,
                                           decoration: BoxDecoration(
@@ -476,8 +499,10 @@ class _ShopPageState extends State<ShopPage> {
                                     child: Center(
                                       child: _CarouselArrowButton(
                                         icon: Icons.chevron_left,
-                                        onPressed: () => _mediaPageController.previousPage(
-                                          duration: const Duration(milliseconds: 250),
+                                        onPressed: () =>
+                                            _mediaPageController.previousPage(
+                                          duration:
+                                              const Duration(milliseconds: 250),
                                           curve: Curves.easeOut,
                                         ),
                                       ),
@@ -491,8 +516,10 @@ class _ShopPageState extends State<ShopPage> {
                                     child: Center(
                                       child: _CarouselArrowButton(
                                         icon: Icons.chevron_right,
-                                        onPressed: () => _mediaPageController.nextPage(
-                                          duration: const Duration(milliseconds: 250),
+                                        onPressed: () =>
+                                            _mediaPageController.nextPage(
+                                          duration:
+                                              const Duration(milliseconds: 250),
                                           curve: Curves.easeOut,
                                         ),
                                       ),
@@ -512,7 +539,8 @@ class _ShopPageState extends State<ShopPage> {
                     children: [
                       Text(
                         product.title,
-                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -558,7 +586,8 @@ class _ShopPageState extends State<ShopPage> {
                         const SizedBox(height: 24),
                         const Text(
                           'Key features',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         ...product.bulletPoints.map(
@@ -578,7 +607,8 @@ class _ShopPageState extends State<ShopPage> {
                         const SizedBox(height: 24),
                         const Text(
                           'Specifications',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         ...product.highlightedSpecifications.entries.map(
@@ -591,7 +621,8 @@ class _ShopPageState extends State<ShopPage> {
                                   width: 140,
                                   child: Text(
                                     entry.key,
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600),
                                   ),
                                 ),
                                 Expanded(child: Text(entry.value)),
@@ -605,15 +636,18 @@ class _ShopPageState extends State<ShopPage> {
                         const SizedBox(height: 24),
                         const Text(
                           'Supporting Media',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 8),
                         if (product.specificationPdfUrl != null)
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+                            leading: const Icon(Icons.picture_as_pdf,
+                                color: Colors.red),
                             title: const Text('Open specification PDF'),
-                            onTap: () => _openExternalUrl(product.specificationPdfUrl!),
+                            onTap: () =>
+                                _openExternalUrl(product.specificationPdfUrl!),
                           ),
                         ...product.mediaVideos.map(
                           (videoUrl) => ListTile(
@@ -628,7 +662,8 @@ class _ShopPageState extends State<ShopPage> {
                       if (isOwnPreviewMode)
                         Container(
                           width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
                           decoration: BoxDecoration(
                             color: Theme.of(context)
                                 .colorScheme
@@ -638,7 +673,8 @@ class _ShopPageState extends State<ShopPage> {
                           ),
                           child: const Text(
                             'Preview mode: cart actions are disabled for your own listing.',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                                fontSize: 13, fontWeight: FontWeight.w600),
                           ),
                         ),
                     ],
@@ -684,9 +720,9 @@ class _ShopPageState extends State<ShopPage> {
                       ),
                     ),
                   ],
-                  ),
                 ),
               ),
+            ),
         ],
       ),
     );
@@ -732,7 +768,8 @@ class _ShopPageState extends State<ShopPage> {
                 border: OutlineInputBorder(),
               ),
               items: [
-                const DropdownMenuItem(value: '', child: Text('All Categories')),
+                const DropdownMenuItem(
+                    value: '', child: Text('All Categories')),
                 ..._availableCategories.map(
                   (category) => DropdownMenuItem(
                     value: category,
@@ -754,7 +791,8 @@ class _ShopPageState extends State<ShopPage> {
           ? const Center(child: CircularProgressIndicator())
           : LayoutBuilder(
               builder: (context, constraints) {
-                final columns = _calculateGridColumns(constraints.maxWidth - 24);
+                final columns =
+                    _calculateGridColumns(constraints.maxWidth - 24);
                 return GridView.builder(
                   padding: const EdgeInsets.all(12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -776,7 +814,9 @@ class _ShopPageState extends State<ShopPage> {
                             Expanded(
                               child: Image.network(
                                 UrlHelper.getPlatformUrl(
-                                  product.images.isNotEmpty ? product.images.first : '',
+                                  product.images.isNotEmpty
+                                      ? product.images.first
+                                      : '',
                                 ),
                                 fit: BoxFit.cover,
                                 width: double.infinity,
@@ -795,7 +835,8 @@ class _ShopPageState extends State<ShopPage> {
                                     product.title,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontWeight: FontWeight.w500),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w500),
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
@@ -828,7 +869,7 @@ class _ShopPageState extends State<ShopPage> {
                                       ),
                                       const SizedBox(width: 2),
                                       Text(
-                                        product.rating.toStringAsFixed(1),
+                                        '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: Colors.grey[700],

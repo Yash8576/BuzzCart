@@ -21,6 +21,7 @@ import '../../features/search/screens/search_page.dart';
 import '../../features/settings/screens/settings_page.dart';
 import '../../features/upload/presentation/screens/add_product_screen.dart';
 import '../../features/upload/presentation/screens/upload_content_screen.dart';
+import '../../features/orders/screens/manage_order_page.dart';
 
 // Create a router that refreshes when AuthProvider changes
 GoRouter createAppRouter(AuthProvider authProvider) {
@@ -148,6 +149,22 @@ GoRouter createAppRouter(AuthProvider authProvider) {
           GoRoute(
             path: '/settings',
             builder: (context, state) => const SettingsPage(),
+          ),
+          GoRoute(
+            path: '/orders/manage',
+            builder: (context, state) {
+              final product = state.extra is ProductModel
+                  ? state.extra as ProductModel
+                  : null;
+              if (product == null) {
+                return const Scaffold(
+                  body: Center(
+                    child: Text('No order selected'),
+                  ),
+                );
+              }
+              return ManageOrderPage(product: product);
+            },
           ),
           GoRoute(
             path: '/add-product',

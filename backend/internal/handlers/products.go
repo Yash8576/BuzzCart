@@ -40,7 +40,7 @@ const productSelectBase = `
 		p.seller_id,
 		COALESCE(u.name, u.username, ''),
 		COALESCE((
-			SELECT AVG(pr.rating)::FLOAT8
+			SELECT ROUND(AVG(pr.rating)::NUMERIC, 1)::FLOAT8
 			FROM product_ratings pr
 			WHERE pr.product_id = p.id
 				AND pr.is_private = false
@@ -935,6 +935,10 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if routeProductID := strings.TrimSpace(c.Param("product_id")); routeProductID != "" {
+			req.ProductID = routeProductID
+		}
+
 		// Check if product exists
 		var productExists bool
 		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", req.ProductID).Scan(&productExists)
@@ -971,9 +975,12 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 			userID, req.ProductID,
 		).Scan(&hasPurchased)
 		if err != nil {
-			// If there's an error checking purchase history, log it but continue
-			// The review can still be created, just won't be marked as verified
-			hasPurchased = false
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify purchase history"})
+			return
+		}
+		if !hasPurchased {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only customers who purchased this product can rate it"})
+			return
 		}
 
 		// Create review
@@ -985,8 +992,8 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 			ReviewTitle:        req.ReviewTitle,
 			ReviewText:         req.ReviewText,
 			IsPrivate:          req.IsPrivate,
-			IsVerifiedPurchase: hasPurchased,
-			ModerationStatus:   models.ModerationPending, // All new reviews start as pending
+			IsVerifiedPurchase: true,
+			ModerationStatus:   models.ModerationApproved,
 			HelpfulCount:       0,
 			CreatedAt:          time.Now(),
 			UpdatedAt:          time.Now(),
@@ -1326,10 +1333,36 @@ func UpdateReview(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		var hasPurchased bool
+		err = db.QueryRow(
+			`SELECT EXISTS(
+				SELECT 1 FROM order_items oi
+				JOIN orders o ON oi.order_id = o.id
+				WHERE o.user_id = $1
+				AND oi.product_id = $2
+				AND o.status IN ('delivered', 'completed')
+			)`,
+			userID, review.ProductID,
+		).Scan(&hasPurchased)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify purchase history"})
+			return
+		}
+		if !hasPurchased {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Only customers who purchased this product can rate it"})
+			return
+		}
+
 		// Update review
 		_, err = db.Exec(
 			`UPDATE product_ratings 
-			 SET rating = $1, review_title = $2, review_text = $3, is_private = $4, updated_at = $5
+			 SET rating = $1,
+			     review_title = $2,
+			     review_text = $3,
+			     is_private = $4,
+			     is_verified_purchase = true,
+			     moderation_status = 'approved',
+			     updated_at = $5
 			 WHERE id = $6`,
 			req.Rating, req.ReviewTitle, req.ReviewText, req.IsPrivate, time.Now(), reviewID,
 		)
