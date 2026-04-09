@@ -703,9 +703,11 @@ class _ProfilePageState extends State<ProfilePage>
           ),
           ElevatedButton(
             onPressed: () async {
+              final navigator = Navigator.of(context);
+              final messenger = ScaffoldMessenger.of(context);
               final updatedName = nameController.text.trim();
               if (updatedName.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   const SnackBar(content: Text('Name cannot be empty')),
                 );
                 return;
@@ -720,12 +722,12 @@ class _ProfilePageState extends State<ProfilePage>
                 if (!mounted) {
                   return;
                 }
-                Navigator.pop(context, true);
+                navigator.pop(true);
               } catch (e) {
                 if (!mounted) {
                   return;
                 }
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   SnackBar(content: Text('Failed to update profile: $e')),
                 );
               }

@@ -354,7 +354,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
           Text(
             _globalCount <= 0
                 ? 'Global rating: No ratings'
-                : 'Global rating: ${_globalAverage.toStringAsFixed(1)} (${_globalCount})',
+                : 'Global rating: ${_globalAverage.toStringAsFixed(1)} ($_globalCount)',
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
             ),
@@ -369,12 +369,13 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                         : () => _submitRating(_selectedRating))
                     : (_pendingUpdatedRating == null
                         ? () async {
+                            final messenger = ScaffoldMessenger.of(context);
                             final newRating = await _askForNewRating();
                             if (!mounted || newRating == null) {
                               return;
                             }
                             if (newRating == _savedRating) {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              messenger.showSnackBar(
                                 const SnackBar(
                                   content:
                                       Text('Please choose a different rating'),
