@@ -1853,17 +1853,11 @@ class _ProfilePageState extends State<ProfilePage>
         return InkWell(
           onTap: _isDeleting(deletingKey)
               ? null
-              : () async {
+              : () {
                   if (canManageOwnListing) {
                     _previewOwnProduct(product);
                   } else if (canManagePurchasedOrder) {
-                    final updated = await context.push<bool>(
-                      '/orders/manage',
-                      extra: product,
-                    );
-                    if (updated == true && mounted) {
-                      await _fetchUserContent();
-                    }
+                    context.push('/shop/${product.id}');
                   } else {
                     context.go('/shop/${product.id}');
                   }
@@ -2041,18 +2035,11 @@ class _ProfilePageState extends State<ProfilePage>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () async {
-                            final updated = await context.push<bool>(
-                              '/orders/manage',
-                              extra: product,
-                            );
-                            if (updated == true && mounted) {
-                              await _fetchUserContent();
-                            }
-                          },
-                          icon:
-                              const Icon(Icons.receipt_long_outlined, size: 16),
-                          label: const Text('Manage Order'),
+                          onPressed: _isDeleting(deletingKey)
+                              ? null
+                              : () => context.push('/shop/${product.id}'),
+                          icon: const Icon(Icons.visibility_outlined, size: 16),
+                          label: const Text('View Details'),
                           style: OutlinedButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(
