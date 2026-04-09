@@ -661,13 +661,12 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _showEditProfileDialog() async {
-    final user = context.read<AuthProvider>().user;
+    final authProvider = context.read<AuthProvider>();
+    final user = authProvider.user;
     if (user == null) return;
 
     final nameController = TextEditingController(text: user.name);
-    final bioController = TextEditingController(text: user.bio ?? '');
-
-    await showDialog(
+    final didSave = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Profile'),
@@ -678,12 +677,6 @@ class _ProfilePageState extends State<ProfilePage>
               controller: nameController,
               decoration: const InputDecoration(labelText: 'Name'),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: bioController,
-              decoration: const InputDecoration(labelText: 'Bio'),
-              maxLines: 3,
-            ),
           ],
         ),
         actions: [
@@ -692,18 +685,47 @@ class _ProfilePageState extends State<ProfilePage>
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () {
-              // Update profile logic would go here
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Profile updated!')),
-              );
+            onPressed: () async {
+              final updatedName = nameController.text.trim();
+              if (updatedName.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Name cannot be empty')),
+                );
+                return;
+              }
+
+              try {
+                await authProvider.updateProfile({'name': updatedName});
+                if (!mounted) {
+                  return;
+                }
+                await _fetchUserContent();
+                if (!mounted) {
+                  return;
+                }
+                Navigator.pop(context, true);
+              } catch (e) {
+                if (!mounted) {
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to update profile: $e')),
+                );
+              }
             },
             child: const Text('Save'),
           ),
         ],
       ),
     );
+
+    nameController.dispose();
+
+    if (didSave == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated!')),
+      );
+    }
   }
 
   Future<void> _showAvatarEditOptions() async {
@@ -864,6 +886,9 @@ class _ProfilePageState extends State<ProfilePage>
     final authProvider = context.read<AuthProvider>();
     final messenger = ScaffoldMessenger.of(context);
     final primaryColor = Theme.of(context).primaryColor;
+    final viewportSize = MediaQuery.sizeOf(context);
+    final webCropWidth = (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
+    final webCropHeight = (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
 
     try {
       final localImagePath = await _ensureLocalImagePath(sourceImage);
@@ -893,7 +918,7 @@ class _ProfilePageState extends State<ProfilePage>
           WebUiSettings(
             context: context,
             presentStyle: WebPresentStyle.dialog,
-            size: const CropperSize(width: 600, height: 600),
+            size: CropperSize(width: webCropWidth, height: webCropHeight),
           ),
         ],
       );
@@ -1309,18 +1334,6 @@ class _ProfilePageState extends State<ProfilePage>
                     ],
                   ),
                   const SizedBox(height: 12),
-                  if ((isOwnProfile ? currentUser.bio : displayUser?['bio']) !=
-                          null &&
-                      (isOwnProfile ? currentUser.bio : displayUser?['bio'])
-                          .toString()
-                          .isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      (isOwnProfile ? currentUser.bio : displayUser?['bio'])
-                          .toString(),
-                      style: const TextStyle(color: Colors.grey),
-                    ),
-                  ],
                   const SizedBox(height: 16),
                   Row(
                     children: [

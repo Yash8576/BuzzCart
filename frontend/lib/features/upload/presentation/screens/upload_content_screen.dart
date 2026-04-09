@@ -172,6 +172,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
   Future<void> _cropImage(String imagePath, UploadContentProvider provider) async {
     try {
+      final viewportSize = MediaQuery.sizeOf(context);
+      final webCropWidth = (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
+      final webCropHeight = (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
       final aspectRatio = AspectRatioHelper.getAspectRatioForType(
         'photo',
         photoRatio: provider.photoAspectRatio,
@@ -207,9 +210,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           WebUiSettings(
             context: context,
             presentStyle: WebPresentStyle.dialog,
-            size: const CropperSize(
-              width: 600,
-              height: 600,
+            size: CropperSize(
+              width: webCropWidth,
+              height: webCropHeight,
             ),
           ),
         ],
