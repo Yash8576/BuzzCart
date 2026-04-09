@@ -825,8 +825,6 @@ class _ProfilePageState extends State<ProfilePage>
   }
 
   Future<void> _pickAndUploadAvatar() async {
-    final messenger = ScaffoldMessenger.of(context);
-
     try {
       final pickedImage = await _picker.pickImage(
         source: ImageSource.gallery,
@@ -837,17 +835,11 @@ class _ProfilePageState extends State<ProfilePage>
       }
       await _cropAndUploadAvatar(pickedImage);
     } catch (e) {
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Failed to update profile photo: $e')),
-        );
-      }
+      _showAvatarSnackBar('Failed to update profile photo: $e');
     }
   }
 
   Future<void> _pickFromCloudAndUploadAvatar() async {
-    final messenger = ScaffoldMessenger.of(context);
-
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -881,29 +873,29 @@ class _ProfilePageState extends State<ProfilePage>
           sourceFile = XFile(tempFile.path);
         }
       } else {
-        if (mounted) {
-          messenger.showSnackBar(
-            const SnackBar(
-                content: Text('Unable to open selected cloud photo')),
-          );
-        }
+        _showAvatarSnackBar('Unable to open selected cloud photo');
         return;
       }
 
       if (!mounted) return;
       await _cropAndUploadAvatar(sourceFile);
     } catch (e) {
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Cloud picker failed: $e')),
-        );
-      }
+      _showAvatarSnackBar('Cloud picker failed: $e');
     }
+  }
+
+  void _showAvatarSnackBar(String message) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   Future<void> _cropAndUploadAvatar(XFile sourceImage) async {
     final authProvider = context.read<AuthProvider>();
-    final messenger = ScaffoldMessenger.of(context);
     final primaryColor = Theme.of(context).primaryColor;
     final viewportSize = MediaQuery.sizeOf(context);
     final webCropWidth =
@@ -954,6 +946,9 @@ class _ProfilePageState extends State<ProfilePage>
         _localAvatarPreviewBytes = null;
       });
       final uploadBytes = await croppedFile.readAsBytes();
+      if (!mounted) {
+        return;
+      }
       if (kIsWeb) {
         setState(() {
           _localAvatarPreviewBytes = uploadBytes;
@@ -963,40 +958,41 @@ class _ProfilePageState extends State<ProfilePage>
       } else {
         await authProvider.setPendingAvatarPreviewPath(croppedFile.path);
       }
-      final uploadResult = await _api.uploadImage(
-        XFile.fromData(
-          uploadBytes,
+      final uploadResult = await _api.uploadAvatar(
+        XFile(
+          croppedFile.path,
           name: 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
           mimeType: 'image/jpeg',
         ),
-        folder: 'avatars',
       );
-      debugPrint('[ProfileAvatar] uploadImage response: $uploadResult');
+      if (!mounted) {
+        return;
+      }
+      debugPrint('[ProfileAvatar] uploadAvatar response: $uploadResult');
 
-      final avatarUrl = uploadResult['url']?.toString();
+      final avatarUrl = uploadResult['avatar_url']?.toString();
       if (avatarUrl == null || avatarUrl.trim().isEmpty) {
-        throw Exception('Image upload succeeded but no URL was returned');
+        throw Exception('Avatar upload succeeded but no URL was returned');
       }
 
-      await authProvider.updateProfile({'avatar': avatarUrl});
+      authProvider.updateAvatarUrl(avatarUrl);
+      if (!mounted) {
+        return;
+      }
       await authProvider.setPendingAvatarPreviewPath(null);
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _avatarVersion = DateTime.now().millisecondsSinceEpoch;
         _localAvatarPreviewBytes = null;
+        _localAvatarPreviewPath = null;
       });
 
-      if (mounted) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Profile photo updated successfully')),
-        );
-      }
+      _showAvatarSnackBar('Profile photo updated successfully');
     } catch (e) {
       debugPrint('[ProfileAvatar] Upload failed: $e');
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Failed to update profile photo: $e')),
-        );
-      }
+      _showAvatarSnackBar('Failed to update profile photo: $e');
     } finally {
       if (mounted) {
         setState(() => _isAvatarUpdating = false);
@@ -1006,7 +1002,6 @@ class _ProfilePageState extends State<ProfilePage>
 
   Future<void> _deleteCurrentAvatar() async {
     final authProvider = context.read<AuthProvider>();
-    final messenger = ScaffoldMessenger.of(context);
 
     try {
       setState(() => _isAvatarUpdating = true);
@@ -1018,17 +1013,9 @@ class _ProfilePageState extends State<ProfilePage>
         _localAvatarPreviewBytes = null;
       });
 
-      if (mounted) {
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Profile photo removed')),
-        );
-      }
+      _showAvatarSnackBar('Profile photo removed');
     } catch (e) {
-      if (mounted) {
-        messenger.showSnackBar(
-          SnackBar(content: Text('Failed to delete profile photo: $e')),
-        );
-      }
+      _showAvatarSnackBar('Failed to delete profile photo: $e');
     } finally {
       if (mounted) {
         setState(() => _isAvatarUpdating = false);

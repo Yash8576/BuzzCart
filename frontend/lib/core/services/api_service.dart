@@ -1,4 +1,5 @@
-import 'package:dio/dio.dart';import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_parser/http_parser.dart';
@@ -421,16 +422,20 @@ class ApiService {
 
   Future<Map<String, dynamic>> uploadAvatar(XFile file) async {
     try {
+      await ensureTokenLoaded();
+
       final bytes = await file.readAsBytes();
-      final fileName = file.name;
-      debugPrint('[uploadAvatar] fileName=$fileName, size=${bytes.length}');
+      final fileName = _resolveImageFileName(file, fallbackPrefix: 'avatar');
+      final multipartFile = MultipartFile.fromBytes(
+        bytes,
+        filename: fileName,
+        contentType: _getImageMediaType(fileName),
+      );
+      debugPrint(
+          '[uploadAvatar] fileName=$fileName, path=${file.path}, length=${multipartFile.length}');
 
       final formData = FormData.fromMap({
-        'avatar': MultipartFile.fromBytes(
-          bytes,
-          filename: fileName,
-          contentType: _getImageMediaType(fileName),
-        ),
+        'avatar': multipartFile,
       });
 
       final response = await _dio.post(
@@ -448,6 +453,20 @@ class ApiService {
           '[uploadAvatar] Failed: ${e.response?.statusCode} - ${e.response?.data}');
       rethrow;
     }
+  }
+
+  String _resolveImageFileName(XFile file, {String fallbackPrefix = 'image'}) {
+    final fileName = file.name.trim();
+    if (fileName.isNotEmpty) {
+      return fileName;
+    }
+
+    final pathName = file.path.trim().split(RegExp(r'[\\/]')).last;
+    if (pathName.isNotEmpty && pathName != file.path.trim()) {
+      return pathName;
+    }
+
+    return '${fallbackPrefix}_${DateTime.now().millisecondsSinceEpoch}.jpg';
   }
 
   Future<void> deleteAvatar() async {
