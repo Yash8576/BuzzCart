@@ -73,6 +73,14 @@ const productSelectBase = `
 	WHERE p.is_active = TRUE
 `
 
+func reviewHelpfulVotesTableExists(db *sql.DB) bool {
+	var exists bool
+	if err := db.QueryRow("SELECT to_regclass($1) IS NOT NULL", "public.review_helpful_votes").Scan(&exists); err != nil {
+		return false
+	}
+	return exists
+}
+
 const productSelectLegacy = `
 	SELECT
 		p.id,
@@ -1043,23 +1051,40 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 		// Get reviews (only public reviews unless user is authenticated)
 		userID := c.GetString("user_id")
 		var rows *sql.Rows
+		helpfulVotesExists := reviewHelpfulVotesTableExists(db)
 
 		if userID != "" {
 			// If authenticated, show all approved public reviews + user's own reviews (any status)
-			rows, err = db.Query(
-				`SELECT pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
-						pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
-						pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
-						u.name, u.avatar,
-						CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
-				 FROM product_ratings pr
-				 JOIN users u ON pr.user_id = u.id
-				 LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
-				 WHERE pr.product_id = $1 
-				 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-				 ORDER BY pr.created_at DESC`,
-				productID, userID,
-			)
+			if helpfulVotesExists {
+				rows, err = db.Query(
+					`SELECT pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+							pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+							pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+							u.name, u.avatar,
+							CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
+					 FROM product_ratings pr
+					 JOIN users u ON pr.user_id = u.id
+					 LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
+					 WHERE pr.product_id = $1 
+					 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+					 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
+					productID, userID,
+				)
+			} else {
+				rows, err = db.Query(
+					`SELECT pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+							pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+							pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+							u.name, u.avatar,
+							false as has_voted
+					 FROM product_ratings pr
+					 JOIN users u ON pr.user_id = u.id
+					 WHERE pr.product_id = $1 
+					 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+					 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
+					productID, userID,
+				)
+			}
 		} else {
 			// If not authenticated, show only approved public reviews
 			rows, err = db.Query(
@@ -1070,7 +1095,7 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 				 FROM product_ratings pr
 				 JOIN users u ON pr.user_id = u.id
 				 WHERE pr.product_id = $1 AND pr.moderation_status = 'approved' AND pr.is_private = false
-				 ORDER BY pr.created_at DESC`,
+				 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
 				productID,
 			)
 		}
@@ -1155,44 +1180,82 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 		}
 
 		var rows *sql.Rows
+		helpfulVotesExists := reviewHelpfulVotesTableExists(db)
 
 		if userID != "" {
 			// Authenticated user - rank reviews based on relationship
-			rows, err = db.Query(
-				`SELECT 
-					pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
-					pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
-					pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
-					u.name, u.avatar,
-					CASE
-						-- Mutual follows: both users follow each other (weight: 0.7)
-						WHEN uf_author_follows_user.follower_id IS NOT NULL 
-							AND uf_user_follows_author.follower_id IS NOT NULL
-						THEN 0.7
-						-- Direct followers: review author follows current user (weight: 1.0)
-						WHEN uf_author_follows_user.follower_id IS NOT NULL
-						THEN 1.0
-						-- Following: current user follows review author (weight: 0.5)
-						WHEN uf_user_follows_author.follower_id IS NOT NULL
-						THEN 0.5
-						-- Public: no relationship (weight: 0.3)
-						ELSE 0.3
-					END as relationship_weight,
-					CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
-				FROM product_ratings pr
-				JOIN users u ON pr.user_id = u.id
-				LEFT JOIN user_follows uf_author_follows_user 
-					ON uf_author_follows_user.follower_id = pr.user_id 
-					AND uf_author_follows_user.following_id = $2
-				LEFT JOIN user_follows uf_user_follows_author 
-					ON uf_user_follows_author.follower_id = $2 
-					AND uf_user_follows_author.following_id = pr.user_id
-				LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
-				WHERE pr.product_id = $1 
-				AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-				ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.created_at DESC`,
-				productID, userID,
-			)
+			if helpfulVotesExists {
+				rows, err = db.Query(
+					`SELECT 
+						pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+						pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+						pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+						u.name, u.avatar,
+						CASE
+							-- Mutual follows: both users follow each other (weight: 0.7)
+							WHEN uf_author_follows_user.follower_id IS NOT NULL 
+								AND uf_user_follows_author.follower_id IS NOT NULL
+							THEN 0.7
+							-- Direct followers: review author follows current user (weight: 1.0)
+							WHEN uf_author_follows_user.follower_id IS NOT NULL
+							THEN 1.0
+							-- Following: current user follows review author (weight: 0.5)
+							WHEN uf_user_follows_author.follower_id IS NOT NULL
+							THEN 0.5
+							-- Public: no relationship (weight: 0.3)
+							ELSE 0.3
+						END as relationship_weight,
+						CASE WHEN rhv.user_id IS NOT NULL THEN true ELSE false END as has_voted
+					FROM product_ratings pr
+					JOIN users u ON pr.user_id = u.id
+					LEFT JOIN user_follows uf_author_follows_user 
+						ON uf_author_follows_user.follower_id = pr.user_id 
+						AND uf_author_follows_user.following_id = $2
+					LEFT JOIN user_follows uf_user_follows_author 
+						ON uf_user_follows_author.follower_id = $2 
+						AND uf_user_follows_author.following_id = pr.user_id
+					LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
+					WHERE pr.product_id = $1 
+					AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
+					productID, userID,
+				)
+			} else {
+				rows, err = db.Query(
+					`SELECT 
+						pr.id, pr.product_id, pr.user_id, pr.rating, pr.review_title, pr.review_text, 
+						pr.is_verified_purchase, pr.is_private, pr.moderation_status, pr.moderation_note,
+						pr.moderated_by, pr.moderated_at, pr.helpful_count, pr.created_at, pr.updated_at,
+						u.name, u.avatar,
+						CASE
+							-- Mutual follows: both users follow each other (weight: 0.7)
+							WHEN uf_author_follows_user.follower_id IS NOT NULL 
+								AND uf_user_follows_author.follower_id IS NOT NULL
+							THEN 0.7
+							-- Direct followers: review author follows current user (weight: 1.0)
+							WHEN uf_author_follows_user.follower_id IS NOT NULL
+							THEN 1.0
+							-- Following: current user follows review author (weight: 0.5)
+							WHEN uf_user_follows_author.follower_id IS NOT NULL
+							THEN 0.5
+							-- Public: no relationship (weight: 0.3)
+							ELSE 0.3
+						END as relationship_weight,
+						false as has_voted
+					FROM product_ratings pr
+					JOIN users u ON pr.user_id = u.id
+					LEFT JOIN user_follows uf_author_follows_user 
+						ON uf_author_follows_user.follower_id = pr.user_id 
+						AND uf_author_follows_user.following_id = $2
+					LEFT JOIN user_follows uf_user_follows_author 
+						ON uf_user_follows_author.follower_id = $2 
+						AND uf_user_follows_author.following_id = pr.user_id
+					WHERE pr.product_id = $1 
+					AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
+					productID, userID,
+				)
+			}
 		} else {
 			// Unauthenticated user - show only approved public reviews, sorted by helpful_count
 			rows, err = db.Query(
@@ -1206,7 +1269,7 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 				WHERE pr.product_id = $1 
 				AND pr.moderation_status = 'approved' 
 				AND pr.is_private = false
-				ORDER BY pr.helpful_count DESC, pr.created_at DESC`,
+				ORDER BY pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
 				productID,
 			)
 		}
@@ -1233,6 +1296,7 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
 					return
 				}
+				review.IsFollowing = relationshipWeight != nil && *relationshipWeight > 0.3
 			} else {
 				err := rows.Scan(
 					&review.ID, &review.ProductID, &review.UserID, &review.Rating, &review.ReviewTitle, &review.ReviewText,
@@ -1245,6 +1309,7 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 					return
 				}
 				review.HasVoted = false
+				review.IsFollowing = false
 			}
 			reviews = append(reviews, review)
 		}
@@ -1461,7 +1526,7 @@ func GetUserReviews(db *sql.DB) gin.HandlerFunc {
 				 FROM product_ratings pr
 				 JOIN users u ON pr.user_id = u.id
 				 WHERE pr.user_id = $1
-				 ORDER BY pr.created_at DESC`,
+				 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
 				targetUserID,
 			)
 		} else {
@@ -1474,7 +1539,7 @@ func GetUserReviews(db *sql.DB) gin.HandlerFunc {
 				 FROM product_ratings pr
 				 JOIN users u ON pr.user_id = u.id
 				 WHERE pr.user_id = $1 AND pr.is_private = false AND pr.moderation_status = 'approved'
-				 ORDER BY pr.created_at DESC`,
+				 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
 				targetUserID,
 			)
 		}

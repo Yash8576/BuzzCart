@@ -410,9 +410,10 @@ type Review struct {
 	UpdatedAt          time.Time        `json:"updated_at" db:"updated_at"`
 
 	// Populated fields (not stored in DB)
-	Username   string  `json:"username,omitempty" db:"-"`
-	UserAvatar *string `json:"user_avatar,omitempty" db:"-"`
-	HasVoted   bool    `json:"has_voted" db:"-"` // Whether current user voted this review as helpful
+	Username    string  `json:"username,omitempty" db:"-"`
+	UserAvatar  *string `json:"user_avatar,omitempty" db:"-"`
+	HasVoted    bool    `json:"has_voted" db:"-"`      // Whether current user voted this review as helpful
+	IsFollowing bool    `json:"is_following" db:"-"`   // Whether reviewer is in the current user's network
 }
 
 type ReviewCreate struct {

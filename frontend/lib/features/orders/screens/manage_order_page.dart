@@ -6,6 +6,7 @@ import '../../../core/models/models.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_reviews_sheet.dart';
 
 class ManageOrderPage extends StatefulWidget {
   const ManageOrderPage({super.key, required this.product});
@@ -268,6 +269,29 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     );
   }
 
+  Future<void> _openReviewsSheet() async {
+    final didChange = await showProductReviewsSheet(
+      context: context,
+      product: widget.product,
+      canWriteReview: true,
+      onReviewChanged: () async {
+        await _loadReviewState();
+        await _refreshGlobalRating();
+        if (mounted) {
+          setState(() => _didChangeRating = true);
+        }
+      },
+    );
+    if (didChange == true && mounted) {
+      await _loadReviewState();
+      await _refreshGlobalRating();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _didChangeRating = true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
@@ -355,7 +379,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                 ? 'Loading your saved rating...'
                 : isReadOnlyMode
                     ? 'Your rating is saved. Tap Update to change it.'
-                    : 'Give a rating out of 5. Review text will be added later.',
+                    : 'Give a rating out of 5. Open Reviews to add written feedback.',
           ),
           const SizedBox(height: 14),
           Row(
@@ -406,6 +430,17 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                 : 'Global rating: ${_globalAverage.toStringAsFixed(1)} ($_globalCount)',
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: _openReviewsSheet,
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            label: Text(
+              _globalCount == 1 ? '1 Review' : '$_globalCount Reviews',
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(46),
             ),
           ),
           const SizedBox(height: 20),

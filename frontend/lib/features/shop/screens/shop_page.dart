@@ -10,6 +10,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_reviews_sheet.dart';
 
 class ShopPage extends StatefulWidget {
   final String? productId;
@@ -291,6 +292,17 @@ class _ShopPageState extends State<ShopPage> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _openReviewsSheet(ProductModel product) async {
+    final didChange = await showProductReviewsSheet(
+      context: context,
+      product: product,
+      onReviewChanged: widget.productId != null ? _fetchProductDetail : null,
+    );
+    if (didChange == true && mounted && widget.productId != null) {
+      await _fetchProductDetail();
+    }
+  }
+
   List<String> get _availableCategories {
     final categories = _allProducts
         .map((product) => product.category.trim())
@@ -550,6 +562,67 @@ class _ShopPageState extends State<ShopPage> {
                           fontWeight: FontWeight.bold,
                           color: AppColors.electricBlue,
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 14,
+                        runSpacing: 10,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                size: 18,
+                                color: Colors.amber,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                product.reviewsCount > 0
+                                    ? '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})'
+                                    : 'No reviews yet',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                          InkWell(
+                            onTap: () => _openReviewsSheet(product),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Ink(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest
+                                    .withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.chat_bubble_outline_rounded,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '${product.reviewsCount}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       if ((product.brandName ?? '').isNotEmpty) ...[
                         const SizedBox(height: 8),

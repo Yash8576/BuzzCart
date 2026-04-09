@@ -1136,6 +1136,26 @@ class ApiService {
     }
   }
 
+  Future<List<ReviewModel>> getProductReviewsRanked(String productId,
+      {int limit = 50}) async {
+    try {
+      final response = await _dio.get(
+        '/products/$productId/reviews/ranked',
+        queryParameters: {'limit': limit},
+      );
+      return (response.data as List)
+          .map((item) => ReviewModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) {
+        return getProductReviews(productId, limit: limit);
+      }
+      rethrow;
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<ReviewModel> getReview(String reviewId) async {
     try {
       final response = await _dio.get('/reviews/$reviewId');

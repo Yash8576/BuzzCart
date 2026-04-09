@@ -55,7 +55,7 @@ class ReviewCard extends StatelessWidget {
                       _buildStarRating(review.rating),
                       const SizedBox(width: 8),
                       Text(
-                        timeago.format(_parseDate(review.createdAt)),
+                        timeago.format(_reviewActivityTime(review)),
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark ? Colors.grey[400] : Colors.grey[600],
@@ -277,6 +277,14 @@ class ReviewCard extends StatelessWidget {
     } catch (e) {
       return DateTime.now();
     }
+  }
+
+  DateTime _reviewActivityTime(ReviewModel review) {
+    final updatedAt = review.updatedAt.trim();
+    if (updatedAt.isNotEmpty) {
+      return _parseDate(updatedAt);
+    }
+    return _parseDate(review.createdAt);
   }
 }
 
