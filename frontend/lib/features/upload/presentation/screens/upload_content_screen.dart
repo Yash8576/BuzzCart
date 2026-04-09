@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -21,19 +22,12 @@ class UploadContentScreen extends StatefulWidget {
 class _UploadContentScreenState extends State<UploadContentScreen> {
   final ImagePicker _picker = ImagePicker();
   final TextEditingController _captionController = TextEditingController();
-  late final ApiService _api;
+  final ApiService _api = ApiService();
   bool _isUploading = false;
 
   @override
   void initState() {
     super.initState();
-    _api = context.read<ApiService>();
-    // Load state from provider
-    final provider = context.read<UploadContentProvider>();
-    _captionController.text = provider.caption;
-    _captionController.addListener(() {
-      provider.setCaption(_captionController.text);
-    });
   }
 
   @override
@@ -42,10 +36,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     super.dispose();
   }
 
-  Future<void> _pickMedia(ImageSource source) async {
-    final provider = context.read<UploadContentProvider>();
+  Future<void> _pickMedia(
+      ImageSource source, UploadContentProvider provider) async {
     final contentType = provider.selectedMediaType;
-    
+
     try {
       if (contentType == 'photo') {
         final XFile? image = source == ImageSource.gallery
@@ -71,20 +65,21 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             );
           }
           // Crop the image before adding
-          await _cropImage(localImagePath, provider);
+          await _cropImage(localImagePath, image, provider);
         }
       } else if (contentType == 'video' || contentType == 'reel') {
         final XFile? video = await _picker.pickVideo(
           source: source,
-          maxDuration: contentType == 'reel' 
-              ? const Duration(seconds: 60) 
+          maxDuration: contentType == 'reel'
+              ? const Duration(seconds: 60)
               : const Duration(minutes: 10),
         );
         if (video != null && mounted) {
           provider.addFile(video);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${contentType == 'reel' ? 'Reel' : 'Video'} selected successfully!'),
+              content: Text(
+                  '${contentType == 'reel' ? 'Reel' : 'Video'} selected successfully!'),
               duration: const Duration(seconds: 1),
             ),
           );
@@ -131,8 +126,23 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     }
 
     final selected = result.files.first;
+    if (kIsWeb) {
+      if (selected.bytes == null || selected.bytes!.isEmpty) {
+        return null;
+      }
+      return XFile.fromData(
+        selected.bytes!,
+        name: selected.name,
+        mimeType: 'image/${_safeImageExtension(selected.name)}',
+      );
+    }
+
     if (selected.path != null && selected.path!.isNotEmpty) {
-      return XFile(selected.path!);
+      return XFile(
+        selected.path!,
+        name: selected.name,
+        mimeType: 'image/${_safeImageExtension(selected.name)}',
+      );
     }
 
     if (selected.bytes == null) {
@@ -141,25 +151,33 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
     final tempDir = Directory.systemTemp;
     final extension = _safeImageExtension(selected.name);
-    final tempPath = '${tempDir.path}${Platform.pathSeparator}cloud_upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final tempPath =
+        '${tempDir.path}${Platform.pathSeparator}cloud_upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
     final tempFile = File(tempPath);
     await tempFile.writeAsBytes(selected.bytes!, flush: true);
     return XFile(tempFile.path);
   }
 
   Future<String> _ensureLocalImagePath(XFile file) async {
-    final originalPath = file.path;
-    if (!kIsWeb && originalPath.isNotEmpty && File(originalPath).existsSync()) {
-      return originalPath;
+    if (!kIsWeb) {
+      final originalPath = file.path;
+      if (originalPath.isNotEmpty && File(originalPath).existsSync()) {
+        return originalPath;
+      }
+
+      final bytes = await file.readAsBytes();
+      final tempDir = Directory.systemTemp;
+      final extension = _safeImageExtension(file.name);
+      final tempPath =
+          '${tempDir.path}${Platform.pathSeparator}upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
+      final tempFile = File(tempPath);
+      await tempFile.writeAsBytes(bytes, flush: true);
+      return tempFile.path;
     }
 
     final bytes = await file.readAsBytes();
-    final tempDir = Directory.systemTemp;
-    final extension = _safeImageExtension(file.name);
-    final tempPath = '${tempDir.path}${Platform.pathSeparator}upload_${DateTime.now().microsecondsSinceEpoch}.$extension';
-    final tempFile = File(tempPath);
-    await tempFile.writeAsBytes(bytes, flush: true);
-    return tempFile.path;
+    final mimeType = 'image/${_safeImageExtension(file.name)}';
+    return 'data:$mimeType;base64,${base64Encode(bytes)}';
   }
 
   String _safeImageExtension(String filename) {
@@ -170,11 +188,14 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     return 'jpg';
   }
 
-  Future<void> _cropImage(String imagePath, UploadContentProvider provider) async {
+  Future<void> _cropImage(String imagePath, XFile originalImage,
+      UploadContentProvider provider) async {
     try {
       final viewportSize = MediaQuery.sizeOf(context);
-      final webCropWidth = (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
-      final webCropHeight = (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
+      final webCropWidth =
+          (viewportSize.width * 0.82).clamp(320.0, 560.0).round();
+      final webCropHeight =
+          (viewportSize.height * 0.62).clamp(320.0, 520.0).round();
       final aspectRatio = AspectRatioHelper.getAspectRatioForType(
         'photo',
         photoRatio: provider.photoAspectRatio,
@@ -220,7 +241,18 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
       if (croppedFile != null) {
         if (mounted) {
-          provider.addFile(XFile(croppedFile.path));
+          if (kIsWeb) {
+            final croppedBytes = await croppedFile.readAsBytes();
+            provider.addFile(
+              XFile.fromData(
+                croppedBytes,
+                name: 'cropped_${DateTime.now().millisecondsSinceEpoch}.jpg',
+                mimeType: 'image/jpeg',
+              ),
+            );
+          } else {
+            provider.addFile(XFile(croppedFile.path));
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Image cropped successfully!'),
@@ -235,7 +267,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('Use Original Image?'),
-              content: const Text('Cropping was cancelled. Would you like to use the original image instead?'),
+              content: const Text(
+                  'Cropping was cancelled. Would you like to use the original image instead?'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
@@ -250,7 +283,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           );
 
           if (shouldUseOriginal == true && mounted) {
-            provider.addFile(XFile(imagePath));
+            provider.addFile(originalImage);
           }
         }
       }
@@ -258,7 +291,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       if (mounted) {
         // Detailed error logging and user-friendly message
         debugPrint('Image Cropper Error: $e');
-        
+
         final shouldUseOriginal = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
@@ -280,7 +313,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         );
 
         if (shouldUseOriginal == true && mounted) {
-          provider.addFile(XFile(imagePath));
+          provider.addFile(originalImage);
         }
       }
     }
@@ -301,7 +334,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
   Future<void> _uploadContent() async {
     final provider = context.read<UploadContentProvider>();
-    
+
     if (provider.selectedFiles.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -318,7 +351,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     try {
       final file = provider.selectedFiles.first;
       final contentType = provider.selectedMediaType;
-      final caption = provider.caption;
+      final caption = _captionController.text.trim();
 
       if (contentType == 'photo') {
         // Use uploadPhoto which saves to user_media and creates a post
@@ -333,11 +366,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             provider.clearAll();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(
-                  result['post_created'] == true 
+                content: Text(result['post_created'] == true
                     ? 'Photo posted successfully!'
-                    : 'Photo uploaded successfully!'
-                ),
+                    : 'Photo uploaded successfully!'),
               ),
             );
             context.go('/profile');
@@ -350,7 +381,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           final videoUrl = result['url'] as String;
           final title = caption.isEmpty ? 'Untitled Video' : caption;
           final description = caption.isEmpty ? 'No description' : caption;
-          
+
           // Create video record
           await _api.createVideo(
             title: title,
@@ -358,7 +389,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
             url: videoUrl,
             thumbnail: videoUrl, // Using same URL for thumbnail for now
           );
-          
+
           if (mounted) {
             provider.clearAll();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -372,14 +403,14 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         final result = await _api.uploadVideo(file);
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
-          
+
           // Create reel record
           await _api.createReel(
             url: videoUrl,
             thumbnail: videoUrl, // Using same URL for thumbnail for now
             caption: caption,
           );
-          
+
           if (mounted) {
             provider.clearAll();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -454,7 +485,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   children: [
                                     Icon(Icons.photo, size: 20),
                                     SizedBox(height: 4),
-                                    Text('Photo', style: TextStyle(fontSize: 11)),
+                                    Text('Photo',
+                                        style: TextStyle(fontSize: 11)),
                                   ],
                                 ),
                                 selected: provider.selectedMediaType == 'photo',
@@ -473,7 +505,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   children: [
                                     Icon(Icons.videocam, size: 20),
                                     SizedBox(height: 4),
-                                    Text('Video', style: TextStyle(fontSize: 11)),
+                                    Text('Video',
+                                        style: TextStyle(fontSize: 11)),
                                   ],
                                 ),
                                 selected: provider.selectedMediaType == 'video',
@@ -492,7 +525,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   children: [
                                     Icon(Icons.movie, size: 20),
                                     SizedBox(height: 4),
-                                    Text('Reel', style: TextStyle(fontSize: 11)),
+                                    Text('Reel',
+                                        style: TextStyle(fontSize: 11)),
                                   ],
                                 ),
                                 selected: provider.selectedMediaType == 'reel',
@@ -511,7 +545,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   children: [
                                     Icon(Icons.audiotrack, size: 20),
                                     SizedBox(height: 4),
-                                    Text('Audio', style: TextStyle(fontSize: 11)),
+                                    Text('Audio',
+                                        style: TextStyle(fontSize: 11)),
                                   ],
                                 ),
                                 selected: provider.selectedMediaType == 'audio',
@@ -531,7 +566,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                 const SizedBox(height: 20),
 
                 // Aspect Ratio Selector for Photos
-                if (provider.selectedMediaType == 'photo' && provider.selectedFiles.isEmpty)
+                if (provider.selectedMediaType == 'photo' &&
+                    provider.selectedFiles.isEmpty)
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -540,7 +576,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.crop, size: 20, color: Theme.of(context).primaryColor),
+                              Icon(Icons.crop,
+                                  size: 20,
+                                  color: Theme.of(context).primaryColor),
                               const SizedBox(width: 8),
                               const Text(
                                 'Photo Format',
@@ -565,8 +603,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   name: '1:1',
                                   icon: Icons.crop_square,
                                   description: 'Square',
-                                  isSelected: provider.photoAspectRatio == 'square',
-                                  onTap: () => provider.setPhotoAspectRatio('square'),
+                                  isSelected:
+                                      provider.photoAspectRatio == 'square',
+                                  onTap: () =>
+                                      provider.setPhotoAspectRatio('square'),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -576,8 +616,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   name: '4:5',
                                   icon: Icons.crop_portrait,
                                   description: 'Portrait',
-                                  isSelected: provider.photoAspectRatio == 'portrait',
-                                  onTap: () => provider.setPhotoAspectRatio('portrait'),
+                                  isSelected:
+                                      provider.photoAspectRatio == 'portrait',
+                                  onTap: () =>
+                                      provider.setPhotoAspectRatio('portrait'),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -587,8 +629,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   name: '16:9',
                                   icon: Icons.crop_landscape,
                                   description: 'Landscape',
-                                  isSelected: provider.photoAspectRatio == 'landscape',
-                                  onTap: () => provider.setPhotoAspectRatio('landscape'),
+                                  isSelected:
+                                      provider.photoAspectRatio == 'landscape',
+                                  onTap: () =>
+                                      provider.setPhotoAspectRatio('landscape'),
                                 ),
                               ),
                             ],
@@ -643,7 +687,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                       padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          Icon(Icons.video_library, color: Colors.blue.shade700),
+                          Icon(Icons.video_library,
+                              color: Colors.blue.shade700),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -697,7 +742,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                   if (provider.selectedMediaType == 'photo')
                                     Chip(
                                       label: Text(
-                                        AspectRatioHelper.photoAspectRatios[provider.photoAspectRatio]!.name,
+                                        AspectRatioHelper
+                                            .photoAspectRatios[
+                                                provider.photoAspectRatio]!
+                                            .name,
                                         style: const TextStyle(fontSize: 11),
                                       ),
                                       padding: EdgeInsets.zero,
@@ -720,7 +768,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            provider.selectedFiles.first.path.split('/').last.split('\\').last,
+                            provider.selectedFiles.first.path
+                                .split('/')
+                                .last
+                                .split('\\')
+                                .last,
                             style: const TextStyle(fontSize: 12),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -733,7 +785,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                   Column(
                     children: [
                       OutlinedButton.icon(
-                        onPressed: () => _pickMedia(ImageSource.gallery),
+                        onPressed: () =>
+                            _pickMedia(ImageSource.gallery, provider),
                         icon: const Icon(Icons.photo_library),
                         label: Text(
                           provider.selectedMediaType == 'photo'
@@ -747,9 +800,12 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                       ),
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        onPressed: () => _pickMedia(ImageSource.camera),
+                        onPressed: () =>
+                            _pickMedia(ImageSource.camera, provider),
                         icon: Icon(
-                          provider.selectedMediaType == 'photo' ? Icons.camera_alt : Icons.videocam,
+                          provider.selectedMediaType == 'photo'
+                              ? Icons.camera_alt
+                              : Icons.videocam,
                         ),
                         label: Text(
                           provider.selectedMediaType == 'photo'
@@ -769,6 +825,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                 // Caption input
                 TextField(
                   controller: _captionController,
+                  onChanged: provider.setCaption,
                   maxLines: 4,
                   maxLength: 500,
                   decoration: const InputDecoration(
@@ -839,7 +896,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                       child: Chip(
                         label: Text(
                           aspectRatio.name,
-                          style: const TextStyle(fontSize: 11, color: Colors.white),
+                          style: const TextStyle(
+                              fontSize: 11, color: Colors.white),
                         ),
                         backgroundColor: Colors.black54,
                         padding: EdgeInsets.zero,
@@ -908,11 +966,15 @@ class _AspectRatioButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
           border: Border.all(
-            color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade300,
+            color: isSelected
+                ? Theme.of(context).primaryColor
+                : Colors.grey.shade300,
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(8),
-          color: isSelected ? Theme.of(context).primaryColor.withValues(alpha: 0.1) : null,
+          color: isSelected
+              ? Theme.of(context).primaryColor.withValues(alpha: 0.1)
+              : null,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -920,7 +982,9 @@ class _AspectRatioButton extends StatelessWidget {
             Icon(
               icon,
               size: 28,
-              color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade600,
+              color: isSelected
+                  ? Theme.of(context).primaryColor
+                  : Colors.grey.shade600,
             ),
             const SizedBox(height: 4),
             Text(
@@ -928,7 +992,9 @@ class _AspectRatioButton extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade700,
+                color: isSelected
+                    ? Theme.of(context).primaryColor
+                    : Colors.grey.shade700,
               ),
             ),
             const SizedBox(height: 2),
@@ -936,7 +1002,9 @@ class _AspectRatioButton extends StatelessWidget {
               description,
               style: TextStyle(
                 fontSize: 9,
-                color: isSelected ? Theme.of(context).primaryColor : Colors.grey.shade500,
+                color: isSelected
+                    ? Theme.of(context).primaryColor
+                    : Colors.grey.shade500,
               ),
             ),
           ],
