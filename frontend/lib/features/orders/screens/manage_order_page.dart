@@ -17,11 +17,10 @@ class ManageOrderPage extends StatefulWidget {
 }
 
 class _ManageOrderPageState extends State<ManageOrderPage> {
-  final ApiService _api = ApiService();
+  late final ApiService _api;
 
   int _selectedRating = 0;
   int? _savedRating;
-  int? _pendingUpdatedRating;
   ReviewModel? _savedReview;
   double _globalAverage = 0;
   int _globalCount = 0;
@@ -32,9 +31,27 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
   @override
   void initState() {
     super.initState();
+    _api = context.read<ApiService>();
     _globalAverage = widget.product.rating;
     _globalCount = widget.product.reviewsCount;
+    _savedRating = _purchaseRatingHint;
+    _selectedRating = _purchaseRatingHint ?? 0;
     _loadReviewState();
+  }
+
+  int? get _purchaseRatingHint {
+    final raw = widget.product.metadata['your_rating'];
+    if (raw is int && raw > 0) {
+      return raw;
+    }
+    if (raw is num && raw > 0) {
+      return raw.toInt();
+    }
+    final parsed = int.tryParse('${raw ?? ''}');
+    if (parsed == null || parsed <= 0) {
+      return null;
+    }
+    return parsed;
   }
 
   Future<void> _loadReviewState() async {
@@ -70,8 +87,8 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
 
       setState(() {
         _savedReview = savedReview;
-        _savedRating = savedReview?.rating;
-        _selectedRating = savedReview?.rating ?? 0;
+        _savedRating = savedReview?.rating ?? _purchaseRatingHint;
+        _selectedRating = savedReview?.rating ?? _purchaseRatingHint ?? 0;
         _globalAverage = latestProduct.rating;
         _globalCount = latestProduct.reviewsCount;
         _isLoadingReview = false;
@@ -99,6 +116,21 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     }
   }
 
+  String? _reviewConflictId(Object error) {
+    if (error is! DioException) {
+      return null;
+    }
+    final data = error.response?.data;
+    if (data is! Map<String, dynamic>) {
+      return null;
+    }
+    final reviewId = data['review_id'];
+    if (reviewId is String && reviewId.trim().isNotEmpty) {
+      return reviewId;
+    }
+    return null;
+  }
+
   String _saveErrorMessage(Object error) {
     if (error is DioException) {
       final data = error.response?.data;
@@ -120,19 +152,41 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     final hadExistingReview = _savedReview != null;
     setState(() => _isSubmitting = true);
     try {
-      final savedReview = _savedReview == null
-          ? await _api.createReview(
-              productId: widget.product.id,
-              rating: rating,
-            )
-          : await _api.updateReview(
-              reviewId: _savedReview!.id,
-              productId: widget.product.id,
-              rating: rating,
-              reviewTitle: _savedReview!.reviewTitle,
-              reviewText: _savedReview!.reviewText,
-              isPrivate: _savedReview!.isPrivate,
-            );
+      late final ReviewModel savedReview;
+      if (_savedReview == null) {
+        try {
+          savedReview = await _api.createReview(
+            productId: widget.product.id,
+            rating: rating,
+            suppressAlreadyReviewedConflictLog: true,
+          );
+        } on DioException catch (error) {
+          final reviewId = _reviewConflictId(error);
+          if (reviewId == null) {
+            rethrow;
+          }
+          final existingReview = await _api.getReview(reviewId);
+          savedReview = existingReview.rating == rating
+              ? existingReview
+              : await _api.updateReview(
+                  reviewId: existingReview.id,
+                  productId: widget.product.id,
+                  rating: rating,
+                  reviewTitle: existingReview.reviewTitle,
+                  reviewText: existingReview.reviewText,
+                  isPrivate: existingReview.isPrivate,
+                );
+        }
+      } else {
+        savedReview = await _api.updateReview(
+          reviewId: _savedReview!.id,
+          productId: widget.product.id,
+          rating: rating,
+          reviewTitle: _savedReview!.reviewTitle,
+          reviewText: _savedReview!.reviewText,
+          isPrivate: _savedReview!.isPrivate,
+        );
+      }
 
       await _refreshGlobalRating();
 
@@ -144,7 +198,6 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
         _savedReview = savedReview;
         _savedRating = savedReview.rating;
         _selectedRating = savedReview.rating;
-        _pendingUpdatedRating = null;
         _didChangeRating = true;
       });
 
@@ -220,10 +273,8 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     final product = widget.product;
     final imageUrl = product.images.isNotEmpty ? product.images.first : '';
     final isInitialRatingFlow = _savedRating == null;
-    final isReadOnlyMode =
-        _savedRating != null && _pendingUpdatedRating == null;
-    final ratingToDisplay =
-        _pendingUpdatedRating ?? _savedRating ?? _selectedRating;
+    final isReadOnlyMode = _savedRating != null;
+    final ratingToDisplay = _savedRating ?? _selectedRating;
 
     return Scaffold(
       appBar: AppBar(
@@ -333,9 +384,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
           Text(
             ratingToDisplay == 0
                 ? 'No rating selected'
-                : _pendingUpdatedRating != null
-                    ? 'New rating selected: $ratingToDisplay / 5'
-                    : 'Selected rating: $ratingToDisplay / 5',
+                : 'Selected rating: $ratingToDisplay / 5',
             style: TextStyle(
               color: Theme.of(context).textTheme.bodySmall?.color,
             ),
@@ -367,41 +416,28 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                     ? (_selectedRating == 0
                         ? null
                         : () => _submitRating(_selectedRating))
-                    : (_pendingUpdatedRating == null
-                        ? () async {
-                            final messenger = ScaffoldMessenger.of(context);
-                            final newRating = await _askForNewRating();
-                            if (!mounted || newRating == null) {
-                              return;
-                            }
-                            if (newRating == _savedRating) {
-                              messenger.showSnackBar(
-                                const SnackBar(
-                                  content:
-                                      Text('Please choose a different rating'),
-                                ),
-                              );
-                              return;
-                            }
-                            setState(() {
-                              _pendingUpdatedRating = newRating;
-                            });
-                          }
-                        : () {
-                            final updated = _pendingUpdatedRating;
-                            if (updated == null) {
-                              return;
-                            }
-                            _submitRating(updated);
-                          }),
+                    : () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final newRating = await _askForNewRating();
+                        if (!mounted || newRating == null) {
+                          return;
+                        }
+                        if (newRating == _savedRating) {
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Please choose a different rating'),
+                            ),
+                          );
+                          return;
+                        }
+                        await _submitRating(newRating);
+                      },
             child: Text(
               _isSubmitting
                   ? 'Saving...'
                   : isInitialRatingFlow
                       ? 'Save Rating'
-                      : (_pendingUpdatedRating == null
-                          ? 'Update'
-                          : 'Update Rating'),
+                      : 'Update',
             ),
           ),
         ],

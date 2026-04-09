@@ -2037,9 +2037,18 @@ class _ProfilePageState extends State<ProfilePage>
                         OutlinedButton.icon(
                           onPressed: _isDeleting(deletingKey)
                               ? null
-                              : () => context.push('/shop/${product.id}'),
-                          icon: const Icon(Icons.visibility_outlined, size: 16),
-                          label: const Text('View Details'),
+                              : () async {
+                                  final updated = await context.push<bool>(
+                                    '/orders/manage',
+                                    extra: product,
+                                  );
+                                  if (updated == true && mounted) {
+                                    await _fetchUserContent();
+                                  }
+                                },
+                          icon:
+                              const Icon(Icons.receipt_long_outlined, size: 16),
+                          label: const Text('Manage Order'),
                           style: OutlinedButton.styleFrom(
                             visualDensity: VisualDensity.compact,
                             padding: const EdgeInsets.symmetric(

@@ -1,5 +1,4 @@
-import 'package:dio/dio.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:dio/dio.dart';import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_parser/http_parser.dart';
@@ -17,6 +16,38 @@ class ApiService {
   late final Dio _dio;
   String? _token;
   bool _isTokenLoaded = false;
+
+  bool _shouldSuppressErrorLog(DioException error) {
+    final statusCode = error.response?.statusCode;
+    if (statusCode == null) {
+      return false;
+    }
+    final suppressedStatuses =
+        error.requestOptions.extra['suppressErrorLogStatuses'];
+    if (suppressedStatuses is! Iterable) {
+      return false;
+    }
+    for (final value in suppressedStatuses) {
+      if (value is int && value == statusCode) {
+        return true;
+      }
+      if (int.tryParse('$value') == statusCode) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _redactedHeaders(Map<String, dynamic> headers) {
+    final redacted = Map<String, dynamic>.from(headers);
+    if (redacted.containsKey('Authorization')) {
+      redacted['Authorization'] = 'Bearer [REDACTED]';
+    }
+    if (redacted.containsKey('authorization')) {
+      redacted['authorization'] = 'Bearer [REDACTED]';
+    }
+    return redacted;
+  }
 
   ApiService() {
     _dio = Dio(BaseOptions(
@@ -42,12 +73,15 @@ class ApiService {
         return handler.next(options);
       },
       onError: (error, handler) {
-        debugPrint(
-            'API Error [${error.response?.statusCode}]: ${error.message}');
-        if (error.response != null) {
-          debugPrint('  Response body: ${error.response!.data}');
-          debugPrint('  Request URL: ${error.requestOptions.uri}');
-          debugPrint('  Request headers: ${error.requestOptions.headers}');
+        if (!_shouldSuppressErrorLog(error)) {
+          debugPrint(
+              'API Error [${error.response?.statusCode}]: ${error.message}');
+          if (error.response != null) {
+            debugPrint('  Response body: ${error.response!.data}');
+            debugPrint('  Request URL: ${error.requestOptions.uri}');
+            debugPrint(
+                '  Request headers: ${_redactedHeaders(error.requestOptions.headers)}');
+          }
         }
         return handler.next(error);
       },
@@ -1102,6 +1136,15 @@ class ApiService {
     }
   }
 
+  Future<ReviewModel> getReview(String reviewId) async {
+    try {
+      final response = await _dio.get('/reviews/$reviewId');
+      return ReviewModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<ReviewModel> createReview({
     required String productId,
     required int rating,
@@ -1109,18 +1152,28 @@ class ApiService {
     String? reviewText,
     bool isPrivate = false,
     List<String>? imageUrls,
+    bool suppressAlreadyReviewedConflictLog = false,
   }) async {
     try {
-      final response = await _dio.post('/products/$productId/reviews', data: {
-        'product_id': productId,
-        'rating': rating,
-        if (reviewTitle != null && reviewTitle.isNotEmpty)
-          'review_title': reviewTitle,
-        if (reviewText != null && reviewText.isNotEmpty)
-          'review_text': reviewText,
-        'is_private': isPrivate,
-        if (imageUrls != null && imageUrls.isNotEmpty) 'images': imageUrls,
-      });
+      final response = await _dio.post(
+        '/products/$productId/reviews',
+        data: {
+          'product_id': productId,
+          'rating': rating,
+          if (reviewTitle != null && reviewTitle.isNotEmpty)
+            'review_title': reviewTitle,
+          if (reviewText != null && reviewText.isNotEmpty)
+            'review_text': reviewText,
+          'is_private': isPrivate,
+          if (imageUrls != null && imageUrls.isNotEmpty) 'images': imageUrls,
+        },
+        options: Options(
+          extra: {
+            if (suppressAlreadyReviewedConflictLog)
+              'suppressErrorLogStatuses': [409],
+          },
+        ),
+      );
       return ReviewModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       rethrow;

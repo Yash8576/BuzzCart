@@ -143,7 +143,7 @@ func main() {
 		// Review routes
 		reviews := api.Group("/reviews")
 		{
-			reviews.GET("/:review_id", handlers.GetReview(db))
+			reviews.GET("/:review_id", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetReview(db))
 			reviews.PUT("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.UpdateReview(db))
 			reviews.DELETE("/:review_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteReview(db))
 			reviews.PATCH("/:review_id/privacy", middleware.Auth(cfg.JWTSecret), handlers.UpdateReviewPrivacy(db))
@@ -155,7 +155,7 @@ func main() {
 		}
 
 		// User review routes
-		api.GET("/users/:user_id/reviews", handlers.GetUserReviews(db))
+		api.GET("/users/:user_id/reviews", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetUserReviews(db))
 
 		// Video routes
 		videos := api.Group("/videos")
