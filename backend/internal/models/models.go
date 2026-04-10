@@ -193,6 +193,15 @@ type ProductCreate struct {
 	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
+type ProductBuyer struct {
+	BuyerID       string    `json:"buyer_id"`
+	BuyerName     string    `json:"buyer_name"`
+	BuyerAvatar   *string   `json:"buyer_avatar,omitempty"`
+	PurchaseDate  time.Time `json:"purchase_date"`
+	TotalQuantity int       `json:"total_quantity"`
+	IsConnection  bool      `json:"is_connection"`
+}
+
 type Video struct {
 	ID            string          `json:"id" db:"id"`
 	Title         string          `json:"title" db:"title"`
@@ -412,8 +421,8 @@ type Review struct {
 	// Populated fields (not stored in DB)
 	Username    string  `json:"username,omitempty" db:"-"`
 	UserAvatar  *string `json:"user_avatar,omitempty" db:"-"`
-	HasVoted    bool    `json:"has_voted" db:"-"`      // Whether current user voted this review as helpful
-	IsFollowing bool    `json:"is_following" db:"-"`   // Whether reviewer is in the current user's network
+	HasVoted    bool    `json:"has_voted" db:"-"`    // Whether current user voted this review as helpful
+	IsFollowing bool    `json:"is_following" db:"-"` // Whether reviewer is in the current user's network
 }
 
 type ReviewCreate struct {

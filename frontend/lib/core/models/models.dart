@@ -429,6 +429,35 @@ class NetworkPurchaseModel {
   }
 }
 
+class ProductBuyerModel {
+  final String buyerId;
+  final String buyerName;
+  final String? buyerAvatar;
+  final String purchaseDate;
+  final int totalQuantity;
+  final bool isConnection;
+
+  ProductBuyerModel({
+    required this.buyerId,
+    required this.buyerName,
+    this.buyerAvatar,
+    required this.purchaseDate,
+    this.totalQuantity = 0,
+    this.isConnection = false,
+  });
+
+  factory ProductBuyerModel.fromJson(Map<String, dynamic> json) {
+    return ProductBuyerModel(
+      buyerId: json['buyer_id'] as String,
+      buyerName: json['buyer_name'] as String? ?? 'Unknown',
+      buyerAvatar: json['buyer_avatar'] as String?,
+      purchaseDate: json['purchase_date'] as String,
+      totalQuantity: json['total_quantity'] as int? ?? 0,
+      isConnection: json['is_connection'] as bool? ?? false,
+    );
+  }
+}
+
 class VideoModel {
   final String id;
   final String title;

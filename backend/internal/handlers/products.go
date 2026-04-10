@@ -1144,6 +1144,156 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
+// GetProductBuyers retrieves recent buyers for a product and prefers the
+// current user's network in the same way the ranked reviews surface does.
+func GetProductBuyers(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		productID := c.Param("product_id")
+		userID := c.GetString("user_id")
+
+		var productExists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", productID).Scan(&productExists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify product"})
+			return
+		}
+		if !productExists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
+		publicVisibilityFilter := `
+			COALESCE(u.status::text, 'active') = 'active'
+			AND COALESCE(u.privacy_profile::text, 'public') <> 'private'
+			AND CASE
+				WHEN COALESCE(u.visibility_mode, 'public') = 'private' THEN false
+				WHEN COALESCE(u.visibility_mode, 'public') = 'custom'
+					THEN COALESCE((u.visibility_preferences ->> 'purchases')::boolean, true)
+				ELSE true
+			END
+		`
+
+		var rows *sql.Rows
+		if userID != "" {
+			rows, err = db.Query(
+				fmt.Sprintf(`
+					SELECT
+						o.user_id,
+						COALESCE(u.name, u.username, ''),
+						u.avatar,
+						MAX(o.created_at) AS purchase_date,
+						COALESCE(SUM(oi.quantity), 0) AS total_quantity,
+						CASE
+							WHEN uf_buyer_follows_user.follower_id IS NOT NULL
+								AND uf_user_follows_buyer.follower_id IS NOT NULL
+							THEN 0.7
+							WHEN uf_buyer_follows_user.follower_id IS NOT NULL
+							THEN 1.0
+							WHEN uf_user_follows_buyer.follower_id IS NOT NULL
+							THEN 0.5
+							ELSE 0.3
+						END AS relationship_weight
+					FROM order_items oi
+					JOIN orders o ON o.id = oi.order_id
+					JOIN users u ON u.id = o.user_id
+					LEFT JOIN user_follows uf_buyer_follows_user
+						ON uf_buyer_follows_user.follower_id = o.user_id
+						AND uf_buyer_follows_user.following_id = $2
+					LEFT JOIN user_follows uf_user_follows_buyer
+						ON uf_user_follows_buyer.follower_id = $2
+						AND uf_user_follows_buyer.following_id = o.user_id
+					WHERE oi.product_id = $1
+						AND o.status IN ('delivered', 'completed')
+						AND (
+							o.user_id = $2
+							OR (%s)
+						)
+					GROUP BY
+						o.user_id,
+						COALESCE(u.name, u.username, ''),
+						u.avatar,
+						uf_buyer_follows_user.follower_id,
+						uf_user_follows_buyer.follower_id
+					ORDER BY relationship_weight DESC, MAX(o.created_at) DESC
+					LIMIT 100
+				`, publicVisibilityFilter),
+				productID,
+				userID,
+			)
+		} else {
+			rows, err = db.Query(
+				fmt.Sprintf(`
+					SELECT
+						o.user_id,
+						COALESCE(u.name, u.username, ''),
+						u.avatar,
+						MAX(o.created_at) AS purchase_date,
+						COALESCE(SUM(oi.quantity), 0) AS total_quantity
+					FROM order_items oi
+					JOIN orders o ON o.id = oi.order_id
+					JOIN users u ON u.id = o.user_id
+					WHERE oi.product_id = $1
+						AND o.status IN ('delivered', 'completed')
+						AND %s
+					GROUP BY
+						o.user_id,
+						COALESCE(u.name, u.username, ''),
+						u.avatar
+					ORDER BY MAX(o.created_at) DESC
+					LIMIT 100
+				`, publicVisibilityFilter),
+				productID,
+			)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch buyers"})
+			return
+		}
+		defer rows.Close()
+
+		buyers := make([]models.ProductBuyer, 0)
+		for rows.Next() {
+			var buyer models.ProductBuyer
+			if userID != "" {
+				var relationshipWeight float64
+				err = rows.Scan(
+					&buyer.BuyerID,
+					&buyer.BuyerName,
+					&buyer.BuyerAvatar,
+					&buyer.PurchaseDate,
+					&buyer.TotalQuantity,
+					&relationshipWeight,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode buyers"})
+					return
+				}
+				buyer.IsConnection = relationshipWeight > 0.3
+			} else {
+				err = rows.Scan(
+					&buyer.BuyerID,
+					&buyer.BuyerName,
+					&buyer.BuyerAvatar,
+					&buyer.PurchaseDate,
+					&buyer.TotalQuantity,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode buyers"})
+					return
+				}
+				buyer.IsConnection = false
+			}
+			buyers = append(buyers, buyer)
+		}
+
+		if buyers == nil {
+			buyers = []models.ProductBuyer{}
+		}
+
+		c.JSON(http.StatusOK, buyers)
+	}
+}
+
 // GetProductReviewsRanked retrieves reviews for a product ranked by relationship to the current user
 // Ranking logic: Direct followers (weight: 1.0) → Mutual follows (0.7) → Following (0.5) → Public (0.3)
 // Results are cached in Redis for 5 minutes

@@ -558,6 +558,23 @@ class ApiService {
     }
   }
 
+  Future<List<ProductBuyerModel>> getProductBuyers(String productId,
+      {int limit = 100}) async {
+    try {
+      final response = await _dio.get(
+        '/products/$productId/buyers',
+        queryParameters: {'limit': limit},
+      );
+      return (response.data as List? ?? [])
+          .map((item) =>
+              ProductBuyerModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint('Error fetching product buyers: $e');
+      return [];
+    }
+  }
+
   // Videos APIs
   Future<List<VideoModel>> getVideos() async {
     try {

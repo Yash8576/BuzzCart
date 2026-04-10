@@ -10,6 +10,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_buyers_sheet.dart';
 import '../../products/widgets/product_reviews_sheet.dart';
 
 class ShopPage extends StatefulWidget {
@@ -62,7 +63,11 @@ class _ShopPageState extends State<ShopPage> {
   List<ProductModel> _allProducts = [];
   List<ProductModel> _products = [];
   ProductModel? _productDetail;
+  List<ProductBuyerModel> _productBuyers = [];
+  List<ReviewModel> _productReviewsPreview = [];
   bool _loading = true;
+  bool _buyersLoading = false;
+  bool _reviewsPreviewLoading = false;
   String _category = '';
   int _currentImageIndex = 0;
   int _quantity = 1;
@@ -117,8 +122,78 @@ class _ShopPageState extends State<ShopPage> {
         _quantity = data.stockQuantity > 0 ? 1 : 0;
         _loading = false;
       });
+      await Future.wait([
+        _loadProductBuyers(data.id),
+        _loadProductReviewsPreview(data.id),
+      ]);
     } catch (e) {
       setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadProductBuyers(String productId) async {
+    if (productId.trim().isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _buyersLoading = true;
+      });
+    }
+
+    try {
+      final buyers = await _api.getProductBuyers(productId);
+      final sortedBuyers = List<ProductBuyerModel>.from(buyers)
+        ..sort(_compareBuyers);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _productBuyers = sortedBuyers;
+        _buyersLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _productBuyers = <ProductBuyerModel>[];
+        _buyersLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadProductReviewsPreview(String productId) async {
+    if (productId.trim().isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _reviewsPreviewLoading = true;
+      });
+    }
+
+    try {
+      final reviews = await _api.getProductReviewsRanked(productId);
+      final sortedReviews = List<ReviewModel>.from(reviews)
+        ..sort(_compareReviewPreview);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _productReviewsPreview = sortedReviews;
+        _reviewsPreviewLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _productReviewsPreview = <ReviewModel>[];
+        _reviewsPreviewLoading = false;
+      });
     }
   }
 
@@ -301,6 +376,48 @@ class _ShopPageState extends State<ShopPage> {
     if (didChange == true && mounted && widget.productId != null) {
       await _fetchProductDetail();
     }
+  }
+
+  Future<void> _openBuyersSheet(ProductModel product) async {
+    await showProductBuyersSheet(
+      context: context,
+      product: product,
+    );
+  }
+
+  int _compareBuyers(ProductBuyerModel a, ProductBuyerModel b) {
+    final connectionSort =
+        (b.isConnection ? 1 : 0).compareTo(a.isConnection ? 1 : 0);
+    if (connectionSort != 0) {
+      return connectionSort;
+    }
+    return _parseBuyerDate(b.purchaseDate)
+        .compareTo(_parseBuyerDate(a.purchaseDate));
+  }
+
+  DateTime _parseBuyerDate(String value) {
+    try {
+      return DateTime.parse(value);
+    } catch (_) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+  }
+
+  int _compareReviewPreview(ReviewModel a, ReviewModel b) {
+    final connectionSort =
+        (b.isFollowing ? 1 : 0).compareTo(a.isFollowing ? 1 : 0);
+    if (connectionSort != 0) {
+      return connectionSort;
+    }
+    return _reviewPreviewActivityTime(b).compareTo(_reviewPreviewActivityTime(a));
+  }
+
+  DateTime _reviewPreviewActivityTime(ReviewModel review) {
+    final updatedAt = review.updatedAt.trim();
+    if (updatedAt.isNotEmpty) {
+      return _parseBuyerDate(updatedAt);
+    }
+    return _parseBuyerDate(review.createdAt);
   }
 
   List<String> get _availableCategories {
@@ -604,21 +721,30 @@ class _ShopPageState extends State<ShopPage> {
                                     .withValues(alpha: 0.5),
                                 borderRadius: BorderRadius.circular(999),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${product.reviewsCount}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
+                              child: _ReviewsPreviewButton(
+                                reviews: _productReviewsPreview,
+                                isLoading: _reviewsPreviewLoading,
+                              ),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () => _openBuyersSheet(product),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Ink(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest
+                                    .withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: _BuyerPreviewButton(
+                                buyers: _productBuyers,
+                                isLoading: _buyersLoading,
                               ),
                             ),
                           ),
@@ -984,6 +1110,214 @@ class _CarouselArrowButton extends StatelessWidget {
         onPressed: onPressed,
         icon: Icon(icon, color: Colors.white),
       ),
+    );
+  }
+}
+
+class _BuyerPreviewButton extends StatelessWidget {
+  const _BuyerPreviewButton({
+    required this.buyers,
+    required this.isLoading,
+  });
+
+  final List<ProductBuyerModel> buyers;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final previewBuyers = buyers.take(3).toList();
+    final overflowCount = buyers.length - previewBuyers.length;
+
+    if (isLoading && buyers.isEmpty) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    if (previewBuyers.isEmpty) {
+      return const Text(
+        'Who bought this',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < previewBuyers.length; index++) ...[
+              if (index > 0) const SizedBox(width: 4),
+              _BuyerPreviewAvatar(buyer: previewBuyers[index]),
+            ],
+            if (overflowCount > 0) ...[
+              const SizedBox(width: 4),
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '+$overflowCount',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(width: 8),
+        const Text(
+          'Bought this',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BuyerPreviewAvatar extends StatelessWidget {
+  const _BuyerPreviewAvatar({
+    required this.buyer,
+  });
+
+  final ProductBuyerModel buyer;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName =
+        buyer.buyerName.trim().isEmpty ? 'Unknown' : buyer.buyerName.trim();
+    final avatarUrl = (buyer.buyerAvatar ?? '').trim();
+
+    return CircleAvatar(
+      radius: 13,
+      backgroundImage: avatarUrl.isNotEmpty
+          ? NetworkImage(UrlHelper.getPlatformUrl(avatarUrl))
+          : null,
+      child: avatarUrl.isEmpty
+          ? Text(
+              displayName.substring(0, 1).toUpperCase(),
+              style: const TextStyle(fontSize: 11),
+            )
+          : null,
+    );
+  }
+}
+
+class _ReviewsPreviewButton extends StatelessWidget {
+  const _ReviewsPreviewButton({
+    required this.reviews,
+    required this.isLoading,
+  });
+
+  final List<ReviewModel> reviews;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final previewReviews = reviews.take(3).toList();
+    final overflowCount = reviews.length - previewReviews.length;
+
+    if (isLoading && reviews.isEmpty) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    if (previewReviews.isEmpty) {
+      return const Text(
+        'Reviewed this',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < previewReviews.length; index++) ...[
+              if (index > 0) const SizedBox(width: 4),
+              _ReviewPreviewAvatar(review: previewReviews[index]),
+            ],
+            if (overflowCount > 0) ...[
+              const SizedBox(width: 4),
+              Container(
+                height: 26,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '+$overflowCount',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(width: 8),
+        const Text(
+          'Reviewed this',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReviewPreviewAvatar extends StatelessWidget {
+  const _ReviewPreviewAvatar({
+    required this.review,
+  });
+
+  final ReviewModel review;
+
+  @override
+  Widget build(BuildContext context) {
+    final displayName =
+        (review.username ?? '').trim().isEmpty ? 'Unknown' : review.username!.trim();
+    final avatarUrl = (review.userAvatar ?? '').trim();
+
+    return CircleAvatar(
+      radius: 13,
+      backgroundImage: avatarUrl.isNotEmpty
+          ? NetworkImage(UrlHelper.getPlatformUrl(avatarUrl))
+          : null,
+      child: avatarUrl.isEmpty
+          ? Text(
+              displayName.substring(0, 1).toUpperCase(),
+              style: const TextStyle(fontSize: 11),
+            )
+          : null,
     );
   }
 }
