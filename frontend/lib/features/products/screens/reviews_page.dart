@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/models.dart';
@@ -21,7 +22,7 @@ class ReviewsPage extends StatefulWidget {
 }
 
 class _ReviewsPageState extends State<ReviewsPage> {
-  final ApiService _api = ApiService();
+  late final ApiService _api;
   List<ReviewModel> _reviews = [];
   List<ReviewModel> _filteredReviews = [];
   bool _loading = true;
@@ -33,23 +34,59 @@ class _ReviewsPageState extends State<ReviewsPage> {
   @override
   void initState() {
     super.initState();
-    _fetchReviews();
+    _api = context.read<ApiService>();
+    _primeFromCache();
+    _fetchReviews(showLoading: _reviews.isEmpty);
   }
 
-  Future<void> _fetchReviews() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  void _primeFromCache() {
+    final cachedReviews = _api.peekCachedProductReviewsRanked(
+      widget.productId,
+      allowPartial: true,
+    );
+    if (cachedReviews == null || cachedReviews.isEmpty) {
+      return;
+    }
+    _reviews = cachedReviews;
+    _applyFiltersAndSort();
+    _loading = false;
+  }
+
+  Future<void> _fetchReviews({
+    bool showLoading = true,
+    bool forceRefresh = false,
+  }) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
-      final reviews = await _api.getProductReviews(widget.productId);
+      final reviews = await _api.getProductReviewsRanked(
+        widget.productId,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _reviews = reviews;
         _applyFiltersAndSort();
         _loading = false;
+        _error = null;
       });
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      if (_reviews.isNotEmpty) {
+        setState(() {
+          _loading = false;
+        });
+        return;
+      }
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -75,7 +112,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
         _filteredReviews.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         break;
       case 'helpful':
-        _filteredReviews.sort((a, b) => b.helpfulCount.compareTo(a.helpfulCount));
+        _filteredReviews
+            .sort((a, b) => b.helpfulCount.compareTo(a.helpfulCount));
         break;
       case 'rating_high':
         _filteredReviews.sort((a, b) => b.rating.compareTo(a.rating));
@@ -111,8 +149,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
       } else {
         await _api.markReviewHelpful(review.id);
       }
-      // Refresh reviews to get updated counts
-      await _fetchReviews();
+      _api.invalidateProductReviewCache(widget.productId);
+      await _fetchReviews(showLoading: false, forceRefresh: true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -129,8 +167,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
     );
 
     if (result == true) {
-      // Review was submitted, refresh the list
-      await _fetchReviews();
+      await _fetchReviews(showLoading: false, forceRefresh: true);
     }
   }
 
@@ -169,12 +206,13 @@ class _ReviewsPageState extends State<ReviewsPage> {
           children: [
             const Icon(Icons.error_outline, size: 64, color: Colors.red),
             const SizedBox(height: 16),
-            Text('Error loading reviews', style: Theme.of(context).textTheme.titleLarge),
+            Text('Error loading reviews',
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(_error!, textAlign: TextAlign.center),
             const SizedBox(height: 16),
             ElevatedButton(
-              onPressed: _fetchReviews,
+              onPressed: () => _fetchReviews(forceRefresh: true),
               child: const Text('Retry'),
             ),
           ],
@@ -214,7 +252,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.electricBlue,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
               ),
             ),
           ],
@@ -229,7 +268,10 @@ class _ReviewsPageState extends State<ReviewsPage> {
         _buildSortBar(isDark),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _fetchReviews,
+            onRefresh: () => _fetchReviews(
+              showLoading: false,
+              forceRefresh: true,
+            ),
             child: _filteredReviews.isEmpty
                 ? Center(
                     child: Padding(
@@ -245,7 +287,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: _filteredReviews.length,
-                    separatorBuilder: (context, index) => const Divider(height: 32),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 32),
                     itemBuilder: (context, index) {
                       final review = _filteredReviews[index];
                       return ReviewCard(
@@ -319,7 +362,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
                   children: List.generate(5, (index) {
                     final rating = 5 - index;
                     final count = ratingCounts[rating] ?? 0;
-                    final percentage = totalReviews > 0 ? count / totalReviews : 0.0;
+                    final percentage =
+                        totalReviews > 0 ? count / totalReviews : 0.0;
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -329,7 +373,8 @@ class _ReviewsPageState extends State<ReviewsPage> {
                             '$rating',
                             style: TextStyle(
                               fontSize: 12,
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
+                              color:
+                                  isDark ? Colors.grey[400] : Colors.grey[600],
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -344,7 +389,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
                               borderRadius: BorderRadius.circular(4),
                               child: LinearProgressIndicator(
                                 value: percentage,
-                                backgroundColor: isDark ? Colors.grey[800] : Colors.grey[200],
+                                backgroundColor: isDark
+                                    ? Colors.grey[800]
+                                    : Colors.grey[200],
                                 valueColor: const AlwaysStoppedAnimation<Color>(
                                   AppColors.electricBlue,
                                 ),
@@ -360,7 +407,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
                               textAlign: TextAlign.right,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                color: isDark
+                                    ? Colors.grey[400]
+                                    : Colors.grey[600],
                               ),
                             ),
                           ),
@@ -488,7 +537,9 @@ class _ReviewsPageState extends State<ReviewsPage> {
                 : (isDark ? Colors.grey[800] : Colors.grey[100]),
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? color : (isDark ? Colors.grey[700]! : Colors.grey[300]!),
+              color: isSelected
+                  ? color
+                  : (isDark ? Colors.grey[700]! : Colors.grey[300]!),
               width: isSelected ? 2 : 1,
             ),
           ),
@@ -498,14 +549,18 @@ class _ReviewsPageState extends State<ReviewsPage> {
               Icon(
                 icon,
                 size: 16,
-                color: isSelected ? color : (isDark ? Colors.grey[400] : Colors.grey[600]),
+                color: isSelected
+                    ? color
+                    : (isDark ? Colors.grey[400] : Colors.grey[600]),
               ),
               const SizedBox(width: 6),
               Text(
                 '$label ($count)',
                 style: TextStyle(
                   fontSize: 13,
-                  color: isSelected ? color : (isDark ? Colors.grey[300] : Colors.grey[700]),
+                  color: isSelected
+                      ? color
+                      : (isDark ? Colors.grey[300] : Colors.grey[700]),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
               ),

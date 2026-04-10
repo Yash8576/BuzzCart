@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -450,6 +451,19 @@ func normalizeProductCreate(req models.ProductCreate) models.ProductCreate {
 		req.Condition = "new"
 	}
 	return req
+}
+
+func parseListLimit(c *gin.Context, defaultLimit int) int {
+	limit := defaultLimit
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
 }
 
 func getProductByID(db *sql.DB, productID string) (models.Product, error) {
@@ -1035,6 +1049,7 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("product_id")
+		limit := parseListLimit(c, 50)
 
 		// Check if product exists
 		var productExists bool
@@ -1067,8 +1082,9 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 					 LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
 					 WHERE pr.product_id = $1 
 					 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-					 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
-					productID, userID,
+					 ORDER BY pr.updated_at DESC, pr.created_at DESC
+					 LIMIT $3`,
+					productID, userID, limit,
 				)
 			} else {
 				rows, err = db.Query(
@@ -1081,8 +1097,9 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 					 JOIN users u ON pr.user_id = u.id
 					 WHERE pr.product_id = $1 
 					 AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-					 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
-					productID, userID,
+					 ORDER BY pr.updated_at DESC, pr.created_at DESC
+					 LIMIT $3`,
+					productID, userID, limit,
 				)
 			}
 		} else {
@@ -1095,8 +1112,9 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 				 FROM product_ratings pr
 				 JOIN users u ON pr.user_id = u.id
 				 WHERE pr.product_id = $1 AND pr.moderation_status = 'approved' AND pr.is_private = false
-				 ORDER BY pr.updated_at DESC, pr.created_at DESC`,
-				productID,
+				 ORDER BY pr.updated_at DESC, pr.created_at DESC
+				 LIMIT $2`,
+				productID, limit,
 			)
 		}
 
@@ -1301,9 +1319,10 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("product_id")
 		userID := c.GetString("user_id")
+		limit := parseListLimit(c, 50)
 
 		// Create cache key based on product and user
-		cacheKey := fmt.Sprintf("ranked_reviews:%s:%s", productID, userID)
+		cacheKey := fmt.Sprintf("ranked_reviews:%s:%s:%d", productID, userID, limit)
 
 		// Try to get from cache
 		if cachedData, err := cache.Get(cacheKey); err == nil {
@@ -1361,14 +1380,15 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 					LEFT JOIN user_follows uf_author_follows_user 
 						ON uf_author_follows_user.follower_id = pr.user_id 
 						AND uf_author_follows_user.following_id = $2
-					LEFT JOIN user_follows uf_user_follows_author 
-						ON uf_user_follows_author.follower_id = $2 
-						AND uf_user_follows_author.following_id = pr.user_id
+					 LEFT JOIN user_follows uf_user_follows_author 
+						 ON uf_user_follows_author.follower_id = $2 
+						 AND uf_user_follows_author.following_id = pr.user_id
 					LEFT JOIN review_helpful_votes rhv ON rhv.review_id = pr.id AND rhv.user_id = $2
 					WHERE pr.product_id = $1 
 					AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
-					productID, userID,
+					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC
+					LIMIT $3`,
+					productID, userID, limit,
 				)
 			} else {
 				rows, err = db.Query(
@@ -1397,13 +1417,14 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 					LEFT JOIN user_follows uf_author_follows_user 
 						ON uf_author_follows_user.follower_id = pr.user_id 
 						AND uf_author_follows_user.following_id = $2
-					LEFT JOIN user_follows uf_user_follows_author 
-						ON uf_user_follows_author.follower_id = $2 
-						AND uf_user_follows_author.following_id = pr.user_id
+					 LEFT JOIN user_follows uf_user_follows_author 
+						 ON uf_user_follows_author.follower_id = $2 
+						 AND uf_user_follows_author.following_id = pr.user_id
 					WHERE pr.product_id = $1 
 					AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
-					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
-					productID, userID,
+					ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC
+					LIMIT $3`,
+					productID, userID, limit,
 				)
 			}
 		} else {
@@ -1419,8 +1440,9 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 				WHERE pr.product_id = $1 
 				AND pr.moderation_status = 'approved' 
 				AND pr.is_private = false
-				ORDER BY pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC`,
-				productID,
+				ORDER BY pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC
+				LIMIT $2`,
+				productID, limit,
 			)
 		}
 

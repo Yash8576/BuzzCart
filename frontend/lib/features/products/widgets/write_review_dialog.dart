@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 
@@ -17,17 +20,23 @@ class WriteReviewDialog extends StatefulWidget {
 }
 
 class _WriteReviewDialogState extends State<WriteReviewDialog> {
-  final ApiService _api = ApiService();
+  late final ApiService _api;
   final ImagePicker _picker = ImagePicker();
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _textController = TextEditingController();
-  
+
   int _rating = 0;
   bool _isPrivate = false;
   bool _submitting = false;
   final List<XFile> _selectedImages = [];
   static const int _maxImages = 5;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = context.read<ApiService>();
+  }
 
   @override
   void dispose() {
@@ -115,15 +124,17 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
       await _api.createReview(
         productId: widget.productId,
         rating: _rating,
-        reviewTitle: _titleController.text.trim().isNotEmpty 
-            ? _titleController.text.trim() 
+        reviewTitle: _titleController.text.trim().isNotEmpty
+            ? _titleController.text.trim()
             : null,
-        reviewText: _textController.text.trim().isNotEmpty 
-            ? _textController.text.trim() 
+        reviewText: _textController.text.trim().isNotEmpty
+            ? _textController.text.trim()
             : null,
         isPrivate: _isPrivate,
         imageUrls: imageUrls,
       );
+      _api.invalidateProductReviewCache(widget.productId);
+      unawaited(_api.warmProductReviewsRanked(widget.productId));
 
       if (mounted) {
         Navigator.of(context).pop(true); // Return true to indicate success
@@ -164,7 +175,10 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
                       Expanded(
                         child: Text(
                           'Write a Review',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                         ),
@@ -306,7 +320,8 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
                               width: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             )
                           : const Text(

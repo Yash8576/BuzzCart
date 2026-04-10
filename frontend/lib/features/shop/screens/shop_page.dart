@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -110,7 +111,10 @@ class _ShopPageState extends State<ShopPage> {
     try {
       setState(() => _loading = true);
       final currentUserId = context.read<AuthProvider>().user?.id;
-      final data = await _api.getProduct(widget.productId!);
+      final productId = widget.productId!;
+      final buyersFuture = _loadProductBuyers(productId);
+      final reviewsFuture = _loadProductReviewsPreview(productId);
+      final data = await _api.getProduct(productId);
       if (!widget.allowOwnProductPreview && data.sellerId == currentUserId) {
         if (!mounted) {
           return;
@@ -123,10 +127,7 @@ class _ShopPageState extends State<ShopPage> {
         _quantity = data.stockQuantity > 0 ? 1 : 0;
         _loading = false;
       });
-      await Future.wait([
-        _loadProductBuyers(data.id),
-        _loadProductReviewsPreview(data.id),
-      ]);
+      await Future.wait([buyersFuture, reviewsFuture]);
     } catch (e) {
       setState(() => _loading = false);
     }
@@ -177,7 +178,8 @@ class _ShopPageState extends State<ShopPage> {
     }
 
     try {
-      final reviews = await _api.getProductReviewsRanked(productId);
+      final reviews = await _api.getProductReviewsRanked(productId, limit: 3);
+      unawaited(_api.warmProductReviewsRanked(productId));
       final sortedReviews = List<ReviewModel>.from(reviews)
         ..sort(_compareReviewPreview);
       if (!mounted) {
@@ -219,7 +221,7 @@ class _ShopPageState extends State<ShopPage> {
     final cartItems = context.read<CartProvider>().cart.items;
     final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
     final remainingStock = _remainingStockForProduct(product, inCartQuantity);
-    
+
     if (remainingStock <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -233,7 +235,7 @@ class _ShopPageState extends State<ShopPage> {
         .read<CartProvider>()
         .addToCart(product.id, maxQuantity: remainingStock);
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -438,7 +440,8 @@ class _ShopPageState extends State<ShopPage> {
     if (connectionSort != 0) {
       return connectionSort;
     }
-    return _reviewPreviewActivityTime(b).compareTo(_reviewPreviewActivityTime(a));
+    return _reviewPreviewActivityTime(b)
+        .compareTo(_reviewPreviewActivityTime(a));
   }
 
   DateTime _reviewPreviewActivityTime(ReviewModel review) {
@@ -1033,8 +1036,10 @@ class _ShopPageState extends State<ShopPage> {
                   itemBuilder: (context, index) {
                     final product = _products[index];
                     final cartItems = context.watch<CartProvider>().cart.items;
-                    final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
-                    final remainingStock = _remainingStockForProduct(product, inCartQuantity);
+                    final inCartQuantity =
+                        _cartQuantityForProduct(cartItems, product.id);
+                    final remainingStock =
+                        _remainingStockForProduct(product, inCartQuantity);
                     final canAddToCart = remainingStock > 0;
 
                     return Card(
@@ -1072,7 +1077,8 @@ class _ShopPageState extends State<ShopPage> {
                                       elevation: 2,
                                       child: InkWell(
                                         onTap: canAddToCart
-                                            ? () => _handleGridAddToCart(product)
+                                            ? () =>
+                                                _handleGridAddToCart(product)
                                             : null,
                                         borderRadius:
                                             BorderRadius.circular(999),
@@ -1355,8 +1361,9 @@ class _ReviewPreviewAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayName =
-        (review.username ?? '').trim().isEmpty ? 'Unknown' : review.username!.trim();
+    final displayName = (review.username ?? '').trim().isEmpty
+        ? 'Unknown'
+        : review.username!.trim();
     final avatarUrl = (review.userAvatar ?? '').trim();
 
     return CircleAvatar(

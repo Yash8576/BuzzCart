@@ -63,7 +63,8 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
     _api = context.read<ApiService>();
     _reviewController = TextEditingController();
     _canWriteReview = widget.initialCanWriteReview;
-    _loadData();
+    _primeFromCachedReviews();
+    _loadData(showLoading: _reviews.isEmpty);
   }
 
   @override
@@ -72,7 +73,22 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
     super.dispose();
   }
 
-  Future<void> _loadData({bool showLoading = true}) async {
+  void _primeFromCachedReviews() {
+    final cachedReviews = _api.peekCachedProductReviewsRanked(
+      widget.product.id,
+      allowPartial: true,
+    );
+    if (cachedReviews == null || cachedReviews.isEmpty) {
+      return;
+    }
+    _applyLoadedReviews(cachedReviews);
+    _loading = false;
+  }
+
+  Future<void> _loadData({
+    bool showLoading = true,
+    bool forceRefresh = false,
+  }) async {
     final currentUserId = context.read<AuthProvider>().user?.id;
 
     if (showLoading && mounted) {
@@ -83,51 +99,83 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
     }
 
     try {
-      final reviews = await _api.getProductReviewsRanked(widget.product.id);
-      final sortedReviews = List<ReviewModel>.from(reviews)
-        ..sort(_compareReviews);
-
-      ReviewModel? currentUserReview;
-      if (currentUserId != null && currentUserId.isNotEmpty) {
-        for (final review in sortedReviews) {
-          if (review.userId == currentUserId) {
-            currentUserReview = review;
-            break;
-          }
-        }
-      }
-
-      var canWriteReview = widget.initialCanWriteReview || currentUserReview != null;
-      if (!canWriteReview &&
-          currentUserId != null &&
-          currentUserId.isNotEmpty) {
-        final purchases = await _api.getUserPurchases(currentUserId);
-        canWriteReview =
-            purchases.any((purchase) => purchase.id == widget.product.id);
-      }
+      final reviews = await _api.getProductReviewsRanked(
+        widget.product.id,
+        forceRefresh: forceRefresh,
+      );
 
       if (!mounted) {
         return;
       }
 
-      _reviewController.text = currentUserReview?.reviewText ?? '';
-
       setState(() {
-        _reviews = sortedReviews;
-        _currentUserReview = currentUserReview;
-        _selectedRating = currentUserReview?.rating ?? 0;
-        _canWriteReview = canWriteReview;
+        _applyLoadedReviews(reviews, currentUserId: currentUserId);
         _loading = false;
         _error = null;
       });
+
+      final canWriteReview =
+          widget.initialCanWriteReview || _currentUserReview != null;
+      if (!canWriteReview &&
+          currentUserId != null &&
+          currentUserId.isNotEmpty) {
+        _resolveWriteReviewPermission(currentUserId);
+      }
     } catch (error) {
       if (!mounted) {
+        return;
+      }
+      if (_reviews.isNotEmpty) {
+        setState(() {
+          _loading = false;
+        });
         return;
       }
       setState(() {
         _loading = false;
         _error = _errorMessage(error);
       });
+    }
+  }
+
+  void _applyLoadedReviews(
+    List<ReviewModel> reviews, {
+    String? currentUserId,
+  }) {
+    final userId = currentUserId ?? context.read<AuthProvider>().user?.id;
+    final sortedReviews = List<ReviewModel>.from(reviews)
+      ..sort(_compareReviews);
+
+    ReviewModel? currentUserReview;
+    if (userId != null && userId.isNotEmpty) {
+      for (final review in sortedReviews) {
+        if (review.userId == userId) {
+          currentUserReview = review;
+          break;
+        }
+      }
+    }
+
+    _reviews = sortedReviews;
+    _currentUserReview = currentUserReview;
+    _selectedRating = currentUserReview?.rating ?? 0;
+    _canWriteReview = widget.initialCanWriteReview || currentUserReview != null;
+    _reviewController.text = currentUserReview?.reviewText ?? '';
+  }
+
+  Future<void> _resolveWriteReviewPermission(String currentUserId) async {
+    try {
+      final purchases = await _api.getUserPurchases(currentUserId);
+      final canWriteReview =
+          purchases.any((purchase) => purchase.id == widget.product.id);
+      if (!mounted || !canWriteReview) {
+        return;
+      }
+      setState(() {
+        _canWriteReview = true;
+      });
+    } catch (_) {
+      // Keep the sheet responsive even if purchase lookup fails.
     }
   }
 
@@ -230,6 +278,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
       }
 
       _didChangeReviews = true;
+      _api.invalidateProductReviewCache(widget.product.id);
 
       if (!mounted) {
         return;
@@ -240,7 +289,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
         _composerExpanded = false;
       });
 
-      await _loadData(showLoading: false);
+      await _loadData(showLoading: false, forceRefresh: true);
       if (widget.onReviewChanged != null) {
         await widget.onReviewChanged!();
       }
@@ -322,7 +371,8 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
                       ),
                     ),
                     IconButton(
-                      onPressed: () => Navigator.of(context).pop(_didChangeReviews),
+                      onPressed: () =>
+                          Navigator.of(context).pop(_didChangeReviews),
                       icon: const Icon(Icons.close),
                     ),
                   ],
@@ -350,7 +400,8 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, size: 40, color: Colors.redAccent),
+              const Icon(Icons.error_outline,
+                  size: 40, color: Colors.redAccent),
               const SizedBox(height: 12),
               Text(
                 _error!,
@@ -358,7 +409,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
               ),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: _loadData,
+                onPressed: () => _loadData(forceRefresh: true),
                 child: const Text('Retry'),
               ),
             ],
@@ -369,7 +420,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
 
     if (_reviews.isEmpty) {
       return RefreshIndicator(
-        onRefresh: _loadData,
+        onRefresh: () => _loadData(showLoading: false, forceRefresh: true),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 28, 20, 20),
           children: const [
@@ -395,7 +446,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
     }
 
     return RefreshIndicator(
-      onRefresh: _loadData,
+      onRefresh: () => _loadData(showLoading: false, forceRefresh: true),
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         itemCount: _reviews.length,
@@ -462,7 +513,8 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
                                         _selectedRating =
                                             _currentUserReview?.rating ?? 0;
                                         _reviewController.text =
-                                            _currentUserReview?.reviewText ?? '';
+                                            _currentUserReview?.reviewText ??
+                                                '';
                                       });
                                     },
                               child: const Text('Cancel'),
@@ -476,8 +528,8 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
                             return IconButton(
                               onPressed: _submitting
                                   ? null
-                                  : () =>
-                                      setState(() => _selectedRating = starValue),
+                                  : () => setState(
+                                      () => _selectedRating = starValue),
                               icon: Icon(
                                 starValue <= _selectedRating
                                     ? Icons.star_rounded
@@ -526,8 +578,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
                                     height: 18,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
-                                      valueColor:
-                                          AlwaysStoppedAnimation<Color>(
+                                      valueColor: AlwaysStoppedAnimation<Color>(
                                         Colors.white,
                                       ),
                                     ),
@@ -627,7 +678,8 @@ class _ReviewListItemState extends State<_ReviewListItem> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
+        color:
+            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.26),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -702,7 +754,8 @@ class _ReviewListItemState extends State<_ReviewListItem> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (review.isFollowing) _Badge(label: 'Connection', color: AppColors.electricBlue),
+                if (review.isFollowing)
+                  _Badge(label: 'Connection', color: AppColors.electricBlue),
                 if (review.isVerifiedPurchase)
                   const _Badge(label: 'Verified Purchase', color: Colors.green),
               ],
@@ -713,7 +766,8 @@ class _ReviewListItemState extends State<_ReviewListItem> {
             Text(
               bodyText,
               maxLines: _expanded ? null : 2,
-              overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+              overflow:
+                  _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
               style: const TextStyle(height: 1.35),
             ),
             if (canExpand)
@@ -734,8 +788,10 @@ class _ReviewListItemState extends State<_ReviewListItem> {
 
   String _bodyText(ReviewModel review) {
     final segments = <String>[
-      if (review.reviewTitle?.trim().isNotEmpty == true) review.reviewTitle!.trim(),
-      if (review.reviewText?.trim().isNotEmpty == true) review.reviewText!.trim(),
+      if (review.reviewTitle?.trim().isNotEmpty == true)
+        review.reviewTitle!.trim(),
+      if (review.reviewText?.trim().isNotEmpty == true)
+        review.reviewText!.trim(),
     ];
     return segments.join('\n\n');
   }

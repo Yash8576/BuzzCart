@@ -8,6 +8,7 @@ import '../config/app_config.dart';
 import '../models/models.dart';
 
 class ApiService {
+  static const Duration _productReviewCacheTtl = Duration(minutes: 3);
   static const FlutterSecureStorage _storage = FlutterSecureStorage(
     aOptions: AndroidOptions(
       encryptedSharedPreferences: true,
@@ -17,6 +18,10 @@ class ApiService {
   late final Dio _dio;
   String? _token;
   bool _isTokenLoaded = false;
+  final Map<String, _CachedReviewCollection> _rankedReviewCache =
+      <String, _CachedReviewCollection>{};
+  final Map<String, _InFlightReviewRequest> _rankedReviewInFlight =
+      <String, _InFlightReviewRequest>{};
 
   bool _shouldSuppressErrorLog(DioException error) {
     final statusCode = error.response?.statusCode;
@@ -490,6 +495,45 @@ class ApiService {
 
   Future<void> logout() async {
     await _clearToken();
+  }
+
+  List<ReviewModel>? peekCachedProductReviewsRanked(
+    String productId, {
+    int limit = 50,
+    bool allowPartial = false,
+  }) {
+    final cacheKey = _rankedReviewCacheKey(productId);
+    final cached = _rankedReviewCache[cacheKey];
+    if (cached == null) {
+      return null;
+    }
+    if (cached.isExpired(_productReviewCacheTtl)) {
+      _rankedReviewCache.remove(cacheKey);
+      return null;
+    }
+    if (!allowPartial && !cached.canSatisfy(limit)) {
+      return null;
+    }
+    return List<ReviewModel>.from(cached.slice(limit));
+  }
+
+  void invalidateProductReviewCache(String productId) {
+    final cacheKeySuffix = '::$productId';
+    _rankedReviewCache.removeWhere(
+      (key, _) => key.endsWith(cacheKeySuffix),
+    );
+    _rankedReviewInFlight.removeWhere(
+      (key, _) => key.endsWith(cacheKeySuffix),
+    );
+  }
+
+  Future<void> warmProductReviewsRanked(String productId,
+      {int limit = 50}) async {
+    try {
+      await getProductReviewsRanked(productId, limit: limit);
+    } catch (_) {
+      // A warm-up miss should never block UI flows.
+    }
   }
 
   // Feed API
@@ -1173,24 +1217,98 @@ class ApiService {
   }
 
   Future<List<ReviewModel>> getProductReviewsRanked(String productId,
-      {int limit = 50}) async {
+      {int limit = 50, bool forceRefresh = false}) async {
+    await _loadToken();
+    final cacheKey = _rankedReviewCacheKey(productId);
+
+    if (!forceRefresh) {
+      final cached = peekCachedProductReviewsRanked(productId, limit: limit);
+      if (cached != null) {
+        return cached;
+      }
+
+      final inFlight = _rankedReviewInFlight[cacheKey];
+      if (inFlight != null && inFlight.requestedLimit >= limit) {
+        final reviews = await inFlight.future;
+        return List<ReviewModel>.from(reviews.take(limit));
+      }
+    }
+
+    final request =
+        _fetchProductReviewsRankedNetwork(cacheKey, productId, limit: limit);
+    _rankedReviewInFlight[cacheKey] = _InFlightReviewRequest(
+      future: request,
+      requestedLimit: limit,
+    );
+
+    try {
+      return await request;
+    } finally {
+      final activeRequest = _rankedReviewInFlight[cacheKey];
+      if (identical(activeRequest?.future, request)) {
+        _rankedReviewInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<List<ReviewModel>> _fetchProductReviewsRankedNetwork(
+    String cacheKey,
+    String productId, {
+    required int limit,
+  }) async {
     try {
       final response = await _dio.get(
         '/products/$productId/reviews/ranked',
         queryParameters: {'limit': limit},
       );
-      return (response.data as List)
+      final reviews = (response.data as List)
           .map((item) => ReviewModel.fromJson(item as Map<String, dynamic>))
           .toList();
+      _storeRankedReviewCache(cacheKey, reviews, requestedLimit: limit);
+      return List<ReviewModel>.from(
+        _rankedReviewCache[cacheKey]?.slice(limit) ?? reviews,
+      );
     } on DioException catch (error) {
       if (error.response?.statusCode == 404) {
-        return getProductReviews(productId, limit: limit);
+        final fallbackReviews =
+            await getProductReviews(productId, limit: limit);
+        _storeRankedReviewCache(
+          cacheKey,
+          fallbackReviews,
+          requestedLimit: limit,
+        );
+        return List<ReviewModel>.from(
+          _rankedReviewCache[cacheKey]?.slice(limit) ?? fallbackReviews,
+        );
       }
-      rethrow;
-    } catch (e) {
       rethrow;
     }
   }
+
+  void _storeRankedReviewCache(
+    String cacheKey,
+    List<ReviewModel> reviews, {
+    required int requestedLimit,
+  }) {
+    final existing = _rankedReviewCache[cacheKey];
+    final isComplete = reviews.length < requestedLimit;
+    final shouldKeepExistingLarger = existing != null &&
+        !existing.isExpired(_productReviewCacheTtl) &&
+        !isComplete &&
+        existing.reviews.length > reviews.length;
+
+    _rankedReviewCache[cacheKey] = _CachedReviewCollection(
+      reviews: List<ReviewModel>.unmodifiable(
+        shouldKeepExistingLarger ? existing.reviews : reviews,
+      ),
+      fetchedAt: DateTime.now(),
+      isComplete:
+          isComplete || (shouldKeepExistingLarger && existing.isComplete),
+    );
+  }
+
+  String _rankedReviewCacheKey(String productId) =>
+      '${_token ?? 'anonymous'}::$productId';
 
   Future<ReviewModel> getReview(String reviewId) async {
     try {
@@ -1338,4 +1456,37 @@ class ApiService {
         return MediaType('image', 'jpeg');
     }
   }
+}
+
+class _CachedReviewCollection {
+  const _CachedReviewCollection({
+    required this.reviews,
+    required this.fetchedAt,
+    required this.isComplete,
+  });
+
+  final List<ReviewModel> reviews;
+  final DateTime fetchedAt;
+  final bool isComplete;
+
+  bool isExpired(Duration ttl) => DateTime.now().difference(fetchedAt) > ttl;
+
+  bool canSatisfy(int limit) => isComplete || reviews.length >= limit;
+
+  List<ReviewModel> slice(int limit) {
+    if (reviews.length <= limit) {
+      return reviews;
+    }
+    return reviews.take(limit).toList(growable: false);
+  }
+}
+
+class _InFlightReviewRequest {
+  const _InFlightReviewRequest({
+    required this.future,
+    required this.requestedLimit,
+  });
+
+  final Future<List<ReviewModel>> future;
+  final int requestedLimit;
 }
