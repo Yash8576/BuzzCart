@@ -661,9 +661,10 @@ class _HomePageState extends State<HomePage> {
                           child: Padding(
                             padding: const EdgeInsets.all(8),
                             child: Icon(
-                              Icons.shopping_bag_outlined,
-                              size: 18,
-                              color: canAddToCart ? Colors.black : Colors.grey,
+                              Icons.add_shopping_cart_rounded,
+                              size: 20,
+                              color:
+                                  canAddToCart ? Colors.black : Colors.grey,
                             ),
                           ),
                         ),

@@ -215,6 +215,34 @@ class _ShopPageState extends State<ShopPage> {
     return remaining > 0 ? remaining : 0;
   }
 
+  Future<void> _handleGridAddToCart(ProductModel product) async {
+    final cartItems = context.read<CartProvider>().cart.items;
+    final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
+    final remainingStock = _remainingStockForProduct(product, inCartQuantity);
+    
+    if (remainingStock <= 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Max stock already in cart')),
+        );
+      }
+      return;
+    }
+
+    final added = await context
+        .read<CartProvider>()
+        .addToCart(product.id, maxQuantity: remainingStock);
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          added ? 'Added to cart!' : 'Failed to add to cart',
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleAddToCart(
       ProductModel product, int remainingStock) async {
     final quantityToAdd = math.min(_quantity, remainingStock);
@@ -1004,6 +1032,11 @@ class _ShopPageState extends State<ShopPage> {
                   itemCount: _products.length,
                   itemBuilder: (context, index) {
                     final product = _products[index];
+                    final cartItems = context.watch<CartProvider>().cart.items;
+                    final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
+                    final remainingStock = _remainingStockForProduct(product, inCartQuantity);
+                    final canAddToCart = remainingStock > 0;
+
                     return Card(
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
@@ -1012,18 +1045,51 @@ class _ShopPageState extends State<ShopPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: Image.network(
-                                UrlHelper.getPlatformUrl(
-                                  product.images.isNotEmpty
-                                      ? product.images.first
-                                      : '',
-                                ),
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                errorBuilder: (_, __, ___) => Container(
-                                  color: Colors.grey[300],
-                                  child: const Icon(Icons.image),
-                                ),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.network(
+                                    UrlHelper.getPlatformUrl(
+                                      product.images.isNotEmpty
+                                          ? product.images.first
+                                          : '',
+                                    ),
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Icon(Icons.image),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    right: 10,
+                                    bottom: 10,
+                                    child: Material(
+                                      color: canAddToCart
+                                          ? Colors.white
+                                          : Colors.grey.shade300,
+                                      borderRadius: BorderRadius.circular(999),
+                                      elevation: 2,
+                                      child: InkWell(
+                                        onTap: canAddToCart
+                                            ? () => _handleGridAddToCart(product)
+                                            : null,
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(8),
+                                          child: Icon(
+                                            Icons.add_shopping_cart_rounded,
+                                            size: 20,
+                                            color: canAddToCart
+                                                ? Colors.black
+                                                : Colors.grey,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             Padding(
