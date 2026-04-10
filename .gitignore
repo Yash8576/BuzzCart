@@ -57,6 +57,9 @@ frontend/build/
 frontend/.dart_tool/
 frontend/.gradle-user-home/
 
+# Local Go cache
+.gocache-local/
+
 # IDE
 .vscode/
 .idea/
