@@ -10,6 +10,7 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_card_social_preview.dart';
 import '../../products/widgets/product_buyers_sheet.dart';
 import '../../products/widgets/product_reviews_sheet.dart';
 
@@ -996,7 +997,7 @@ class _ShopPageState extends State<ShopPage> {
                   padding: const EdgeInsets.all(12),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: columns,
-                    childAspectRatio: 0.72,
+                    childAspectRatio: 0.64,
                     crossAxisSpacing: _gridSpacing,
                     mainAxisSpacing: _gridSpacing,
                   ),
@@ -1037,7 +1038,7 @@ class _ShopPageState extends State<ShopPage> {
                                     style: const TextStyle(
                                         fontWeight: FontWeight.w500),
                                   ),
-                                  const SizedBox(height: 2),
+                                  const SizedBox(height: 6),
                                   Text(
                                     product.brandName ?? product.sellerName,
                                     maxLines: 1,
@@ -1048,34 +1049,19 @@ class _ShopPageState extends State<ShopPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          '\$${product.price.toStringAsFixed(2)}',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.electricBlue,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const Icon(
-                                        Icons.star_rounded,
-                                        size: 14,
-                                        color: Colors.amber,
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey[700],
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    '\$${product.price.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.electricBlue,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  ProductCardSocialPreview(
+                                    productId: product.id,
+                                    maxAvatars: 2,
                                   ),
                                 ],
                               ),

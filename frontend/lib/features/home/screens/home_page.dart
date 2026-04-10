@@ -11,6 +11,7 @@ import '../../../core/providers/cart_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_card_social_preview.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -24,7 +25,7 @@ class _HomePageState extends State<HomePage> {
   static const double _mediaCardMaxWidth = 560;
   static const double _reelCardMaxWidth = 420;
   static const double _productRailCardWidth = 188;
-  static const double _productRailHeight = 278;
+  static const double _productRailHeight = 296;
   static const double _listCacheExtent = 2200;
 
   List<_HomeSection> _sections = [];
@@ -686,7 +687,7 @@ class _HomePageState extends State<HomePage> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 6),
                       Text(
                         product.brandName ?? product.sellerName,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -714,21 +715,12 @@ class _HomePageState extends State<HomePage> {
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const Icon(
-                            Icons.star_rounded,
-                            size: 14,
-                            color: Colors.amber,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})',
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.grey[700],
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                          ),
                         ],
+                      ),
+                      const SizedBox(height: 6),
+                      ProductCardSocialPreview(
+                        productId: product.id,
+                        maxAvatars: 2,
                       ),
                     ],
                   ),
