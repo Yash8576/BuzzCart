@@ -180,12 +180,27 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
   }
 
   int _compareReviews(ReviewModel a, ReviewModel b) {
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    final ownReviewSort =
+        (_isCurrentUserReview(b, currentUserId) ? 1 : 0)
+            .compareTo(_isCurrentUserReview(a, currentUserId) ? 1 : 0);
+    if (ownReviewSort != 0) {
+      return ownReviewSort;
+    }
+
     final connectionSort =
         (b.isFollowing ? 1 : 0).compareTo(a.isFollowing ? 1 : 0);
     if (connectionSort != 0) {
       return connectionSort;
     }
     return _reviewActivityTime(b).compareTo(_reviewActivityTime(a));
+  }
+
+  bool _isCurrentUserReview(ReviewModel review, String? currentUserId) {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      return false;
+    }
+    return review.userId == currentUserId;
   }
 
   DateTime _parseDate(String value) {

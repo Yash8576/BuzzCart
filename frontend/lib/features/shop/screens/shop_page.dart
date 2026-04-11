@@ -435,6 +435,14 @@ class _ShopPageState extends State<ShopPage> {
   }
 
   int _compareReviewPreview(ReviewModel a, ReviewModel b) {
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    final ownReviewSort =
+        (_isCurrentUserReview(b, currentUserId) ? 1 : 0)
+            .compareTo(_isCurrentUserReview(a, currentUserId) ? 1 : 0);
+    if (ownReviewSort != 0) {
+      return ownReviewSort;
+    }
+
     final connectionSort =
         (b.isFollowing ? 1 : 0).compareTo(a.isFollowing ? 1 : 0);
     if (connectionSort != 0) {
@@ -450,6 +458,13 @@ class _ShopPageState extends State<ShopPage> {
       return _parseBuyerDate(updatedAt);
     }
     return _parseBuyerDate(review.createdAt);
+  }
+
+  bool _isCurrentUserReview(ReviewModel review, String? currentUserId) {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      return false;
+    }
+    return review.userId == currentUserId;
   }
 
   List<String> get _availableCategories {
@@ -718,25 +733,42 @@ class _ShopPageState extends State<ShopPage> {
                         spacing: 14,
                         runSpacing: 10,
                         children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.star_rounded,
-                                size: 18,
-                                color: Colors.amber,
+                          InkWell(
+                            onTap: () => _openReviewsSheet(product),
+                            borderRadius: BorderRadius.circular(999),
+                            child: Ink(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                product.reviewsCount > 0
-                                    ? '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})'
-                                    : 'No reviews yet',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey[700],
-                                ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest
+                                    .withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(999),
                               ),
-                            ],
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    size: 18,
+                                    color: Colors.amber,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    product.reviewsCount > 0
+                                        ? '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})'
+                                        : 'No reviews yet',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                           InkWell(
                             onTap: () => _openReviewsSheet(product),

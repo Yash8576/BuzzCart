@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/models/models.dart';
@@ -109,7 +110,7 @@ class _ReviewsPageState extends State<ReviewsPage> {
   void _sortReviews() {
     switch (_sortBy) {
       case 'recent':
-        _filteredReviews.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        _filteredReviews.sort(_compareRecentReviews);
         break;
       case 'helpful':
         _filteredReviews
@@ -121,6 +122,47 @@ class _ReviewsPageState extends State<ReviewsPage> {
       case 'rating_low':
         _filteredReviews.sort((a, b) => a.rating.compareTo(b.rating));
         break;
+    }
+  }
+
+  int _compareRecentReviews(ReviewModel a, ReviewModel b) {
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    final ownReviewSort =
+        (_isCurrentUserReview(b, currentUserId) ? 1 : 0)
+            .compareTo(_isCurrentUserReview(a, currentUserId) ? 1 : 0);
+    if (ownReviewSort != 0) {
+      return ownReviewSort;
+    }
+
+    final connectionSort =
+        (b.isFollowing ? 1 : 0).compareTo(a.isFollowing ? 1 : 0);
+    if (connectionSort != 0) {
+      return connectionSort;
+    }
+
+    return _reviewActivityTime(b).compareTo(_reviewActivityTime(a));
+  }
+
+  bool _isCurrentUserReview(ReviewModel review, String? currentUserId) {
+    if (currentUserId == null || currentUserId.isEmpty) {
+      return false;
+    }
+    return review.userId == currentUserId;
+  }
+
+  DateTime _reviewActivityTime(ReviewModel review) {
+    final updatedAt = review.updatedAt.trim();
+    if (updatedAt.isNotEmpty) {
+      return _parseDate(updatedAt);
+    }
+    return _parseDate(review.createdAt);
+  }
+
+  DateTime _parseDate(String value) {
+    try {
+      return DateTime.parse(value);
+    } catch (_) {
+      return DateTime.fromMillisecondsSinceEpoch(0);
     }
   }
 

@@ -145,10 +145,21 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     return 'Failed to save rating';
   }
 
-  Future<void> _submitRating(int rating) async {
+  String _normalizedReviewText(String? value) {
+    return value?.trim() ?? '';
+  }
+
+  Future<void> _submitReview({
+    required int rating,
+    String? reviewText,
+  }) async {
     if (_isSubmitting) {
       return;
     }
+
+    final normalizedReviewText = _normalizedReviewText(reviewText);
+    final reviewTextToSave =
+        normalizedReviewText.isEmpty ? null : normalizedReviewText;
 
     final hadExistingReview = _savedReview != null;
     setState(() => _isSubmitting = true);
@@ -159,6 +170,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
           savedReview = await _api.createReview(
             productId: widget.product.id,
             rating: rating,
+            reviewText: reviewTextToSave,
             suppressAlreadyReviewedConflictLog: true,
           );
         } on DioException catch (error) {
@@ -167,16 +179,20 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
             rethrow;
           }
           final existingReview = await _api.getReview(reviewId);
-          savedReview = existingReview.rating == rating
-              ? existingReview
-              : await _api.updateReview(
+          final shouldUpdate =
+              existingReview.rating != rating ||
+                  _normalizedReviewText(existingReview.reviewText) !=
+                      normalizedReviewText;
+          savedReview = shouldUpdate
+              ? await _api.updateReview(
                   reviewId: existingReview.id,
                   productId: widget.product.id,
                   rating: rating,
                   reviewTitle: existingReview.reviewTitle,
-                  reviewText: existingReview.reviewText,
+                  reviewText: reviewTextToSave,
                   isPrivate: existingReview.isPrivate,
-                );
+                )
+              : existingReview;
         }
       } else {
         savedReview = await _api.updateReview(
@@ -184,7 +200,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
           productId: widget.product.id,
           rating: rating,
           reviewTitle: _savedReview!.reviewTitle,
-          reviewText: _savedReview!.reviewText,
+          reviewText: reviewTextToSave,
           isPrivate: _savedReview!.isPrivate,
         );
       }
@@ -206,8 +222,8 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
         SnackBar(
           content: Text(
             hadExistingReview
-                ? 'Rating updated to ${savedReview.rating}/5 for ${widget.product.title}'
-                : 'Rating ${savedReview.rating}/5 saved for ${widget.product.title}',
+                ? 'Review updated to ${savedReview.rating}/5 for ${widget.product.title}'
+                : 'Review ${savedReview.rating}/5 saved for ${widget.product.title}',
           ),
         ),
       );
@@ -225,30 +241,56 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     }
   }
 
-  Future<int?> _askForNewRating() async {
-    var tempRating = _savedRating ?? 0;
-    return showDialog<int>(
+  Future<_ReviewUpdateDraft?> _askForReviewUpdate() async {
+    var tempRating = _savedRating ?? _selectedRating;
+    var tempReviewText = _savedReview?.reviewText ?? '';
+
+    return showDialog<_ReviewUpdateDraft>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Select New Rating'),
-              content: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(5, (index) {
-                  final value = index + 1;
-                  return IconButton(
-                    onPressed: () => setDialogState(() => tempRating = value),
-                    icon: Icon(
-                      value <= tempRating
-                          ? Icons.star_rounded
-                          : Icons.star_outline_rounded,
-                      color:
-                          value <= tempRating ? Colors.amber[700] : Colors.grey,
+              title: const Text('Update Rating & Review'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(5, (index) {
+                        final value = index + 1;
+                        return IconButton(
+                          onPressed: () =>
+                              setDialogState(() => tempRating = value),
+                          icon: Icon(
+                            value <= tempRating
+                                ? Icons.star_rounded
+                                : Icons.star_outline_rounded,
+                            color: value <= tempRating
+                                ? Colors.amber[700]
+                                : Colors.grey,
+                          ),
+                        );
+                      }),
                     ),
-                  );
-                }),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      initialValue: tempReviewText,
+                      onChanged: (value) => tempReviewText = value,
+                      minLines: 3,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Your review',
+                        hintText: 'Share your experience (optional)',
+                        alignLabelWithHint: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -258,8 +300,13 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                 ElevatedButton(
                   onPressed: tempRating == 0
                       ? null
-                      : () => Navigator.of(context).pop(tempRating),
-                  child: const Text('Use This Rating'),
+                      : () => Navigator.of(context).pop(
+                            _ReviewUpdateDraft(
+                              rating: tempRating,
+                              reviewText: tempReviewText,
+                            ),
+                          ),
+                  child: const Text('Save Changes'),
                 ),
               ],
             );
@@ -299,6 +346,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
     final isInitialRatingFlow = _savedRating == null;
     final isReadOnlyMode = _savedRating != null;
     final ratingToDisplay = _savedRating ?? _selectedRating;
+    final savedReviewText = _normalizedReviewText(_savedReview?.reviewText);
 
     return Scaffold(
       appBar: AppBar(
@@ -378,7 +426,7 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
             _isLoadingReview
                 ? 'Loading your saved rating...'
                 : isReadOnlyMode
-                    ? 'Your rating is saved. Tap Update to change it.'
+                    ? 'Your rating and review are saved. Tap Update to change them.'
                     : 'Give a rating out of 5. Open Reviews to add written feedback.',
           ),
           const SizedBox(height: 14),
@@ -423,6 +471,31 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 8),
+          Text(
+            savedReviewText.isEmpty
+                ? 'Your review: not added yet'
+                : 'Your review:',
+            style: TextStyle(
+              color: Theme.of(context).textTheme.bodySmall?.color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (savedReviewText.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(savedReviewText),
+            ),
+          ],
           const SizedBox(height: 4),
           Text(
             _globalCount <= 0
@@ -450,22 +523,37 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                 : isInitialRatingFlow
                     ? (_selectedRating == 0
                         ? null
-                        : () => _submitRating(_selectedRating))
+                        : () => _submitReview(
+                              rating: _selectedRating,
+                              reviewText: _savedReview?.reviewText,
+                            ))
                     : () async {
                         final messenger = ScaffoldMessenger.of(context);
-                        final newRating = await _askForNewRating();
-                        if (!mounted || newRating == null) {
+                        final reviewUpdate = await _askForReviewUpdate();
+                        if (!mounted || reviewUpdate == null) {
                           return;
                         }
-                        if (newRating == _savedRating) {
+                        final previousRating = _savedRating ?? 0;
+                        final previousReviewText =
+                            _normalizedReviewText(_savedReview?.reviewText);
+                        final nextReviewText =
+                            _normalizedReviewText(reviewUpdate.reviewText);
+
+                        if (reviewUpdate.rating == previousRating &&
+                            nextReviewText == previousReviewText) {
                           messenger.showSnackBar(
                             const SnackBar(
-                              content: Text('Please choose a different rating'),
+                              content: Text(
+                                'Please change rating or review before updating',
+                              ),
                             ),
                           );
                           return;
                         }
-                        await _submitRating(newRating);
+                        await _submitReview(
+                          rating: reviewUpdate.rating,
+                          reviewText: reviewUpdate.reviewText,
+                        );
                       },
             child: Text(
               _isSubmitting
@@ -479,4 +567,14 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
       ),
     );
   }
+}
+
+class _ReviewUpdateDraft {
+  const _ReviewUpdateDraft({
+    required this.rating,
+    required this.reviewText,
+  });
+
+  final int rating;
+  final String reviewText;
 }
