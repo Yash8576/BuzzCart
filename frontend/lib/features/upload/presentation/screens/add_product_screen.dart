@@ -6,11 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/config/app_config.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers/add_product_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/services/api_service.dart';
 import '../../../../core/utils/url_helper.dart';
+import '../../../../shared/services/chatbot_service.dart';
 
 class AddProductScreen extends StatefulWidget {
   final ProductModel? editingProduct;
@@ -25,6 +27,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final ApiService _api;
+  late final ChatbotService _chatbot;
 
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -74,6 +77,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   void initState() {
     super.initState();
     _api = context.read<ApiService>();
+    _chatbot = ChatbotService(baseUrl: AppConfig.chatbotBaseUrl);
     _addManualSpecificationRow();
     _addBulletPointRow();
     _prefillFromEditingProduct();
@@ -166,11 +170,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _initialStockQuantity = product.stockQuantity;
     _condition = product.condition;
     _brandNameController.text = _metaString(metadata, 'brand_name');
-    _brandOrigin = _metaString(metadata, 'brand_origin').toLowerCase() == 'other'
-        ? 'other'
-        : 'own';
+    _brandOrigin =
+        _metaString(metadata, 'brand_origin').toLowerCase() == 'other'
+            ? 'other'
+            : 'own';
     _manufacturerController.text = _metaString(metadata, 'manufacturer');
-    _productIdController.text = product.sku ?? _metaString(metadata, 'product_identifier');
+    _productIdController.text =
+        product.sku ?? _metaString(metadata, 'product_identifier');
     _gtinController.text = _metaString(metadata, 'gtin');
     _gtinExempt = metadata['gtin_exempt'] == true;
     _productTypeController.text = _metaString(metadata, 'product_type');
@@ -198,12 +204,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ? 'cm'
             : dimensions['unit'].toString();
     _weightController.text = _metaString(metadata, 'weight');
-    _itemModelNumberController.text = _metaString(metadata, 'item_model_number');
-    _countryOfOriginController.text = _metaString(metadata, 'country_of_origin');
+    _itemModelNumberController.text =
+        _metaString(metadata, 'item_model_number');
+    _countryOfOriginController.text =
+        _metaString(metadata, 'country_of_origin');
 
-    final searchTerms = product.searchTerms.isNotEmpty
-        ? product.searchTerms
-        : product.tags;
+    final searchTerms =
+        product.searchTerms.isNotEmpty ? product.searchTerms : product.tags;
     _searchTermsController.text = searchTerms.join(', ');
 
     for (final row in _manualSpecificationRows) {
@@ -241,7 +248,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         if (url.isEmpty) {
           continue;
         }
-        final kind = type == 'video' ? _QueuedMediaKind.video : _QueuedMediaKind.image;
+        final kind =
+            type == 'video' ? _QueuedMediaKind.video : _QueuedMediaKind.image;
         _mediaQueue.add(
           _QueuedProductMedia.remote(
             id: 'media-${_mediaQueueSequence++}',
@@ -282,7 +290,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
 
     final specificationPdfUrl = product.specificationPdfUrl;
     if (specificationPdfUrl != null && specificationPdfUrl.trim().isNotEmpty) {
-      _specificationPdf = XFile(specificationPdfUrl.trim(), name: 'existing-specification.pdf');
+      _specificationPdf =
+          XFile(specificationPdfUrl.trim(), name: 'existing-specification.pdf');
     }
 
     _isPrefilling = false;
@@ -502,6 +511,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
+    if (_specificationPdf == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Upload the product specification PDF before publishing.'),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isSubmitting = true;
     });
@@ -644,6 +662,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           return false;
         });
 
+      late final ProductModel savedProduct;
       if (_isEditing) {
         final editingProduct = widget.editingProduct!;
         final latest = await _api.getProduct(editingProduct.id);
@@ -652,7 +671,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ? (latest.stockQuantity - adjustBy).clamp(0, 1 << 31)
             : latest.stockQuantity + adjustBy;
 
-        await _api.updateProduct(
+        savedProduct = await _api.updateProduct(
           productId: editingProduct.id,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -668,7 +687,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           metadata: metadata,
         );
       } else {
-        await _api.createProduct(
+        savedProduct = await _api.createProduct(
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
           price: double.parse(_priceController.text.trim()),
@@ -684,6 +703,31 @@ class _AddProductScreenState extends State<AddProductScreen> {
         );
       }
 
+      var indexingMessage = '';
+      final normalizedSpecificationPdfUrl = specificationPdfUrl?.trim() ?? '';
+      if (normalizedSpecificationPdfUrl.isNotEmpty) {
+        try {
+          final syncResult = await _chatbot.syncProductDocument(
+            productId: savedProduct.id,
+            documentUrl: normalizedSpecificationPdfUrl,
+            force: true,
+          );
+          indexingMessage =
+              ' Document indexed: ${syncResult.chunksCreated} chunks from ${syncResult.pagesProcessed} pages.';
+        } catch (_) {
+          indexingMessage =
+              ' Product saved, but document indexing is still pending.';
+        }
+      } else if (_isEditing) {
+        try {
+          await _chatbot.deleteProductDocument(savedProduct.id);
+          indexingMessage = ' Existing document index was removed.';
+        } catch (_) {
+          indexingMessage =
+              ' Product saved, but an older document index may still exist.';
+        }
+      }
+
       if (!mounted) {
         return;
       }
@@ -693,8 +737,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         SnackBar(
           content: Text(
             _isEditing
-                ? 'Product updated successfully.'
-                : 'Product added to your warehouse successfully.',
+                ? 'Product updated successfully.$indexingMessage'
+                : 'Product added to your warehouse successfully.$indexingMessage',
           ),
         ),
       );
@@ -866,7 +910,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   SegmentedButton<String>(
                     segments: const [
                       ButtonSegment(value: 'own', label: Text('Own Brand')),
-                      ButtonSegment(value: 'other', label: Text('Different Brand')),
+                      ButtonSegment(
+                          value: 'other', label: Text('Different Brand')),
                     ],
                     selected: {_brandOrigin},
                     onSelectionChanged: (selection) {
@@ -879,7 +924,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   const SizedBox(height: 12),
                   _buildTextField(
                     controller: _brandNameController,
-                    label: _brandOrigin == 'other' ? 'Brand name *' : 'Brand name',
+                    label:
+                        _brandOrigin == 'other' ? 'Brand name *' : 'Brand name',
                     hint: _brandOrigin == 'own'
                         ? 'Leave blank to use your seller name'
                         : 'Enter the brand name',
@@ -1052,9 +1098,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       Expanded(
                         child: _buildTextField(
                           controller: _quantityController,
-                          label: _isEditing
-                              ? 'Adjust stock by'
-                              : 'Quantity *',
+                          label: _isEditing ? 'Adjust stock by' : 'Quantity *',
                           hint: _isEditing ? '0' : '0',
                           keyboardType: TextInputType.number,
                           inputFormatters: [
@@ -1443,15 +1487,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       OutlinedButton.icon(
                         onPressed: _pickImages,
                         icon: const Icon(Icons.add_photo_alternate_outlined),
-                        label: Text('Add Photos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.image).length})'),
+                        label: Text(
+                            'Add Photos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.image).length})'),
                       ),
                       OutlinedButton.icon(
                         onPressed: _pickVideos,
                         icon: const Icon(Icons.videocam_outlined),
-                        label: Text('Add Videos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.video).length})'),
+                        label: Text(
+                            'Add Videos (${_mediaQueue.where((item) => item.kind == _QueuedMediaKind.video).length})'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: _mediaQueue.length > 1 ? _shuffleMediaQueue : null,
+                        onPressed:
+                            _mediaQueue.length > 1 ? _shuffleMediaQueue : null,
                         icon: const Icon(Icons.shuffle),
                         label: const Text('Shuffle Queue'),
                       ),
@@ -1460,11 +1507,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
                         icon: const Icon(Icons.picture_as_pdf_outlined),
                         label: Text(
                           _specificationPdf == null
-                              ? 'Upload Specs PDF'
+                              ? 'Upload Specs PDF *'
                               : 'Replace Specs PDF',
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'A specification PDF is required to publish this product.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                   ),
                   if (_mediaQueue.isEmpty) ...[
                     const SizedBox(height: 16),
@@ -1472,7 +1527,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Text('No media added yet.'),
@@ -1547,13 +1604,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                    : Icon(_isEditing
+                  : Icon(_isEditing
                       ? Icons.edit_outlined
                       : Icons.inventory_2_outlined),
-              label:
-                    Text(_isSubmitting
-                      ? (_isEditing ? 'Updating...' : 'Publishing...')
-                      : (_isEditing ? 'Update Product' : 'Publish Product')),
+              label: Text(_isSubmitting
+                  ? (_isEditing ? 'Updating...' : 'Publishing...')
+                  : (_isEditing ? 'Update Product' : 'Publish Product')),
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
               ),
@@ -1728,7 +1784,9 @@ class _ImagePreview extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2),
           );
         }
-        if (!snapshot.hasData || snapshot.data == null || snapshot.data!.isEmpty) {
+        if (!snapshot.hasData ||
+            snapshot.data == null ||
+            snapshot.data!.isEmpty) {
           return const Center(child: Icon(Icons.broken_image_outlined));
         }
         return Image.memory(snapshot.data!, fit: BoxFit.cover);

@@ -2,15 +2,17 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/models/models.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/auth_provider.dart';
-import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
+import '../../../core/services/api_service.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../../shared/services/chatbot_service.dart';
 import '../../products/widgets/product_card_social_preview.dart';
 import '../../products/widgets/product_buyers_sheet.dart';
 import '../../products/widgets/product_reviews_sheet.dart';
@@ -62,6 +64,9 @@ class _ShopPageState extends State<ShopPage> {
   }
 
   late final ApiService _api;
+  final ChatbotService _chatbot = ChatbotService(
+    baseUrl: AppConfig.chatbotBaseUrl,
+  );
   List<ProductModel> _allProducts = [];
   List<ProductModel> _products = [];
   ProductModel? _productDetail;
@@ -416,6 +421,188 @@ class _ShopPageState extends State<ShopPage> {
     );
   }
 
+  Future<void> _openDocumentAssistant(ProductModel product) async {
+    final documentUrl = product.specificationPdfUrl?.trim() ?? '';
+    if (documentUrl.isEmpty) {
+      return;
+    }
+
+    final questionController = TextEditingController();
+    final currentUserId = context.read<AuthProvider>().user?.id;
+    ProductDocumentAnswer? latestAnswer;
+    String? errorText;
+    bool isSubmitting = false;
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              Future<void> submitQuestion() async {
+                final query = questionController.text.trim();
+                if (query.isEmpty || isSubmitting) {
+                  return;
+                }
+
+                setSheetState(() {
+                  isSubmitting = true;
+                  errorText = null;
+                });
+
+                try {
+                  final answer = await _chatbot.askProductDocument(
+                    productId: product.id,
+                    query: query,
+                    userId: currentUserId,
+                    documentUrl: documentUrl,
+                  );
+
+                  setSheetState(() {
+                    latestAnswer = answer;
+                  });
+                } catch (e) {
+                  setSheetState(() {
+                    errorText =
+                        'Unable to query the product document right now.';
+                  });
+                } finally {
+                  if (sheetContext.mounted) {
+                    setSheetState(() {
+                      isSubmitting = false;
+                    });
+                  }
+                }
+              }
+
+              final answer = latestAnswer;
+              final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+
+              return SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Product Chatbot',
+                          style: Theme.of(sheetContext)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Answers are restricted to the uploaded specification PDF for ${product.title}.',
+                          style:
+                              TextStyle(color: Colors.grey[700], height: 1.4),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: questionController,
+                          minLines: 2,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.done,
+                          decoration: const InputDecoration(
+                            labelText: 'Ask a direct question',
+                            hintText: 'Example: What is the battery capacity?',
+                            border: OutlineInputBorder(),
+                          ),
+                          onSubmitted: (_) => submitQuestion(),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: isSubmitting ? null : submitQuestion,
+                            icon: isSubmitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.auto_awesome_outlined),
+                            label: Text(
+                              isSubmitting
+                                  ? 'Searching document...'
+                                  : 'Ask PDF',
+                            ),
+                          ),
+                        ),
+                        if (errorText != null) ...[
+                          const SizedBox(height: 14),
+                          Text(
+                            errorText!,
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                        ],
+                        if (answer != null) ...[
+                          const SizedBox(height: 18),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Theme.of(sheetContext)
+                                  .colorScheme
+                                  .surfaceContainerHighest
+                                  .withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  answer.answer,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    height: 1.45,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    Chip(
+                                      label: Text(
+                                        'Confidence: ${answer.confidence}',
+                                      ),
+                                    ),
+                                    if (answer.source != null)
+                                      Chip(
+                                        label: Text(
+                                          'Page ${answer.source!.page} · Chunk ${answer.source!.chunkId}',
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      questionController.dispose();
+    }
+  }
+
   int _compareBuyers(ProductBuyerModel a, ProductBuyerModel b) {
     final connectionSort =
         (b.isConnection ? 1 : 0).compareTo(a.isConnection ? 1 : 0);
@@ -436,9 +623,8 @@ class _ShopPageState extends State<ShopPage> {
 
   int _compareReviewPreview(ReviewModel a, ReviewModel b) {
     final currentUserId = context.read<AuthProvider>().user?.id;
-    final ownReviewSort =
-        (_isCurrentUserReview(b, currentUserId) ? 1 : 0)
-            .compareTo(_isCurrentUserReview(a, currentUserId) ? 1 : 0);
+    final ownReviewSort = (_isCurrentUserReview(b, currentUserId) ? 1 : 0)
+        .compareTo(_isCurrentUserReview(a, currentUserId) ? 1 : 0);
     if (ownReviewSort != 0) {
       return ownReviewSort;
     }
@@ -728,6 +914,17 @@ class _ShopPageState extends State<ShopPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
+                      if (product.specificationPdfUrl != null) ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: () => _openDocumentAssistant(product),
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            label: const Text('Open Product Chatbot'),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                       Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
                         spacing: 14,
@@ -841,10 +1038,10 @@ class _ShopPageState extends State<ShopPage> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      Text(
-                        product.description,
-                        style: const TextStyle(fontSize: 16, height: 1.5),
-                      ),
+                        Text(
+                          product.description,
+                          style: const TextStyle(fontSize: 16, height: 1.5),
+                        ),
                       if (product.bulletPoints.isNotEmpty) ...[
                         const SizedBox(height: 24),
                         const Text(
@@ -909,8 +1106,9 @@ class _ShopPageState extends State<ShopPage> {
                             leading: const Icon(Icons.picture_as_pdf,
                                 color: Colors.red),
                             title: const Text('Open specification PDF'),
-                            onTap: () =>
-                                _openExternalUrl(product.specificationPdfUrl!),
+                            onTap: () => _openExternalUrl(
+                              product.specificationPdfUrl!,
+                            ),
                           ),
                         ...product.mediaVideos.map(
                           (videoUrl) => ListTile(

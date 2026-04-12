@@ -1,40 +1,62 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Literal, Optional
 
-class ChatRequest(BaseModel):
-    message: str = Field(..., description="User's message to the chatbot")
-    user_id: str = Field(..., description="Unique user identifier")
-    conversation_id: Optional[str] = Field(None, description="Conversation ID for context")
-    context: Optional[Dict[str, Any]] = Field(None, description="Additional context")
+from pydantic import BaseModel, Field
 
-class SourceDocument(BaseModel):
-    content: str
-    metadata: Dict[str, Any]
-    relevance_score: float
 
-class ChatResponse(BaseModel):
-    message: str = Field(..., description="Chatbot's response")
-    conversation_id: str
-    sources: Optional[List[SourceDocument]] = Field(None, description="Source documents used")
-    metadata: Optional[Dict[str, Any]] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+class ProductChatRequest(BaseModel):
+    product_id: str = Field(..., description="Product identifier for strict filtering")
+    query: str = Field(..., description="User question about the product document")
+    user_id: Optional[str] = Field(default=None, description="Optional user identifier")
+    document_url: Optional[str] = Field(
+        default=None,
+        description="Optional PDF URL used for lazy indexing or refresh",
+    )
+    force_document_sync: bool = Field(
+        default=False,
+        description="Rebuild the product index before answering",
+    )
 
-class ChatHistory(BaseModel):
-    id: str
-    conversation_id: str
-    user_id: str
-    user_message: str
-    bot_response: str
-    timestamp: datetime
-    metadata: Optional[Dict[str, Any]] = None
 
-class DocumentUploadResponse(BaseModel):
-    document_id: str
-    filename: str
-    status: str
+class AnswerSource(BaseModel):
+    page: int
+    chunk_id: int
+
+
+class ProductChatResponse(BaseModel):
+    answer: str
+    source: Optional[AnswerSource] = None
+    confidence: Literal["high", "medium", "low"]
+
+
+class DocumentSyncRequest(BaseModel):
+    product_id: str
+    document_url: str
+    filename: Optional[str] = None
+    force: bool = False
+
+
+class DocumentSyncResponse(BaseModel):
+    product_id: str
+    indexed: bool
     chunks_created: int
+    pages_processed: int
+    source_name: Optional[str] = None
+    document_url: Optional[str] = None
+    status: str
     message: str
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProductDocumentStatusResponse(BaseModel):
+    product_id: str
+    indexed: bool
+    chunks_created: int = 0
+    pages_processed: int = 0
+    source_name: Optional[str] = None
+    document_url: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
 
 class HealthResponse(BaseModel):
     status: str

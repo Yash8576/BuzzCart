@@ -1,51 +1,63 @@
-from pydantic_settings import BaseSettings
 from typing import List
-import os
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 
 class Settings(BaseSettings):
-    # API Configuration
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     DEBUG: bool = False
-    
-    # OpenAI Configuration
-    OPENAI_API_KEY: str
-    OPENAI_MODEL: str = "gpt-4-turbo-preview"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    
-    # Vector Database
-    VECTOR_DB_TYPE: str = "chroma"
-    CHROMA_PERSIST_DIR: str = "/app/data/embeddings"
-    CHROMA_COLLECTION_NAME: str = "like2share_knowledge"
-    
-    # PostgreSQL
-    DATABASE_URL: str
+
+    DATABASE_URL: str = "postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db"
     CHAT_HISTORY_TABLE: str = "chat_messages"
-    
-    # RAG Configuration
-    CHUNK_SIZE: int = 1000
-    CHUNK_OVERLAP: int = 200
-    TOP_K_RESULTS: int = 5
-    TEMPERATURE: float = 0.7
-    MAX_TOKENS: int = 500
-    
-    # Document Storage
+
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-large-en-v1.5"
+    RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-large"
+    OLLAMA_BASE_URL: str = "http://ollama:11434"
+    OLLAMA_MODEL: str = "mistral"
+    OLLAMA_TIMEOUT_SECONDS: int = 60
+
+    VECTOR_STORE_DIR: str = "/app/data/vector_store"
     DOCUMENTS_PATH: str = "/app/data/documents"
-    ALLOWED_EXTENSIONS: List[str] = [".pdf", ".txt", ".md", ".docx", ".html"]
-    
-    # Redis
-    REDIS_URL: str = "redis://redis:6379/0"
-    CACHE_TTL: int = 3600
-    
-    # Backend Integration
-    BACKEND_API_URL: str = "http://backend:8080"
-    BACKEND_API_KEY: str = ""
-    
-    # CORS
-    CORS_ORIGINS: List[str] = ["*"]
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    MODEL_CACHE_DIR: str = "/app/models/cache"
+    ALLOWED_EXTENSIONS: List[str] = [".pdf"]
+
+    CHUNK_SIZE_TOKENS: int = 400
+    CHUNK_OVERLAP_TOKENS: int = 80
+    TOP_K_RESULTS: int = 10
+    RERANK_TOP_K: int = 3
+    SENTENCE_TOP_K: int = 8
+
+    DOCUMENT_URL_REWRITE_FROM: List[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1", "10.0.2.2"]
+    )
+    DOCUMENT_URL_REWRITE_TO: str = "minio:9000"
+
+    CORS_ORIGINS: List[str] = Field(default_factory=lambda: ["*"])
+
+    @field_validator(
+        "ALLOWED_EXTENSIONS",
+        "DOCUMENT_URL_REWRITE_FROM",
+        "CORS_ORIGINS",
+        mode="before",
+    )
+    @classmethod
+    def parse_csv_list(cls, value):
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                return value
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return value
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+    )
+
 
 settings = Settings()

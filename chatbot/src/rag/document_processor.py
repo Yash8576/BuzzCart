@@ -1,167 +1,244 @@
-from typing import List, Optional, Dict
+from __future__ import annotations
+
 import logging
-import os
-import uuid
+import re
+from datetime import datetime
+from io import BytesIO
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
+import requests
 from fastapi import UploadFile
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import Document
-from langchain_community.document_loaders import (
-    PyPDFLoader, TextLoader, UnstructuredMarkdownLoader,
-    Docx2txtLoader, UnstructuredHTMLLoader
-)
+from pypdf import PdfReader
 
+from ..api.schemas import DocumentSyncResponse
 from ..core.config import settings
 from .vector_store import VectorStoreManager
-from ..api.schemas import DocumentUploadResponse
 
 logger = logging.getLogger(__name__)
 
+
 class DocumentProcessor:
-    """Handles document processing and ingestion for RAG."""
-    
-    def __init__(self, vector_store: VectorStoreManager):
+    """Processes seller PDFs into product-scoped FAISS indexes."""
+
+    def __init__(self, vector_store: VectorStoreManager) -> None:
         self.vector_store = vector_store
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.CHUNK_SIZE,
-            chunk_overlap=settings.CHUNK_OVERLAP,
-            length_function=len,
+        self.documents_path = Path(settings.DOCUMENTS_PATH)
+        self.documents_path.mkdir(parents=True, exist_ok=True)
+
+    async def sync_product_document(
+        self,
+        product_id: str,
+        document_url: str,
+        filename: Optional[str] = None,
+        force: bool = False,
+    ) -> DocumentSyncResponse:
+        if not force and not self.vector_store.should_reindex(product_id, document_url):
+            status = self.vector_store.get_product_status(product_id)
+            return DocumentSyncResponse(
+                product_id=product_id,
+                indexed=True,
+                chunks_created=status["chunks_created"],
+                pages_processed=status["pages_processed"],
+                source_name=status["source_name"],
+                document_url=status["document_url"],
+                status="already_indexed",
+                message="Existing product document index is up to date.",
+                updated_at=self._parse_timestamp(status["updated_at"]),
+            )
+
+        resolved_url = self._resolve_document_url(document_url)
+        response = requests.get(resolved_url, timeout=90)
+        response.raise_for_status()
+        payload = response.content
+
+        source_name = filename or self._derive_filename(document_url) or f"{product_id}.pdf"
+        return self._index_pdf_bytes(
+            product_id=product_id,
+            payload=payload,
+            source_name=source_name,
+            document_url=document_url,
         )
-        
-        # Create documents directory if it doesn't exist
-        os.makedirs(settings.DOCUMENTS_PATH, exist_ok=True)
-    
+
     async def process_upload(
         self,
+        product_id: str,
         file: UploadFile,
-        user_id: Optional[str] = None
-    ) -> DocumentUploadResponse:
-        """Process an uploaded document."""
-        try:
-            # Validate file extension
-            file_ext = Path(file.filename).suffix.lower()
-            if file_ext not in settings.ALLOWED_EXTENSIONS:
-                raise ValueError(
-                    f"File type {file_ext} not allowed. "
-                    f"Allowed types: {settings.ALLOWED_EXTENSIONS}"
-                )
-            
-            # Generate unique ID and save file
-            doc_id = str(uuid.uuid4())
-            file_path = os.path.join(
-                settings.DOCUMENTS_PATH,
-                f"{doc_id}_{file.filename}"
+        force: bool = True,
+    ) -> DocumentSyncResponse:
+        file_ext = Path(file.filename or "").suffix.lower()
+        if file_ext not in settings.ALLOWED_EXTENSIONS:
+            raise ValueError(
+                f"File type {file_ext or '<unknown>'} not allowed. "
+                f"Allowed types: {settings.ALLOWED_EXTENSIONS}"
             )
-            
-            # Save uploaded file
-            with open(file_path, "wb") as f:
-                content = await file.read()
-                f.write(content)
-            
-            # Load and process document
-            documents = await self._load_document(file_path, file_ext)
-            
-            # Add metadata
-            for doc in documents:
-                doc.metadata.update({
-                    "document_id": doc_id,
-                    "filename": file.filename,
-                    "user_id": user_id,
-                    "source": file_path
-                })
-            
-            # Split into chunks
-            chunks = self.text_splitter.split_documents(documents)
-            
-            # Add to vector store
-            chunk_ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-            await self.vector_store.add_documents(chunks, ids=chunk_ids)
-            
-            logger.info(
-                f"Processed document {file.filename}: "
-                f"{len(chunks)} chunks created"
+
+        if not force and not self.vector_store.should_reindex(product_id, None):
+            status = self.vector_store.get_product_status(product_id)
+            return DocumentSyncResponse(
+                product_id=product_id,
+                indexed=True,
+                chunks_created=status["chunks_created"],
+                pages_processed=status["pages_processed"],
+                source_name=status["source_name"],
+                document_url=status["document_url"],
+                status="already_indexed",
+                message="Existing product document index is up to date.",
+                updated_at=self._parse_timestamp(status["updated_at"]),
             )
-            
-            return DocumentUploadResponse(
-                document_id=doc_id,
-                filename=file.filename,
-                status="success",
-                chunks_created=len(chunks),
-                message=f"Document processed successfully with {len(chunks)} chunks"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error processing document: {e}")
-            raise
-    
-    async def _load_document(
+
+        payload = await file.read()
+        return self._index_pdf_bytes(
+            product_id=product_id,
+            payload=payload,
+            source_name=file.filename or f"{product_id}.pdf",
+            document_url=None,
+        )
+
+    async def get_status(self, product_id: str) -> Dict[str, Any]:
+        return self.vector_store.get_product_status(product_id)
+
+    async def delete_document(self, product_id: str) -> None:
+        product_dir = self.documents_path / self._safe_product_id(product_id)
+        if product_dir.exists():
+            for path in product_dir.iterdir():
+                path.unlink(missing_ok=True)
+            product_dir.rmdir()
+        self.vector_store.delete_product_index(product_id)
+
+    def _index_pdf_bytes(
         self,
-        file_path: str,
-        file_ext: str
-    ) -> List[Document]:
-        """Load document based on file type."""
+        product_id: str,
+        payload: bytes,
+        source_name: str,
+        document_url: Optional[str],
+    ) -> DocumentSyncResponse:
+        if not payload:
+            raise ValueError("The uploaded PDF is empty")
+
+        pages = self._extract_pages(payload)
+        chunks = self._chunk_pages(product_id, pages)
+        if not chunks:
+            raise ValueError("No indexable text was found in the PDF")
+
+        saved_path = self._save_pdf(product_id, source_name, payload)
+        self.vector_store.build_product_index(
+            product_id=product_id,
+            chunks=chunks,
+            manifest={
+                "pages_processed": len(pages),
+                "source_name": source_name,
+                "document_url": document_url,
+                "saved_path": str(saved_path),
+            },
+        )
+
+        return DocumentSyncResponse(
+            product_id=product_id,
+            indexed=True,
+            chunks_created=len(chunks),
+            pages_processed=len(pages),
+            source_name=source_name,
+            document_url=document_url,
+            status="indexed",
+            message="Product document indexed successfully.",
+            updated_at=datetime.utcnow(),
+        )
+
+    def _extract_pages(self, payload: bytes) -> List[Dict[str, Any]]:
+        reader = PdfReader(BytesIO(payload))
+        pages: List[Dict[str, Any]] = []
+
+        for page_index, page in enumerate(reader.pages, start=1):
+            raw_text = page.extract_text() or ""
+            text = self._normalize_text(raw_text)
+            if text:
+                pages.append({"page": page_index, "text": text})
+
+        return pages
+
+    def _chunk_pages(
+        self,
+        product_id: str,
+        pages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        chunks: List[Dict[str, Any]] = []
+        chunk_id = 0
+
+        for page in pages:
+            page_chunks = self.vector_store.chunk_text_by_tokens(page["text"])
+            for page_chunk in page_chunks:
+                chunks.append(
+                    {
+                        "text": page_chunk,
+                        "metadata": {
+                            "product_id": product_id,
+                            "page": page["page"],
+                            "chunk_id": chunk_id,
+                        },
+                    }
+                )
+                chunk_id += 1
+
+        return chunks
+
+    def _save_pdf(self, product_id: str, source_name: str, payload: bytes) -> Path:
+        product_dir = self.documents_path / self._safe_product_id(product_id)
+        product_dir.mkdir(parents=True, exist_ok=True)
+
+        file_name = Path(source_name).name or f"{product_id}.pdf"
+        if not file_name.lower().endswith(".pdf"):
+            file_name = f"{file_name}.pdf"
+
+        for existing in product_dir.iterdir():
+            existing.unlink(missing_ok=True)
+
+        target_path = product_dir / file_name
+        target_path.write_bytes(payload)
+        return target_path
+
+    def _resolve_document_url(self, document_url: str) -> str:
+        parsed = urlparse(document_url.strip())
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError("document_url must be an absolute URL")
+
+        rewrite_hosts = {host.strip().lower() for host in settings.DOCUMENT_URL_REWRITE_FROM}
+        hostname = (parsed.hostname or "").lower()
+        if hostname and hostname in rewrite_hosts and settings.DOCUMENT_URL_REWRITE_TO:
+            rewritten = parsed._replace(netloc=settings.DOCUMENT_URL_REWRITE_TO)
+            return urlunparse(rewritten)
+
+        return document_url
+
+    def _derive_filename(self, document_url: str) -> Optional[str]:
+        path = urlparse(document_url).path
+        if not path:
+            return None
+        filename = Path(path).name.strip()
+        return filename or None
+
+    def _safe_product_id(self, product_id: str) -> str:
+        safe_value = "".join(
+            char for char in product_id if char.isalnum() or char in {"-", "_"}
+        )
+        if not safe_value:
+            raise ValueError("Invalid product_id")
+        return safe_value
+
+    def _normalize_text(self, text: str) -> str:
+        cleaned = text.replace("\x00", " ")
+        # Many PDF extracts collapse section headers into adjacent words.
+        cleaned = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", cleaned)
+        cleaned = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
+
+    def _parse_timestamp(self, value: Optional[str]) -> datetime:
+        if not value:
+            return datetime.utcnow()
         try:
-            if file_ext == ".pdf":
-                loader = PyPDFLoader(file_path)
-            elif file_ext == ".txt":
-                loader = TextLoader(file_path, encoding="utf-8")
-            elif file_ext == ".md":
-                loader = UnstructuredMarkdownLoader(file_path)
-            elif file_ext == ".docx":
-                loader = Docx2txtLoader(file_path)
-            elif file_ext == ".html":
-                loader = UnstructuredHTMLLoader(file_path)
-            else:
-                raise ValueError(f"Unsupported file type: {file_ext}")
-            
-            documents = loader.load()
-            return documents
-            
-        except Exception as e:
-            logger.error(f"Error loading document: {e}")
-            raise
-    
-    async def list_documents(self) -> List[Dict]:
-        """List all documents in the knowledge base."""
-        try:
-            documents = []
-            for filename in os.listdir(settings.DOCUMENTS_PATH):
-                file_path = os.path.join(settings.DOCUMENTS_PATH, filename)
-                if os.path.isfile(file_path):
-                    doc_id = filename.split("_")[0]
-                    original_name = "_".join(filename.split("_")[1:])
-                    documents.append({
-                        "document_id": doc_id,
-                        "filename": original_name,
-                        "path": file_path,
-                        "size": os.path.getsize(file_path)
-                    })
-            
-            return documents
-            
-        except Exception as e:
-            logger.error(f"Error listing documents: {e}")
-            raise
-    
-    async def delete_document(self, document_id: str):
-        """Delete a document from the knowledge base."""
-        try:
-            # Find and delete file
-            for filename in os.listdir(settings.DOCUMENTS_PATH):
-                if filename.startswith(document_id):
-                    file_path = os.path.join(settings.DOCUMENTS_PATH, filename)
-                    os.remove(file_path)
-                    logger.info(f"Deleted file: {file_path}")
-            
-            # Delete from vector store (find all chunk IDs)
-            # Note: This is a simplified approach
-            # In production, you'd want to track chunk IDs in a database
-            logger.warning(
-                f"Vector store cleanup for document {document_id} "
-                "may require manual intervention"
-            )
-            
-        except Exception as e:
-            logger.error(f"Error deleting document: {e}")
-            raise
+            return datetime.fromisoformat(value)
+        except ValueError:
+            logger.warning("Failed to parse timestamp %s", value)
+            return datetime.utcnow()

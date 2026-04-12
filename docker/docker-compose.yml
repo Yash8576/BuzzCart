@@ -82,6 +82,36 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: like2share_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - like2share_network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: like2share_ollama_init
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: "ollama pull ${OLLAMA_MODEL:-mistral}"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - like2share_network
+    volumes:
+      - ollama_data:/root/.ollama
+
   minio:
     image: minio/minio:latest
     container_name: like2share_minio
@@ -114,22 +144,29 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-your_openai_api_key}
-      REDIS_URL: redis://redis:6379/0
-      BACKEND_API_URL: http://backend:8080
-      CHROMA_PERSIST_DIR: /app/data/embeddings
+      EMBEDDING_MODEL_NAME: BAAI/bge-large-en-v1.5
+      RERANKER_MODEL_NAME: BAAI/bge-reranker-large
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
+      VECTOR_STORE_DIR: /app/data/vector_store
       DOCUMENTS_PATH: /app/data/documents
+      MODEL_CACHE_DIR: /app/models/cache
+      DOCUMENT_URL_REWRITE_FROM: '["localhost","127.0.0.1","10.0.2.2"]'
+      DOCUMENT_URL_REWRITE_TO: minio:9000
       DEBUG: "true"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     networks:
       - like2share_network
     volumes:
       - chatbot_documents:/app/data/documents
-      - chatbot_embeddings:/app/data/embeddings
+      - chatbot_vector_store:/app/data/vector_store
+      - chatbot_model_cache:/app/models/cache
 
 volumes:
   postgres_data:
@@ -140,7 +177,11 @@ volumes:
     driver: local
   chatbot_documents:
     driver: local
-  chatbot_embeddings:
+  chatbot_vector_store:
+    driver: local
+  chatbot_model_cache:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:
