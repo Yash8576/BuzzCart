@@ -37,7 +37,7 @@ class _LoginPageState extends State<LoginPage> {
       await context.read<AuthProvider>().login(
             _emailController.text.trim(),
             _passwordController.text,
-        rememberMe: _rememberMe,
+            rememberMe: _rememberMe,
           );
       if (mounted) {
         context.go('/');
@@ -113,8 +113,8 @@ class _LoginPageState extends State<LoginPage> {
                 Text(
                   'Social commerce, reimagined',
                   style: textTheme.bodyMedium?.copyWith(
-                    color: isDark 
-                        ? AppColors.darkMutedForeground 
+                    color: isDark
+                        ? AppColors.darkMutedForeground
                         : AppColors.lightMutedForeground,
                   ),
                 ),
@@ -135,8 +135,8 @@ class _LoginPageState extends State<LoginPage> {
                         Text(
                           'Enter your credentials to access your account',
                           style: textTheme.bodySmall?.copyWith(
-                            color: isDark 
-                                ? AppColors.darkMutedForeground 
+                            color: isDark
+                                ? AppColors.darkMutedForeground
                                 : AppColors.lightMutedForeground,
                           ),
                         ),
@@ -155,7 +155,7 @@ class _LoginPageState extends State<LoginPage> {
                           keyboardType: TextInputType.emailAddress,
                           enabled: !_isLoading,
                           decoration: const InputDecoration(
-                            hintText: 'you@example.com',
+                            hintText: 'Enter your email',
                           ),
                           onSubmitted: (_) => _handleLogin(),
                         ),
@@ -174,7 +174,7 @@ class _LoginPageState extends State<LoginPage> {
                           obscureText: !_showPassword,
                           enabled: !_isLoading,
                           decoration: InputDecoration(
-                            hintText: '••••••••',
+                            hintText: 'Enter your password',
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _showPassword
@@ -198,7 +198,8 @@ class _LoginPageState extends State<LoginPage> {
                               onChanged: _isLoading
                                   ? null
                                   : (value) {
-                                      setState(() => _rememberMe = value ?? false);
+                                      setState(
+                                          () => _rememberMe = value ?? false);
                                     },
                             ),
                             Expanded(

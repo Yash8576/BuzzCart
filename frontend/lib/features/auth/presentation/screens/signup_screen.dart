@@ -178,7 +178,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           keyboardType: TextInputType.emailAddress,
                           enabled: !_isLoading,
                           decoration: const InputDecoration(
-                            hintText: 'you@example.com',
+                            hintText: 'Enter your email',
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -196,7 +196,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           obscureText: !_showPassword,
                           enabled: !_isLoading,
                           decoration: InputDecoration(
-                            hintText: '••••••••',
+                            hintText: 'Enter your password',
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _showPassword
