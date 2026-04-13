@@ -81,188 +81,206 @@ class _LoginPageState extends State<LoginPage> {
     final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 448),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Logo
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'Buzz',
-                        style: textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      TextSpan(
-                        text: 'Cart',
-                        style: textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.electricBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Social commerce, reimagined',
-                  style: textTheme.bodyMedium?.copyWith(
-                    color: isDark
-                        ? AppColors.darkMutedForeground
-                        : AppColors.lightMutedForeground,
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // Card
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 448),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo
+                  Text.rich(
+                    TextSpan(
                       children: [
-                        Text(
-                          'Welcome back',
-                          style: textTheme.headlineMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Enter your credentials to access your account',
-                          style: textTheme.bodySmall?.copyWith(
-                            color: isDark
-                                ? AppColors.darkMutedForeground
-                                : AppColors.lightMutedForeground,
+                        TextSpan(
+                          text: 'Buzz',
+                          style: textTheme.displaySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                        const SizedBox(height: 24),
-
-                        // Email field
-                        Text(
-                          'Email',
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
+                        TextSpan(
+                          text: 'Cart',
+                          style: textTheme.displaySmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.electricBlue,
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          enabled: !_isLoading,
-                          decoration: const InputDecoration(
-                            hintText: 'Enter your email',
-                          ),
-                          onSubmitted: (_) => _handleLogin(),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Password field
-                        Text(
-                          'Password',
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: !_showPassword,
-                          enabled: !_isLoading,
-                          decoration: InputDecoration(
-                            hintText: 'Enter your password',
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _showPassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                              ),
-                              onPressed: () {
-                                setState(() => _showPassword = !_showPassword);
-                              },
-                            ),
-                          ),
-                          onSubmitted: (_) => _handleLogin(),
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Remember me
-                        Row(
-                          children: [
-                            Checkbox(
-                              value: _rememberMe,
-                              onChanged: _isLoading
-                                  ? null
-                                  : (value) {
-                                      setState(
-                                          () => _rememberMe = value ?? false);
-                                    },
-                            ),
-                            Expanded(
-                              child: Text(
-                                'Remember me for 30 days',
-                                style: textTheme.bodySmall,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Login button
-                        SizedBox(
-                          height: 44,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _handleLogin,
-                            child: _isLoading
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Text('Sign In'),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Signup link
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              "Don't have an account? ",
-                              style: textTheme.bodySmall,
-                            ),
-                            TextButton(
-                              onPressed: () => context.go('/signup'),
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: const Size(0, 0),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              child: Text(
-                                'Sign up',
-                                style: textTheme.bodySmall?.copyWith(
-                                  color: AppColors.electricBlue,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Text(
+                    'Social commerce, reimagined',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: isDark
+                          ? AppColors.darkMutedForeground
+                          : AppColors.lightMutedForeground,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Card
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'Welcome back',
+                            style: textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Enter your credentials to access your account',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: isDark
+                                  ? AppColors.darkMutedForeground
+                                  : AppColors.lightMutedForeground,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          // Email field
+                          Text(
+                            'Email',
+                            style: textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            enabled: !_isLoading,
+                            decoration: const InputDecoration(
+                              hintText: 'Enter your email',
+                            ),
+                            onSubmitted: (_) => _handleLogin(),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Password field
+                          Text(
+                            'Password',
+                            style: textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _passwordController,
+                            obscureText: !_showPassword,
+                            enabled: !_isLoading,
+                            decoration: InputDecoration(
+                              hintText: 'Enter your password',
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _showPassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                onPressed: () {
+                                  setState(
+                                      () => _showPassword = !_showPassword);
+                                },
+                              ),
+                            ),
+                            onSubmitted: (_) => _handleLogin(),
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Remember me
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: _rememberMe,
+                                onChanged: _isLoading
+                                    ? null
+                                    : (value) {
+                                        setState(
+                                            () => _rememberMe = value ?? false);
+                                      },
+                              ),
+                              Expanded(
+                                child: Text(
+                                  'Remember me for 30 days',
+                                  style: textTheme.bodySmall,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+
+                          // Login button
+                          SizedBox(
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _handleLogin,
+                              style: ElevatedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                textStyle: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox.square(
+                                      dimension: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.4,
+                                        strokeCap: StrokeCap.round,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Sign In',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.visible,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Signup link
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                "Don't have an account? ",
+                                style: textTheme.bodySmall,
+                              ),
+                              TextButton(
+                                onPressed: () => context.go('/signup'),
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: Text(
+                                  'Sign up',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: AppColors.electricBlue,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
