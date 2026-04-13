@@ -954,8 +954,8 @@ class _ShopPageState extends State<ShopPage> {
                                   const SizedBox(width: 4),
                                   Text(
                                     product.reviewsCount > 0
-                                        ? '${product.rating.toStringAsFixed(1)} (${product.reviewsCount})'
-                                        : 'No reviews yet',
+                                        ? '${product.rating.toStringAsFixed(1)} (${product.reviewsCount} ratings)'
+                                        : 'No ratings yet',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w600,
                                       color: Colors.grey[700],
@@ -1414,6 +1414,7 @@ class _BuyerPreviewButton extends StatelessWidget {
     final theme = Theme.of(context);
     final previewBuyers = buyers.take(3).toList();
     final overflowCount = buyers.length - previewBuyers.length;
+    final buyerLabel = buyers.length == 1 ? '1 buyer' : '${buyers.length} buyers';
 
     if (isLoading && buyers.isEmpty) {
       return const SizedBox(
@@ -1425,7 +1426,7 @@ class _BuyerPreviewButton extends StatelessWidget {
 
     if (previewBuyers.isEmpty) {
       return const Text(
-        'Who bought this',
+        'No buyers yet',
         style: TextStyle(
           fontWeight: FontWeight.w700,
         ),
@@ -1465,8 +1466,8 @@ class _BuyerPreviewButton extends StatelessWidget {
           ],
         ),
         const SizedBox(width: 8),
-        const Text(
-          'Bought this',
+        Text(
+          buyerLabel,
           style: TextStyle(
             fontWeight: FontWeight.w700,
           ),
@@ -1518,6 +1519,8 @@ class _ReviewsPreviewButton extends StatelessWidget {
     final theme = Theme.of(context);
     final previewReviews = reviews.take(3).toList();
     final overflowCount = reviews.length - previewReviews.length;
+    final reviewLabel =
+        reviews.length == 1 ? '1 review' : '${reviews.length} reviews';
 
     if (isLoading && reviews.isEmpty) {
       return const SizedBox(
@@ -1529,7 +1532,7 @@ class _ReviewsPreviewButton extends StatelessWidget {
 
     if (previewReviews.isEmpty) {
       return const Text(
-        'Reviewed this',
+        'No reviews yet',
         style: TextStyle(
           fontWeight: FontWeight.w700,
         ),
@@ -1569,8 +1572,8 @@ class _ReviewsPreviewButton extends StatelessWidget {
           ],
         ),
         const SizedBox(width: 8),
-        const Text(
-          'Reviewed this',
+        Text(
+          reviewLabel,
           style: TextStyle(
             fontWeight: FontWeight.w700,
           ),
