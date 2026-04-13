@@ -419,7 +419,7 @@ class _HomePageState extends State<HomePage> {
     final cartItems = context.watch<CartProvider>().cart.items;
 
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return _buildLoadingFeed();
     }
 
     if (_error != null) {
@@ -495,6 +495,97 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildLoadingFeed() {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: LinearProgressIndicator(minHeight: 3),
+        ),
+        _buildLoadingCard(aspectRatio: 1),
+        _buildLoadingCard(aspectRatio: 4 / 5),
+        _buildLoadingCard(aspectRatio: 16 / 9),
+      ],
+    );
+  }
+
+  Widget _buildLoadingCard({required double aspectRatio}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final placeholderColor =
+        isDark ? AppColors.darkMuted : AppColors.lightMuted;
+
+    Widget block({
+      required double height,
+      double? width,
+      EdgeInsetsGeometry margin = EdgeInsets.zero,
+    }) {
+      return Container(
+        width: width,
+        height: height,
+        margin: margin,
+        decoration: BoxDecoration(
+          color: placeholderColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
+      );
+    }
+
+    return _buildSectionShell(
+      maxWidth: _pageMaxWidth,
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: placeholderColor,
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      block(height: 12, width: 120),
+                      block(
+                        height: 10,
+                        width: 84,
+                        margin: const EdgeInsets.only(top: 6),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            AspectRatio(
+              aspectRatio: aspectRatio,
+              child: Container(color: placeholderColor),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  block(height: 12, width: double.infinity),
+                  block(
+                    height: 12,
+                    width: 200,
+                    margin: const EdgeInsets.only(top: 8),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -663,8 +754,7 @@ class _HomePageState extends State<HomePage> {
                             child: Icon(
                               Icons.add_shopping_cart_rounded,
                               size: 20,
-                              color:
-                                  canAddToCart ? Colors.black : Colors.grey,
+                              color: canAddToCart ? Colors.black : Colors.grey,
                             ),
                           ),
                         ),

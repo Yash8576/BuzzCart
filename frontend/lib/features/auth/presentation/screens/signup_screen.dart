@@ -18,7 +18,7 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _showPassword = false;
   bool _isLoading = false;
   bool _rememberMe = false;
-  
+
   // Account Type - default to CONSUMER
   String _accountType = 'CONSUMER';
 
@@ -50,7 +50,7 @@ class _SignupScreenState extends State<SignupScreen> {
             _emailController.text.trim(),
             _passwordController.text,
             _nameController.text.trim(),
-        rememberMe: _rememberMe,
+            rememberMe: _rememberMe,
             accountType: _accountType,
             privacyProfile: 'PUBLIC',
           );
@@ -59,9 +59,11 @@ class _SignupScreenState extends State<SignupScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showError(e.toString().contains('exists')
-            ? 'Email already registered'
-            : 'Signup failed. Please try again.');
+        if (e is AuthException) {
+          _showError(e.message);
+        } else {
+          _showError('Signup failed. Please try again.');
+        }
       }
     } finally {
       if (mounted) {
@@ -224,7 +226,8 @@ class _SignupScreenState extends State<SignupScreen> {
                               child: GestureDetector(
                                 onTap: _isLoading
                                     ? null
-                                    : () => setState(() => _accountType = 'CONSUMER'),
+                                    : () => setState(
+                                        () => _accountType = 'CONSUMER'),
                                 child: Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
@@ -251,7 +254,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                             ? AppColors.electricBlue
                                             : (isDark
                                                 ? AppColors.darkMutedForeground
-                                                : AppColors.lightMutedForeground),
+                                                : AppColors
+                                                    .lightMutedForeground),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
@@ -275,7 +279,8 @@ class _SignupScreenState extends State<SignupScreen> {
                               child: GestureDetector(
                                 onTap: _isLoading
                                     ? null
-                                    : () => setState(() => _accountType = 'SELLER'),
+                                    : () =>
+                                        setState(() => _accountType = 'SELLER'),
                                 child: Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
@@ -302,7 +307,8 @@ class _SignupScreenState extends State<SignupScreen> {
                                             ? AppColors.electricBlue
                                             : (isDark
                                                 ? AppColors.darkMutedForeground
-                                                : AppColors.lightMutedForeground),
+                                                : AppColors
+                                                    .lightMutedForeground),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
@@ -333,7 +339,8 @@ class _SignupScreenState extends State<SignupScreen> {
                               onChanged: _isLoading
                                   ? null
                                   : (value) {
-                                      setState(() => _rememberMe = value ?? false);
+                                      setState(
+                                          () => _rememberMe = value ?? false);
                                     },
                             ),
                             Expanded(

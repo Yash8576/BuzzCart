@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -28,7 +30,7 @@ class AuthProvider extends ChangeNotifier {
       'pending_avatar_preview_path';
   static const int _maxInactiveDays = 7;
   static const int _rememberMeDays = 30;
-  
+
   UserModel? _user;
   bool _isLoading = true;
   bool _isAuthenticated = false;
@@ -47,13 +49,13 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _init() async {
     _isLoading = true;
     notifyListeners();
-    
+
     try {
       // Ensure token is loaded from storage first
       await _api.ensureTokenLoaded();
       _pendingAvatarPreviewPath =
           await _storage.read(key: _pendingAvatarPreviewPathKey);
-      
+
       // Check if token exists
       final hasToken = await _api.hasToken();
       if (!hasToken) {
@@ -84,13 +86,15 @@ class AuthProvider extends ChangeNotifier {
             value: sessionStartedAt.toIso8601String(),
           );
         } else {
-          sessionStartedAt = DateTime.tryParse(sessionStartedAtRaw) ?? DateTime.now();
+          sessionStartedAt =
+              DateTime.tryParse(sessionStartedAtRaw) ?? DateTime.now();
         }
 
         final daysSinceSessionStart =
             DateTime.now().difference(sessionStartedAt).inDays;
         if (daysSinceSessionStart > _rememberMeDays) {
-          debugPrint('Auto-logout: remember-me session expired ($daysSinceSessionStart days)');
+          debugPrint(
+              'Auto-logout: remember-me session expired ($daysSinceSessionStart days)');
           await _api.logout();
           await _storage.delete(key: _lastActivityKey);
           await _storage.delete(key: _rememberMeKey);
@@ -104,7 +108,7 @@ class AuthProvider extends ChangeNotifier {
           return;
         }
       }
-      
+
       // Check if user has been inactive for more than 7 days
       if (!rememberMeEnabled) {
         final lastActivity = await _storage.read(key: _lastActivityKey);
@@ -114,7 +118,8 @@ class AuthProvider extends ChangeNotifier {
 
           if (daysSinceActivity > _maxInactiveDays) {
             // Auto-logout due to inactivity
-            debugPrint('Auto-logout due to inactivity ($daysSinceActivity days)');
+            debugPrint(
+                'Auto-logout due to inactivity ($daysSinceActivity days)');
             await _api.logout();
             await _storage.delete(key: _lastActivityKey);
             await _storage.delete(key: _rememberMeKey);
@@ -133,9 +138,9 @@ class AuthProvider extends ChangeNotifier {
       // Try to get user profile with existing token
       debugPrint('Attempting to fetch user profile with stored token');
       _user = await _api.getMe().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('Request timeout'),
-      );
+            const Duration(seconds: 5),
+            onTimeout: () => throw Exception('Request timeout'),
+          );
       if ((_user?.avatar ?? '').trim().isNotEmpty) {
         _pendingAvatarPreviewPath = null;
         await _storage.delete(key: _pendingAvatarPreviewPathKey);
@@ -173,31 +178,50 @@ class AuthProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> login(String email, String password, {bool rememberMe = false}) async {
-    final hasInternet = await _api.hasInternetConnection();
-    if (!hasInternet) {
-      throw const AuthException(
-        'network_connection_error',
-        'Network connection error',
-      );
-    }
+  void _persistLoginSessionInBackground(bool rememberMe) {
+    final nowIso = DateTime.now().toIso8601String();
+    unawaited(_writeLoginSessionState(nowIso, rememberMe));
+  }
 
-    final backendReachable = await _api.isBackendReachable();
-    if (!backendReachable) {
-      throw const AuthException(
-        'internal_server_error',
-        'Internal server error',
-      );
+  Future<void> _writeLoginSessionState(String nowIso, bool rememberMe) async {
+    try {
+      await Future.wait<void>([
+        _storage.write(
+          key: _rememberMeKey,
+          value: rememberMe ? 'true' : 'false',
+        ),
+        _storage.write(
+          key: _sessionStartedAtKey,
+          value: nowIso,
+        ),
+        _storage.write(
+          key: _lastActivityKey,
+          value: nowIso,
+        ),
+      ]);
+    } catch (e) {
+      debugPrint('Failed to persist login session state: $e');
     }
+  }
 
+  Future<void> login(String email, String password,
+      {bool rememberMe = false}) async {
     try {
       final response = await _api.login(email, password);
       _user = UserModel.fromJson(response['user'] as Map<String, dynamic>);
       _isAuthenticated = true;
-      await _persistSessionPreference(rememberMe);
-      await _updateLastActivity();
+      _persistLoginSessionInBackground(rememberMe);
       notifyListeners();
     } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.sendTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        throw const AuthException(
+          'network_connection_error',
+          'Network connection error',
+        );
+      }
       if (e.response?.statusCode == 429) {
         throw const AuthException(
           'too_many_attempts',
@@ -248,8 +272,47 @@ class AuthProvider extends ChangeNotifier {
       await _persistSessionPreference(rememberMe);
       await _updateLastActivity();
       notifyListeners();
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.sendTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        throw const AuthException(
+          'network_connection_error',
+          'Network connection error',
+        );
+      }
+
+      final statusCode = e.response?.statusCode;
+      final responseData = e.response?.data;
+      final serverError = responseData is Map<String, dynamic>
+          ? '${responseData['error'] ?? responseData['message'] ?? ''}'
+              .toLowerCase()
+          : '';
+
+      if ((statusCode == 400 || statusCode == 409) &&
+          (serverError.contains('email already') ||
+              serverError.contains('already registered') ||
+              serverError.contains('already in use') ||
+              serverError.contains('already exists'))) {
+        throw const AuthException(
+          'email_already_in_use',
+          'Email already in use',
+        );
+      }
+
+      throw const AuthException(
+        'signup_failed',
+        'Signup failed. Please try again.',
+      );
     } catch (e) {
-      rethrow;
+      if (e is AuthException) {
+        rethrow;
+      }
+      throw const AuthException(
+        'signup_failed',
+        'Signup failed. Please try again.',
+      );
     }
   }
 

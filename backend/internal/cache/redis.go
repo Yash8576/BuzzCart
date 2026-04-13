@@ -19,11 +19,23 @@ func InitRedis(redisURL string) error {
 		return err
 	}
 
+	if opt.DialTimeout == 0 {
+		opt.DialTimeout = 200 * time.Millisecond
+	}
+	if opt.ReadTimeout == 0 {
+		opt.ReadTimeout = 200 * time.Millisecond
+	}
+	if opt.WriteTimeout == 0 {
+		opt.WriteTimeout = 200 * time.Millisecond
+	}
+
 	client = redis.NewClient(opt)
 
 	// Test connection
 	_, err = client.Ping(ctx).Result()
 	if err != nil {
+		_ = client.Close()
+		client = nil
 		return err
 	}
 
