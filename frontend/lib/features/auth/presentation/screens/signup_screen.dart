@@ -12,10 +12,13 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  static final RegExp _emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  String? _emailError;
   bool _showPassword = false;
   bool _isLoading = false;
   bool _rememberMe = false;
@@ -33,13 +36,23 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> _handleSignup() async {
+    final email = _emailController.text.trim();
+
     if (_nameController.text.isEmpty ||
-        _emailController.text.isEmpty ||
+        email.isEmpty ||
         _passwordController.text.isEmpty ||
         _confirmPasswordController.text.isEmpty) {
+      setState(() => _emailError = null);
       _showError('Please fill in all fields');
       return;
     }
+
+    if (!_emailRegex.hasMatch(email)) {
+      setState(() => _emailError = 'Please check your email address');
+      return;
+    }
+
+    setState(() => _emailError = null);
 
     if (_passwordController.text.length < 6) {
       _showError('Password must be at least 6 characters');
@@ -55,7 +68,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
     try {
       await context.read<AuthProvider>().register(
-            _emailController.text.trim(),
+            email,
             _passwordController.text,
             _nameController.text.trim(),
             rememberMe: _rememberMe,
@@ -186,9 +199,16 @@ class _SignupScreenState extends State<SignupScreen> {
                             controller: _emailController,
                             keyboardType: TextInputType.emailAddress,
                             enabled: !_isLoading,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Enter your email',
+                              errorText: _emailError,
                             ),
+                            onChanged: (value) {
+                              if (_emailError != null &&
+                                  _emailRegex.hasMatch(value.trim())) {
+                                setState(() => _emailError = null);
+                              }
+                            },
                           ),
                           const SizedBox(height: 12),
 
