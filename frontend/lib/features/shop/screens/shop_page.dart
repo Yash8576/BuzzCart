@@ -427,22 +427,21 @@ class _ShopPageState extends State<ShopPage> {
       return;
     }
 
-    final questionController = TextEditingController();
+    String questionText = '';
     final currentUserId = context.read<AuthProvider>().user?.id;
     ProductDocumentAnswer? latestAnswer;
     String? errorText;
     bool isSubmitting = false;
 
-    try {
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (sheetContext) {
-          return StatefulBuilder(
-            builder: (sheetContext, setSheetState) {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
               Future<void> submitQuestion() async {
-                final query = questionController.text.trim();
+                final query = questionText.trim();
                 if (query.isEmpty || isSubmitting) {
                   return;
                 }
@@ -461,10 +460,18 @@ class _ShopPageState extends State<ShopPage> {
                     documentUrl: documentUrl,
                   );
 
+                  if (!sheetContext.mounted) {
+                    return;
+                  }
+
                   setSheetState(() {
                     latestAnswer = answer;
                   });
                 } catch (e) {
+                  if (!sheetContext.mounted) {
+                    return;
+                  }
+
                   setSheetState(() {
                     errorText =
                         'Unable to query the product document right now.';
@@ -489,14 +496,25 @@ class _ShopPageState extends State<ShopPage> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Product Chatbot',
-                          style: Theme.of(sheetContext)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Product Chatbot',
+                                style: Theme.of(sheetContext)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                               ),
+                            ),
+                            IconButton(
+                              tooltip: 'Close chatbot',
+                              onPressed: () => Navigator.of(sheetContext).pop(),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 8),
                         Text(
@@ -506,7 +524,6 @@ class _ShopPageState extends State<ShopPage> {
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          controller: questionController,
                           minLines: 2,
                           maxLines: 4,
                           textInputAction: TextInputAction.done,
@@ -515,6 +532,7 @@ class _ShopPageState extends State<ShopPage> {
                             hintText: 'Example: What is the battery capacity?',
                             border: OutlineInputBorder(),
                           ),
+                          onChanged: (value) => questionText = value,
                           onSubmitted: (_) => submitQuestion(),
                         ),
                         const SizedBox(height: 12),
@@ -568,24 +586,6 @@ class _ShopPageState extends State<ShopPage> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    Chip(
-                                      label: Text(
-                                        'Confidence: ${answer.confidence}',
-                                      ),
-                                    ),
-                                    if (answer.source != null)
-                                      Chip(
-                                        label: Text(
-                                          'Page ${answer.source!.page} · Chunk ${answer.source!.chunkId}',
-                                        ),
-                                      ),
-                                  ],
-                                ),
                               ],
                             ),
                           ),
@@ -595,13 +595,10 @@ class _ShopPageState extends State<ShopPage> {
                   ),
                 ),
               );
-            },
-          );
-        },
-      );
-    } finally {
-      questionController.dispose();
-    }
+          },
+        );
+      },
+    );
   }
 
   int _compareBuyers(ProductBuyerModel a, ProductBuyerModel b) {
