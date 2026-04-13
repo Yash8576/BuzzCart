@@ -55,6 +55,76 @@ STOPWORDS = {
     "with",
     "you",
 }
+QUERY_TOPIC_EXPANSIONS = {
+    "memory": [
+        "memory",
+        "ram",
+        "unified memory",
+        "memory capacity",
+        "default memory",
+        "included memory",
+    ],
+    "storage": [
+        "storage",
+        "ssd",
+        "storage capacity",
+        "internal storage",
+        "included storage",
+    ],
+    "display": [
+        "display",
+        "screen",
+        "display size",
+        "screen size",
+        "display type",
+        "resolution",
+        "brightness",
+        "true tone",
+    ],
+    "battery": [
+        "battery",
+        "battery life",
+        "hours",
+        "video streaming",
+        "wireless web",
+    ],
+    "processor": [
+        "processor",
+        "chip",
+        "cpu",
+        "apple silicon",
+    ],
+    "weight": [
+        "weight",
+        "weighs",
+        "pounds",
+        "kg",
+    ],
+    "camera": [
+        "camera",
+        "webcam",
+        "facetime camera",
+    ],
+    "ports": [
+        "ports",
+        "thunderbolt",
+        "usb",
+        "mag safe",
+        "headphone jack",
+        "3.5 mm jack",
+        "3.5mm jack",
+    ],
+}
+QUERY_TOPIC_REPHRASES = {
+    "memory": "how much memory does the product come with",
+    "storage": "how much storage does the product come with",
+    "display": "what are the display specifications",
+    "battery": "what is the battery life",
+    "processor": "what processor or chip does the product use",
+    "weight": "how much does the product weigh",
+    "camera": "what camera does the product have",
+    "ports": "what ports and connectivity options does the product have",
+}
 
 
 class ChatEngine:
@@ -82,6 +152,7 @@ class ChatEngine:
         cleaned_query = " ".join(query.split())
         if not cleaned_query:
             return self._fallback()
+        retrieval_query = self._expand_query_for_retrieval(cleaned_query)
 
         if force_document_sync and document_url:
             await self.document_processor.sync_product_document(
@@ -97,7 +168,7 @@ class ChatEngine:
 
         retrieved = self.vector_store.similarity_search(
             product_id=product_id,
-            query=cleaned_query,
+            query=retrieval_query,
             k=settings.RETRIEVAL_CANDIDATE_POOL,
         )
         if not retrieved:
@@ -107,19 +178,19 @@ class ChatEngine:
             product_id=product_id,
             matches=retrieved,
         )
-        reranked_chunks = self.vector_store.rerank_chunks(cleaned_query, expanded)
+        reranked_chunks = self.vector_store.rerank_chunks(retrieval_query, expanded)
         if not reranked_chunks:
             return self._fallback()
 
-        evidence_candidates = self._collect_evidence_candidates(cleaned_query, reranked_chunks)
+        evidence_candidates = self._collect_evidence_candidates(retrieval_query, reranked_chunks)
         if not evidence_candidates:
             return self._fallback()
 
-        ranked_evidence = self.vector_store.rerank_sentences(cleaned_query, evidence_candidates)
+        ranked_evidence = self.vector_store.rerank_sentences(retrieval_query, evidence_candidates)
         if not ranked_evidence:
             return self._fallback()
 
-        selected_evidence = self._select_supporting_evidence(cleaned_query, ranked_evidence)
+        selected_evidence = self._select_supporting_evidence(retrieval_query, ranked_evidence)
         if not selected_evidence:
             return self._fallback()
 
@@ -254,6 +325,59 @@ class ChatEngine:
                 start_index = hit + len(term)
 
         return spans
+
+    def _expand_query_for_retrieval(self, query: str) -> str:
+        normalized_query = " ".join(query.lower().split())
+        if not normalized_query:
+            return query
+
+        topics = self._query_topics(normalized_query)
+        if not topics:
+            return query
+
+        fragments: List[str] = [query]
+        if self._is_underspecified_query(normalized_query):
+            for topic in topics:
+                rephrase = QUERY_TOPIC_REPHRASES.get(topic)
+                if rephrase:
+                    fragments.append(rephrase)
+
+        for topic in topics:
+            fragments.extend(QUERY_TOPIC_EXPANSIONS.get(topic, []))
+
+        return self._dedupe_query_fragments(fragments)
+
+    def _query_topics(self, query: str) -> List[str]:
+        topics: List[str] = []
+        for topic, expansions in QUERY_TOPIC_EXPANSIONS.items():
+            if any(expansion in query for expansion in expansions):
+                topics.append(topic)
+        return topics
+
+    def _is_underspecified_query(self, query: str) -> bool:
+        meaningful_terms = self._meaningful_terms(query)
+        if len(meaningful_terms) <= 3:
+            return True
+        return bool(
+            re.match(
+                r"^(?:what(?:'s|\s+is)?|tell me|give me|show me|memory|storage|display|battery|processor|chip|weight|camera|ports|headphone|jack)\b",
+                query,
+            )
+        )
+
+    def _dedupe_query_fragments(self, fragments: List[str]) -> str:
+        seen = set()
+        ordered: List[str] = []
+        for fragment in fragments:
+            normalized = " ".join(fragment.split()).strip()
+            if not normalized:
+                continue
+            lowered = normalized.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            ordered.append(normalized)
+        return " ".join(ordered)
 
     def _select_supporting_evidence(
         self,
@@ -443,6 +567,13 @@ class ChatEngine:
             if len(line) < 4:
                 continue
             score = self._support_ratio(query, line)
+            if self._asks_for_fact_value(query):
+                if ":" in raw_line:
+                    score += 0.10
+                if self._contains_numeric_value(line):
+                    score += 0.10
+                if len(line.split()) <= 2:
+                    score -= 0.08
             if self._contains_numeric_value(line) and self._expects_numeric_answer(query):
                 score += 0.15
             if score > best_score or (
@@ -476,6 +607,12 @@ class ChatEngine:
         return lowered_query.startswith(
             ("is ", "are ", "does ", "do ", "can ", "supports ", "has ", "have ")
         )
+
+    def _asks_for_fact_value(self, query: str) -> bool:
+        lowered_query = query.lower().strip()
+        return lowered_query.startswith(
+            ("what is ", "what's ", "tell me ", "give me ", "show me ")
+        ) or len(self._meaningful_terms(lowered_query)) <= 3
 
     def _contains_numeric_value(self, text: str) -> bool:
         return bool(re.search(r"\b\d+(?:\.\d+)?\b", text, flags=re.IGNORECASE))
@@ -654,6 +791,13 @@ class ChatEngine:
 
         if self._expects_numeric_answer(query) and self._contains_numeric_value(fact["value"]):
             score += 0.18
+        if self._asks_for_fact_value(query):
+            if ":" in fact["text"]:
+                score += 0.08
+            if self._contains_numeric_value(fact["value"]):
+                score += 0.12
+            if len(fact["value"].split()) >= 2:
+                score += 0.05
         if self._expects_yes_no_answer(query) and self._is_boolean_like_value(fact["value"]):
             score += 0.14
         if len(fact["value"]) <= 40:
@@ -669,25 +813,41 @@ class ChatEngine:
         product_name: Optional[str] = None,
     ) -> Optional[str]:
         subject = self._product_subject(product_name)
+        clause_subject = self._product_subject_clause(product_name)
         possessive_subject = self._product_possessive(product_name)
         lowered_query = query.lower()
         key_lower = key.lower()
         value_clean = self._normalize_candidate_text(value)
+        port_count_answer = self._port_count_answer(key, value_clean)
+        headphone_jack_answer = self._headphone_jack_answer(key, value_clean)
+
+        if headphone_jack_answer:
+            if self._expects_yes_no_answer(query):
+                return f"Yes, {clause_subject} has {headphone_jack_answer}."
+            return f"{subject} has {headphone_jack_answer}."
+
+        if port_count_answer:
+            if self._expects_yes_no_answer(query):
+                feature = self._feature_phrase(query, key)
+                return f"Yes, {clause_subject} has {feature}. {subject} has {port_count_answer}."
+            if self._expects_numeric_answer(query):
+                return f"{subject} has {port_count_answer}."
+            return f"{subject} has {port_count_answer}."
 
         if self._expects_yes_no_answer(query):
             feature = self._feature_phrase(query, key)
             if self._is_positive_value(value_clean):
                 if "support" in lowered_query:
-                    return f"Yes, {subject} supports {feature}."
+                    return f"Yes, {clause_subject} supports {feature}."
                 if lowered_query.startswith(("has ", "have ")):
-                    return f"Yes, {subject} has {feature}."
-                return f"Yes, {subject} includes {feature}."
+                    return f"Yes, {clause_subject} has {feature}."
+                return f"Yes, {clause_subject} includes {feature}."
             if self._is_negative_value(value_clean):
                 if "support" in lowered_query:
-                    return f"No, {subject} does not support {feature}."
+                    return f"No, {clause_subject} does not support {feature}."
                 if lowered_query.startswith(("has ", "have ")):
-                    return f"No, {subject} does not have {feature}."
-                return f"No, {subject} does not include {feature}."
+                    return f"No, {clause_subject} does not have {feature}."
+                return f"No, {clause_subject} does not include {feature}."
 
         if key_lower in {"display size", "screen size"}:
             return f"{subject} comes with a {value_clean} display."
@@ -706,6 +866,31 @@ class ChatEngine:
 
         return f"{possessive_subject} {self._humanize_key(key)} is {value_clean}."
 
+    def _port_count_answer(self, key: str, value: str) -> Optional[str]:
+        key_lower = key.lower()
+        if "port" not in key_lower:
+            return None
+
+        match = re.match(r"(\d+)\s*[x×]\s*(.+)", value, flags=re.IGNORECASE)
+        if not match:
+            return None
+
+        count = int(match.group(1))
+        label = self._normalize_candidate_text(match.group(2))
+        if not label:
+            return None
+        return f"{self._quantity_word(count)} {label} port{'s' if count != 1 else ''}"
+
+    def _headphone_jack_answer(self, key: str, value: str) -> Optional[str]:
+        key_lower = key.lower()
+        if "headphone" not in key_lower or "jack" not in key_lower:
+            return None
+
+        normalized_value = self._normalized_measurement(value)
+        if not normalized_value:
+            return "a headphone jack for headphone connectivity"
+        return f"a {normalized_value} headphone jack for headphone connectivity"
+
     def _feature_phrase(self, query: str, key: str) -> str:
         normalized_query = query.lower().strip().rstrip("?.!")
         normalized_query = re.sub(r"^(?:is|are|does|do|can|has|have)\s+", "", normalized_query)
@@ -713,6 +898,7 @@ class ChatEngine:
         normalized_query = re.sub(r"^(?:support|supports|include|includes|feature|features|come with|comes with|have|has)\s+", "", normalized_query)
         normalized_query = normalized_query.strip()
         if normalized_query:
+            normalized_query = re.sub(r"\b3\.5mm\b", "3.5 mm", normalized_query)
             return normalized_query
         return self._humanize_key(key)
 
@@ -722,6 +908,28 @@ class ChatEngine:
             return "specification"
         return cleaned[:1].lower() + cleaned[1:]
 
+    def _quantity_word(self, count: int) -> str:
+        return {
+            0: "zero",
+            1: "one",
+            2: "two",
+            3: "three",
+            4: "four",
+            5: "five",
+            6: "six",
+            7: "seven",
+            8: "eight",
+            9: "nine",
+            10: "ten",
+            11: "eleven",
+            12: "twelve",
+        }.get(count, str(count))
+
+    def _normalized_measurement(self, value: str) -> str:
+        normalized = self._normalize_candidate_text(value)
+        normalized = re.sub(r"\b(\d+(?:\.\d+)?)mm\b", r"\1 mm", normalized, flags=re.IGNORECASE)
+        return normalized
+
     def _product_subject(self, product_name: Optional[str]) -> str:
         cleaned = " ".join((product_name or "").split()).strip(" .")
         if not cleaned:
@@ -729,6 +937,12 @@ class ChatEngine:
         if cleaned.lower().startswith("the "):
             return cleaned[:1].upper() + cleaned[1:]
         return f"The {cleaned}"
+
+    def _product_subject_clause(self, product_name: Optional[str]) -> str:
+        subject = self._product_subject(product_name)
+        if subject == "It":
+            return "it"
+        return subject[:1].lower() + subject[1:]
 
     def _product_possessive(self, product_name: Optional[str]) -> str:
         subject = self._product_subject(product_name)
