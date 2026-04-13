@@ -38,6 +38,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _gtinController = TextEditingController();
   final _productTypeController = TextEditingController();
   final _priceController = TextEditingController();
+  final _offerPercentageController = TextEditingController();
   final _quantityController = TextEditingController();
   final _shippingDetailsController = TextEditingController();
   final _sizeController = TextEditingController();
@@ -95,6 +96,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       _gtinController,
       _productTypeController,
       _priceController,
+      _offerPercentageController,
       _quantityController,
       _shippingDetailsController,
       _sizeController,
@@ -147,6 +149,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
     return '';
   }
 
+  String _formatOfferPercentage(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toStringAsFixed(0);
+    }
+    if ((value * 10) == (value * 10).roundToDouble()) {
+      return value.toStringAsFixed(1);
+    }
+    return value.toStringAsFixed(2);
+  }
+
   void _prefillFromEditingProduct() {
     final product = widget.editingProduct;
     if (product == null) {
@@ -164,7 +176,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _titleController.text = product.title;
     _descriptionController.text = product.description;
     _categoryController.text = product.category;
-    _priceController.text = product.price.toStringAsFixed(2);
+    final hasDiscount = product.compareAtPrice != null &&
+        product.compareAtPrice! > product.price;
+    final originalPrice = hasDiscount ? product.compareAtPrice! : product.price;
+
+    _priceController.text = originalPrice.toStringAsFixed(2);
+    _offerPercentageController.text = hasDiscount
+        ? _formatOfferPercentage(
+            ((originalPrice - product.price) / originalPrice) * 100,
+          )
+        : '';
     _quantityController.text = '0';
 
     _initialStockQuantity = product.stockQuantity;
@@ -514,7 +535,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
     if (_specificationPdf == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Upload the product specification PDF before publishing.'),
+          content:
+              Text('Upload the product specification PDF before publishing.'),
         ),
       );
       return;
@@ -610,6 +632,20 @@ class _AddProductScreenState extends State<AddProductScreen> {
         dimensions['unit'] = _dimensionUnit;
       }
 
+      final originalPrice = double.parse(_priceController.text.trim());
+      final offerPercentageRaw = _offerPercentageController.text.trim();
+      final offerPercentage = offerPercentageRaw.isEmpty
+          ? null
+          : double.tryParse(offerPercentageRaw);
+
+      final hasValidOffer = offerPercentage != null &&
+          offerPercentage > 0 &&
+          offerPercentage < 100;
+      final effectivePrice = hasValidOffer
+          ? originalPrice - (originalPrice * offerPercentage / 100)
+          : originalPrice;
+      final compareAtPrice = hasValidOffer ? originalPrice : null;
+
       final metadata = <String, dynamic>{
         'brand_origin': _brandOrigin,
         'brand_name': resolvedBrandName,
@@ -646,6 +682,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         'color': _colorController.text.trim(),
         'item_model_number': _itemModelNumberController.text.trim(),
         'country_of_origin': _countryOfOriginController.text.trim(),
+        if (hasValidOffer) 'offer_percentage': offerPercentage,
         'specification_pdf_url': specificationPdfUrl,
         'media_queue': uploadedMediaQueue,
         'media_videos': uploadedVideoUrls,
@@ -675,7 +712,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
           productId: editingProduct.id,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
-          price: double.parse(_priceController.text.trim()),
+          price: effectivePrice,
+          compareAtPrice: compareAtPrice,
           category: _categoryController.text.trim(),
           images: uploadedImageUrls,
           tags: searchTerms,
@@ -690,7 +728,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         savedProduct = await _api.createProduct(
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
-          price: double.parse(_priceController.text.trim()),
+          price: effectivePrice,
+          compareAtPrice: compareAtPrice,
           category: _categoryController.text.trim(),
           images: uploadedImageUrls,
           tags: searchTerms,
@@ -808,11 +847,13 @@ class _AddProductScreenState extends State<AddProductScreen> {
     required String label,
     String? hint,
     String? prefixText,
+    String? suffixText,
     String? Function(String?)? validator,
     int maxLines = 1,
     int? maxLength,
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       controller: controller,
@@ -820,6 +861,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         labelText: label,
         hintText: hint,
         prefixText: prefixText,
+        suffixText: suffixText,
         border: const OutlineInputBorder(),
         alignLabelWithHint: maxLines > 1,
       ),
@@ -828,7 +870,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
       validator: validator,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
-      onChanged: (_) => _markDirty(),
+      onChanged: (value) {
+        _markDirty();
+        onChanged?.call(value);
+      },
     );
   }
 
@@ -1071,7 +1116,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       Expanded(
                         child: _buildTextField(
                           controller: _priceController,
-                          label: 'Price *',
+                          label: 'Original price *',
                           hint: '0.00',
                           prefixText: '\$ ',
                           keyboardType: const TextInputType.numberWithOptions(
@@ -1092,6 +1137,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
                             }
                             return null;
                           },
+                          onChanged: (_) => setState(() {}),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1115,6 +1161,73 @@ class _AddProductScreenState extends State<AddProductScreen> {
                               return 'Enter a valid quantity';
                             }
                             return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _offerPercentageController,
+                          label: 'Offer % (optional)',
+                          hint: '10',
+                          suffixText: '%',
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d{0,2}'),
+                            ),
+                          ],
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return null;
+                            }
+                            final percentage = double.tryParse(value.trim());
+                            if (percentage == null ||
+                                percentage <= 0 ||
+                                percentage >= 100) {
+                              return 'Enter 0-100 (exclusive)';
+                            }
+                            return null;
+                          },
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Builder(
+                          builder: (context) {
+                            final original =
+                                double.tryParse(_priceController.text.trim());
+                            final percentage = double.tryParse(
+                              _offerPercentageController.text.trim(),
+                            );
+                            final hasOffer = original != null &&
+                                percentage != null &&
+                                percentage > 0 &&
+                                percentage < 100;
+                            final discounted = hasOffer
+                                ? original - (original * percentage / 100)
+                                : original;
+
+                            return InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Offer price',
+                                prefixText: '\$ ',
+                                border: OutlineInputBorder(),
+                              ),
+                              child: Text(
+                                discounted == null
+                                    ? '-'
+                                    : discounted.toStringAsFixed(2),
+                                style: Theme.of(context).textTheme.bodyLarge,
+                              ),
+                            );
                           },
                         ),
                       ),

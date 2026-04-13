@@ -303,6 +303,10 @@ func UpdateProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if err := syncUpdatedProductToCarts(ctx, db, product); err != nil {
+			log.Printf("[UpdateProduct] Failed to sync product %s into carts: %v", product.ID, err)
+		}
+
 		c.JSON(http.StatusOK, product)
 	}
 }
@@ -858,6 +862,91 @@ func updateProductWithSchemaFallback(
 	}
 
 	return getProductByIDLegacy(db, productID)
+}
+
+func syncUpdatedProductToCarts(ctx context.Context, db *sql.DB, product models.Product) error {
+	matchJSON, err := json.Marshal([]map[string]string{
+		{"product_id": product.ID},
+	})
+	if err != nil {
+		return err
+	}
+
+	rows, err := db.QueryContext(
+		ctx,
+		`SELECT user_id, items
+		 FROM carts
+		 WHERE items @> $1::jsonb`,
+		matchJSON,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type cartSnapshot struct {
+		userID string
+		items  []models.CartItem
+	}
+
+	cartsToUpdate := make([]cartSnapshot, 0)
+	for rows.Next() {
+		var (
+			userID    string
+			itemsJSON []byte
+		)
+		if err := rows.Scan(&userID, &itemsJSON); err != nil {
+			return err
+		}
+
+		var items []models.CartItem
+		if err := json.Unmarshal(itemsJSON, &items); err != nil {
+			log.Printf("[UpdateProduct] Skipping cart sync for user %s due to invalid cart JSON: %v", userID, err)
+			continue
+		}
+
+		changed := false
+		for i := range items {
+			if items[i].ProductID != product.ID {
+				continue
+			}
+			if applyProductSnapshotToCartItem(&items[i], product) {
+				changed = true
+			}
+		}
+
+		if changed {
+			cartsToUpdate = append(cartsToUpdate, cartSnapshot{
+				userID: userID,
+				items:  items,
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, cart := range cartsToUpdate {
+		itemsJSON, err := json.Marshal(cart.items)
+		if err != nil {
+			return err
+		}
+
+		if _, err := db.ExecContext(
+			ctx,
+			`UPDATE carts
+			 SET items = $1, updated_at = $2
+			 WHERE user_id = $3`,
+			itemsJSON,
+			time.Now(),
+			cart.userID,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func ensureCategoryTx(ctx context.Context, tx *sql.Tx, category string) (*string, string, error) {

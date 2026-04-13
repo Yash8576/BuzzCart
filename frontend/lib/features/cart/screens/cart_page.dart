@@ -7,8 +7,22 @@ import '../../../core/providers/cart_provider.dart';
 import '../../../core/models/models.dart';
 import '../../../core/utils/url_helper.dart';
 
-class CartPage extends StatelessWidget {
+class CartPage extends StatefulWidget {
   const CartPage({super.key});
+
+  @override
+  State<CartPage> createState() => _CartPageState();
+}
+
+class _CartPageState extends State<CartPage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<CartProvider>().fetchCart();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -224,8 +238,18 @@ class _CartItemCard extends StatelessWidget {
                     '\$${item.product.price.toStringAsFixed(2)}',
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           fontWeight: FontWeight.bold,
+                          color: AppColors.electricBlue,
                         ),
                   ),
+                  if (item.product.compareAtPrice != null &&
+                      item.product.compareAtPrice! > item.product.price)
+                    Text(
+                      '\$${item.product.compareAtPrice!.toStringAsFixed(2)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            decoration: TextDecoration.lineThrough,
+                            color: AppColors.lightMutedForeground,
+                          ),
+                    ),
                 ],
               ),
             ),

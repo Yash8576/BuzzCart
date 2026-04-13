@@ -55,7 +55,7 @@ class _SearchPageState extends State<SearchPage>
     _debounce = Timer(const Duration(milliseconds: 500), () {
       _performSearch();
     });
-    
+
     setState(() {}); // Update UI for clear button
   }
 
@@ -160,7 +160,8 @@ class _SearchPageState extends State<SearchPage>
                           SizedBox(height: 16),
                           Text(
                             'No results found',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                           SizedBox(height: 8),
                           Text(
@@ -177,7 +178,9 @@ class _SearchPageState extends State<SearchPage>
                           isScrollable: true,
                           tabs: [
                             Tab(text: 'All ($_totalResults)'),
-                            Tab(text: 'Products (${_results['products']!.length})'),
+                            Tab(
+                                text:
+                                    'Products (${_results['products']!.length})'),
                             Tab(text: 'Videos (${_results['videos']!.length})'),
                             Tab(text: 'Reels (${_results['reels']!.length})'),
                             Tab(text: 'Users (${_results['users']!.length})'),
@@ -209,8 +212,7 @@ class _SearchPageState extends State<SearchPage>
             'Products',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        if (_results['products']!.isNotEmpty)
-          const SizedBox(height: 12),
+        if (_results['products']!.isNotEmpty) const SizedBox(height: 12),
         if (_results['products']!.isNotEmpty)
           GridView.builder(
             shrinkWrap: true,
@@ -227,28 +229,26 @@ class _SearchPageState extends State<SearchPage>
               return _ProductCard(product: product);
             },
           ),
-        if (_results['products']!.isNotEmpty)
-          const SizedBox(height: 24),
+        if (_results['products']!.isNotEmpty) const SizedBox(height: 24),
         if (_results['users']!.isNotEmpty)
           const Text(
             'Users',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        if (_results['users']!.isNotEmpty)
-          const SizedBox(height: 12),
+        if (_results['users']!.isNotEmpty) const SizedBox(height: 12),
         if (_results['users']!.isNotEmpty)
           ...(_results['users']!.take(3).map((user) => _UserCard(user: user))),
-        if (_results['users']!.isNotEmpty)
-          const SizedBox(height: 24),
+        if (_results['users']!.isNotEmpty) const SizedBox(height: 24),
         if (_results['videos']!.isNotEmpty)
           const Text(
             'Videos',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
+        if (_results['videos']!.isNotEmpty) const SizedBox(height: 12),
         if (_results['videos']!.isNotEmpty)
-          const SizedBox(height: 12),
-        if (_results['videos']!.isNotEmpty)
-          ...(_results['videos']!.take(3).map((video) => _VideoCard(video: video))),
+          ...(_results['videos']!
+              .take(3)
+              .map((video) => _VideoCard(video: video))),
       ],
     );
   }
@@ -310,7 +310,8 @@ class _SearchPageState extends State<SearchPage>
                 ),
               ),
               const Center(
-                child: Icon(Icons.play_circle_fill, color: Colors.white, size: 48),
+                child:
+                    Icon(Icons.play_circle_fill, color: Colors.white, size: 48),
               ),
             ],
           ),
@@ -370,6 +371,13 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final price = (product['price'] as num?)?.toDouble() ?? 0;
+    final compareAtPrice = (product['compare_at_price'] as num?)?.toDouble();
+    final hasDiscount = compareAtPrice != null && compareAtPrice > price;
+    final percentOff = hasDiscount
+        ? (((compareAtPrice - price) / compareAtPrice) * 100).round()
+        : 0;
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -400,13 +408,59 @@ class _ProductCard extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.electricBlue,
+                  if (!hasDiscount)
+                    Text(
+                      '\$${price.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.electricBlue,
+                      ),
+                    )
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '\$${price.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.electricBlue,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.successGreen.withAlpha(24),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$percentOff% OFF',
+                                style: const TextStyle(
+                                  color: AppColors.successGreen,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '\$${compareAtPrice.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            decoration: TextDecoration.lineThrough,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
                 ],
               ),
             ),

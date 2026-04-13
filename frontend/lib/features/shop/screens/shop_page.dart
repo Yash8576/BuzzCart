@@ -285,6 +285,17 @@ class _ShopPageState extends State<ShopPage> {
   bool _isLowStock(ProductModel product) =>
       product.stockQuantity > 0 && product.stockQuantity < 10;
 
+  bool _hasDiscount(ProductModel product) =>
+      product.compareAtPrice != null && product.compareAtPrice! > product.price;
+
+  int _percentOff(ProductModel product) {
+    final compareAt = product.compareAtPrice;
+    if (compareAt == null || compareAt <= product.price) {
+      return 0;
+    }
+    return (((compareAt - product.price) / compareAt) * 100).round();
+  }
+
   int _selectedQuantityFor(int remainingStock) {
     if (remainingStock <= 0) {
       return 0;
@@ -440,161 +451,157 @@ class _ShopPageState extends State<ShopPage> {
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
-              Future<void> submitQuestion() async {
-                final query = questionText.trim();
-                if (query.isEmpty || isSubmitting) {
+            Future<void> submitQuestion() async {
+              final query = questionText.trim();
+              if (query.isEmpty || isSubmitting) {
+                return;
+              }
+
+              setSheetState(() {
+                isSubmitting = true;
+                errorText = null;
+              });
+
+              try {
+                final answer = await _chatbot.askProductDocument(
+                  productId: product.id,
+                  query: query,
+                  productName: product.title,
+                  userId: currentUserId,
+                  documentUrl: documentUrl,
+                );
+
+                if (!sheetContext.mounted) {
                   return;
                 }
 
                 setSheetState(() {
-                  isSubmitting = true;
-                  errorText = null;
+                  latestAnswer = answer;
                 });
+              } catch (e) {
+                if (!sheetContext.mounted) {
+                  return;
+                }
 
-                try {
-                  final answer = await _chatbot.askProductDocument(
-                    productId: product.id,
-                    query: query,
-                    productName: product.title,
-                    userId: currentUserId,
-                    documentUrl: documentUrl,
-                  );
-
-                  if (!sheetContext.mounted) {
-                    return;
-                  }
-
+                setSheetState(() {
+                  errorText = 'Unable to query the product document right now.';
+                });
+              } finally {
+                if (sheetContext.mounted) {
                   setSheetState(() {
-                    latestAnswer = answer;
+                    isSubmitting = false;
                   });
-                } catch (e) {
-                  if (!sheetContext.mounted) {
-                    return;
-                  }
-
-                  setSheetState(() {
-                    errorText =
-                        'Unable to query the product document right now.';
-                  });
-                } finally {
-                  if (sheetContext.mounted) {
-                    setSheetState(() {
-                      isSubmitting = false;
-                    });
-                  }
                 }
               }
+            }
 
-              final answer = latestAnswer;
-              final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+            final answer = latestAnswer;
+            final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
 
-              return SafeArea(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                'Product Chatbot',
-                                style: Theme.of(sheetContext)
-                                    .textTheme
-                                    .titleLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Close chatbot',
-                              onPressed: () => Navigator.of(sheetContext).pop(),
-                              icon: const Icon(Icons.close),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Answers are restricted to the uploaded specification PDF for ${product.title}.',
-                          style:
-                              TextStyle(color: Colors.grey[700], height: 1.4),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          minLines: 2,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.done,
-                          decoration: const InputDecoration(
-                            labelText: 'Ask a direct question',
-                            hintText: 'Example: What is the battery capacity?',
-                            border: OutlineInputBorder(),
-                          ),
-                          onChanged: (value) => questionText = value,
-                          onSubmitted: (_) => submitQuestion(),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: isSubmitting ? null : submitQuestion,
-                            icon: isSubmitting
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.auto_awesome_outlined),
-                            label: Text(
-                              isSubmitting
-                                  ? 'Searching document...'
-                                  : 'Ask PDF',
-                            ),
-                          ),
-                        ),
-                        if (errorText != null) ...[
-                          const SizedBox(height: 14),
-                          Text(
-                            errorText!,
-                            style: const TextStyle(color: Colors.redAccent),
-                          ),
-                        ],
-                        if (answer != null) ...[
-                          const SizedBox(height: 18),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Theme.of(sheetContext)
-                                  .colorScheme
-                                  .surfaceContainerHighest
-                                  .withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  answer.answer,
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    height: 1.45,
-                                    fontWeight: FontWeight.w600,
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Product Chatbot',
+                              style: Theme.of(sheetContext)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w700,
                                   ),
-                                ),
-                              ],
                             ),
                           ),
+                          IconButton(
+                            tooltip: 'Close chatbot',
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close),
+                          ),
                         ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Answers are restricted to the uploaded specification PDF for ${product.title}.',
+                        style: TextStyle(color: Colors.grey[700], height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        minLines: 2,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Ask a direct question',
+                          hintText: 'Example: What is the battery capacity?',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => questionText = value,
+                        onSubmitted: (_) => submitQuestion(),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: isSubmitting ? null : submitQuestion,
+                          icon: isSubmitting
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.auto_awesome_outlined),
+                          label: Text(
+                            isSubmitting ? 'Searching document...' : 'Ask PDF',
+                          ),
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 14),
+                        Text(
+                          errorText!,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
                       ],
-                    ),
+                      if (answer != null) ...[
+                        const SizedBox(height: 18),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Theme.of(sheetContext)
+                                .colorScheme
+                                .surfaceContainerHighest
+                                .withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                answer.answer,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              );
+              ),
+            );
           },
         );
       },
@@ -903,14 +910,61 @@ class _ShopPageState extends State<ShopPage> {
                             fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        '\$${product.price.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.electricBlue,
+                      if (!_hasDiscount(product))
+                        Text(
+                          '\$${product.price.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.electricBlue,
+                          ),
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  '\$${product.price.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.electricBlue,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.successGreen.withAlpha(24),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${_percentOff(product)}% OFF',
+                                    style: const TextStyle(
+                                      color: AppColors.successGreen,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '\$${product.compareAtPrice!.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 14,
+                                decoration: TextDecoration.lineThrough,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
                       const SizedBox(height: 10),
                       if (product.specificationPdfUrl != null) ...[
                         SizedBox(
@@ -1036,10 +1090,10 @@ class _ShopPageState extends State<ShopPage> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                        Text(
-                          product.description,
-                          style: const TextStyle(fontSize: 16, height: 1.5),
-                        ),
+                      Text(
+                        product.description,
+                        style: const TextStyle(fontSize: 16, height: 1.5),
+                      ),
                       if (product.bulletPoints.isNotEmpty) ...[
                         const SizedBox(height: 24),
                         const Text(
@@ -1349,15 +1403,69 @@ class _ShopPageState extends State<ShopPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    '\$${product.price.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.electricBlue,
+                                  if (!_hasDiscount(product))
+                                    Text(
+                                      '\$${product.price.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.electricBlue,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    )
+                                  else
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '\$${product.price.toStringAsFixed(2)}',
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.electricBlue,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.successGreen
+                                                    .withAlpha(24),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: Text(
+                                                '${_percentOff(product)}% OFF',
+                                                style: const TextStyle(
+                                                  color: AppColors.successGreen,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 10,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '\$${product.compareAtPrice!.toStringAsFixed(2)}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            decoration:
+                                                TextDecoration.lineThrough,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
                                   const SizedBox(height: 6),
                                   ProductCardSocialPreview(
                                     productId: product.id,
@@ -1414,7 +1522,8 @@ class _BuyerPreviewButton extends StatelessWidget {
     final theme = Theme.of(context);
     final previewBuyers = buyers.take(3).toList();
     final overflowCount = buyers.length - previewBuyers.length;
-    final buyerLabel = buyers.length == 1 ? '1 buyer' : '${buyers.length} buyers';
+    final buyerLabel =
+        buyers.length == 1 ? '1 buyer' : '${buyers.length} buyers';
 
     if (isLoading && buyers.isEmpty) {
       return const SizedBox(
@@ -1468,7 +1577,7 @@ class _BuyerPreviewButton extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           buyerLabel,
-          style: TextStyle(
+          style: const TextStyle(
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -1574,7 +1683,7 @@ class _ReviewsPreviewButton extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           reviewLabel,
-          style: TextStyle(
+          style: const TextStyle(
             fontWeight: FontWeight.w700,
           ),
         ),

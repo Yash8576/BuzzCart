@@ -12,12 +12,9 @@ import (
 )
 
 func getProductStockQuantity(db *sql.DB, productID string) (int, error) {
-	product, err := getProductByID(db, productID)
+	product, err := getProductForCart(db, productID)
 	if err != nil {
-		product, err = getProductByIDLegacy(db, productID)
-		if err != nil {
-			return 0, err
-		}
+		return 0, err
 	}
 
 	if product.StockQuantity < 0 {
@@ -25,6 +22,73 @@ func getProductStockQuantity(db *sql.DB, productID string) (int, error) {
 	}
 
 	return product.StockQuantity, nil
+}
+
+func getProductForCart(db *sql.DB, productID string) (models.Product, error) {
+	product, err := getProductByID(db, productID)
+	if err != nil {
+		product, err = getProductByIDLegacy(db, productID)
+		if err != nil {
+			return models.Product{}, err
+		}
+	}
+
+	return product, nil
+}
+
+func applyProductSnapshotToCartItem(item *models.CartItem, product models.Product) bool {
+	changed := false
+
+	image := ""
+	if len(product.Images) > 0 {
+		image = product.Images[0]
+	}
+
+	if item.Price != product.Price {
+		item.Price = product.Price
+		changed = true
+	}
+
+	compareChanged := false
+	switch {
+	case item.CompareAtPrice == nil && product.CompareAtPrice == nil:
+		compareChanged = false
+	case item.CompareAtPrice == nil || product.CompareAtPrice == nil:
+		compareChanged = true
+	case *item.CompareAtPrice != *product.CompareAtPrice:
+		compareChanged = true
+	}
+	if compareChanged {
+		item.CompareAtPrice = product.CompareAtPrice
+		changed = true
+	}
+
+	if item.Title != product.Title {
+		item.Title = product.Title
+		changed = true
+	}
+
+	if item.SellerName != product.SellerName {
+		item.SellerName = product.SellerName
+		changed = true
+	}
+
+	if item.Image != image {
+		item.Image = image
+		changed = true
+	}
+
+	if item.StockQuantity != product.StockQuantity {
+		item.StockQuantity = product.StockQuantity
+		changed = true
+	}
+
+	if item.Quantity > product.StockQuantity {
+		item.Quantity = product.StockQuantity
+		changed = true
+	}
+
+	return changed
 }
 
 func GetCart(db *sql.DB) gin.HandlerFunc {
@@ -66,18 +130,11 @@ func GetCart(db *sql.DB) gin.HandlerFunc {
 
 		itemsChanged := false
 		for i := range items {
-			stockQty, stockErr := getProductStockQuantity(db, items[i].ProductID)
-			if stockErr != nil {
+			product, productErr := getProductForCart(db, items[i].ProductID)
+			if productErr != nil {
 				continue
 			}
-
-			if items[i].StockQuantity != stockQty {
-				items[i].StockQuantity = stockQty
-				itemsChanged = true
-			}
-
-			if items[i].Quantity > stockQty {
-				items[i].Quantity = stockQty
+			if applyProductSnapshotToCartItem(&items[i], product) {
 				itemsChanged = true
 			}
 		}
@@ -148,12 +205,14 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 		}
 
 		cartItem := models.CartItem{
-			ProductID:     product.ID,
-			Title:         product.Title,
-			Price:         product.Price,
-			Image:         image,
-			Quantity:      req.Quantity,
-			StockQuantity: product.StockQuantity,
+			ProductID:      product.ID,
+			Title:          product.Title,
+			Price:          product.Price,
+			CompareAtPrice: product.CompareAtPrice,
+			SellerName:     product.SellerName,
+			Image:          image,
+			Quantity:       req.Quantity,
+			StockQuantity:  product.StockQuantity,
 		}
 
 		if product.StockQuantity <= 0 {
@@ -188,8 +247,8 @@ func AddToCart(db *sql.DB) gin.HandlerFunc {
 					if updatedQty > product.StockQuantity {
 						updatedQty = product.StockQuantity
 					}
+					applyProductSnapshotToCartItem(&items[i], product)
 					items[i].Quantity = updatedQty
-					items[i].StockQuantity = product.StockQuantity
 					found = true
 					break
 				}
@@ -289,6 +348,16 @@ func UpdateCartItem(db *sql.DB) gin.HandlerFunc {
 			req.Quantity = stockQty
 		}
 
+		product, productErr := getProductForCart(db, req.ProductID)
+		if productErr == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+		if productErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+			return
+		}
+
 		// Get current cart items
 		var itemsJSON []byte
 		err := db.QueryRow("SELECT items FROM carts WHERE user_id = $1", userID).Scan(&itemsJSON)
@@ -303,8 +372,8 @@ func UpdateCartItem(db *sql.DB) gin.HandlerFunc {
 		// Update quantity
 		for i, item := range items {
 			if item.ProductID == req.ProductID {
+				applyProductSnapshotToCartItem(&items[i], product)
 				items[i].Quantity = req.Quantity
-				items[i].StockQuantity = stockQty
 				break
 			}
 		}

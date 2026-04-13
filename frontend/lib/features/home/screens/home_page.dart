@@ -789,25 +789,7 @@ class _HomePageState extends State<HomePage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const Spacer(),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '\$${product.price.toStringAsFixed(2)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.electricBlue,
-                                    height: 1.0,
-                                  ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
+                      _buildProductPrice(product),
                       const SizedBox(height: 6),
                       ProductCardSocialPreview(
                         productId: product.id,
@@ -821,6 +803,77 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildProductPrice(ProductModel product) {
+    final compareAtPrice = product.compareAtPrice;
+    final hasDiscount =
+        compareAtPrice != null && compareAtPrice > product.price;
+
+    final currentPriceText = '\$${product.price.toStringAsFixed(2)}';
+    final currentPriceStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: AppColors.electricBlue,
+          height: 1.0,
+        );
+
+    if (!hasDiscount) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text(
+              currentPriceText,
+              style: currentPriceStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final percentOff =
+        (((compareAtPrice - product.price) / compareAtPrice) * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                currentPriceText,
+                style: currentPriceStyle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppColors.successGreen.withAlpha(24),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$percentOff% OFF',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.successGreen,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '\$${compareAtPrice.toStringAsFixed(2)}',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey[600],
+                decoration: TextDecoration.lineThrough,
+              ),
+        ),
+      ],
     );
   }
 

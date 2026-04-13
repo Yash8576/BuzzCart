@@ -26,6 +26,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
   bool _isSubmitting = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<CartProvider>().fetchCart();
+    });
+  }
+
+  @override
   void dispose() {
     _addressLine1Controller.dispose();
     _addressLine2Controller.dispose();

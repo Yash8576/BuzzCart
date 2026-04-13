@@ -576,6 +576,9 @@ class CartItemModel {
             'title': json['title'] as String? ?? '',
             'description': '',
             'price': (json['price'] as num?)?.toDouble() ?? 0,
+            if (json['compare_at_price'] != null)
+              'compare_at_price':
+                  (json['compare_at_price'] as num).toDouble(),
             'stock_quantity': json['stock_quantity'] as int? ?? 0,
             'images': [
               if ((json['image'] as String?) != null &&
@@ -585,7 +588,7 @@ class CartItemModel {
             'category': '',
             'tags': const <String>[],
             'seller_id': '',
-            'seller_name': '',
+            'seller_name': json['seller_name'] as String? ?? '',
             'rating': 0,
             'reviews_count': 0,
             'views': 0,

@@ -90,7 +90,8 @@ class _FeedScreenState extends State<FeedScreen> {
           if (type == 'product') {
             return _ProductCard(
               product: data,
-              onAddToCart: () => _handleAddToCart(data['id'], data['stock_quantity'] as int?),
+              onAddToCart: () =>
+                  _handleAddToCart(data['id'], data['stock_quantity'] as int?),
             );
           } else if (type == 'video' || type == 'reel') {
             return _VideoCard(
@@ -113,6 +114,13 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final price = (product['price'] as num?)?.toDouble() ?? 0;
+    final compareAtPrice = (product['compare_at_price'] as num?)?.toDouble();
+    final hasDiscount = compareAtPrice != null && compareAtPrice > price;
+    final percentOff = hasDiscount
+        ? (((compareAtPrice - price) / compareAtPrice) * 100).round()
+        : 0;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: InkWell(
@@ -160,14 +168,61 @@ class _ProductCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.electricBlue,
+                  if (!hasDiscount)
+                    Text(
+                      '\$${price.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.electricBlue,
+                      ),
+                    )
+                  else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '\$${price.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.electricBlue,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.successGreen.withAlpha(24),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$percentOff% OFF',
+                                style: const TextStyle(
+                                  color: AppColors.successGreen,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '\$${compareAtPrice.toStringAsFixed(2)}',
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            decoration: TextDecoration.lineThrough,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
                 ],
               ),
             ),
