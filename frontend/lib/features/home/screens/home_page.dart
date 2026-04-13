@@ -25,7 +25,7 @@ class _HomePageState extends State<HomePage> {
   static const double _mediaCardMaxWidth = 560;
   static const double _reelCardMaxWidth = 420;
   static const double _productRailCardWidth = 188;
-  static const double _productRailHeight = 296;
+  static const double _productRailHeight = 308;
   static const double _listCacheExtent = 2200;
 
   List<_HomeSection> _sections = [];

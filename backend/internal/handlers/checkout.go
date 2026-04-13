@@ -315,9 +315,10 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 		rows, err := db.Query(
 			`SELECT
 				oi.product_id,
-				oi.product_title,
+				COALESCE(p.title, oi.product_title),
 				oi.quantity,
-				oi.unit_price,
+				COALESCE(p.price, oi.unit_price),
+				p.compare_at_price,
 				o.created_at,
 				COALESCE(u.id::text, ''),
 				COALESCE(u.name, u.username, ''),
@@ -352,6 +353,7 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 				), '')
 			 FROM order_items oi
 			 JOIN orders o ON o.id = oi.order_id
+			 LEFT JOIN products p ON p.id = oi.product_id
 			 LEFT JOIN users u ON u.id = oi.seller_id
 			 WHERE o.user_id = $1
 			   AND o.status IN ('delivered', 'completed')
@@ -370,7 +372,8 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 			var (
 				product      models.Product
 				quantity     int
-				unitPrice    float64
+				currentPrice float64
+				compareAtRaw sql.NullFloat64
 				purchasedAt  time.Time
 				sellerID     string
 				sellerName   string
@@ -384,7 +387,8 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 				&product.ID,
 				&product.Title,
 				&quantity,
-				&unitPrice,
+				&currentPrice,
+				&compareAtRaw,
 				&purchasedAt,
 				&sellerID,
 				&sellerName,
@@ -408,7 +412,11 @@ func GetUserPurchases(db *sql.DB) gin.HandlerFunc {
 			}
 
 			product.Description = ""
-			product.Price = unitPrice
+			product.Price = currentPrice
+			if compareAtRaw.Valid && compareAtRaw.Float64 > currentPrice {
+				compareAt := compareAtRaw.Float64
+				product.CompareAtPrice = &compareAt
+			}
 			product.Currency = "USD"
 			product.StockQuantity = quantity
 			product.Condition = "purchased"

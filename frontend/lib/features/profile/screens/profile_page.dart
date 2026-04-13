@@ -1877,6 +1877,13 @@ class _ProfilePageState extends State<ProfilePage>
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final product = _products[index];
+        final compareAtPrice = product.compareAtPrice;
+        final hasDiscount =
+            compareAtPrice != null && compareAtPrice > product.price;
+        final percentOff = hasDiscount
+            ? (((compareAtPrice - product.price) / compareAtPrice) * 100)
+                .round()
+            : 0;
         final deletingKey = 'product:${product.id}';
         final canManageOwnListing =
             isOwnProfile && currentUser?.isSeller == true;
@@ -1958,8 +1965,45 @@ class _ProfilePageState extends State<ProfilePage>
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
+                          color: Colors.blue,
                         ),
                       ),
+                      if (hasDiscount) ...[
+                        const SizedBox(height: 2),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              '\$${compareAtPrice.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                decoration: TextDecoration.lineThrough,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withAlpha(24),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$percentOff% OFF',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Row(
                         children: [

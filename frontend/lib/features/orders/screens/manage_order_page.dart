@@ -179,10 +179,9 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
             rethrow;
           }
           final existingReview = await _api.getReview(reviewId);
-          final shouldUpdate =
-              existingReview.rating != rating ||
-                  _normalizedReviewText(existingReview.reviewText) !=
-                      normalizedReviewText;
+          final shouldUpdate = existingReview.rating != rating ||
+              _normalizedReviewText(existingReview.reviewText) !=
+                  normalizedReviewText;
           savedReview = shouldUpdate
               ? await _api.updateReview(
                   reviewId: existingReview.id,
@@ -342,6 +341,12 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
+    final compareAtPrice = product.compareAtPrice;
+    final hasDiscount =
+        compareAtPrice != null && compareAtPrice > product.price;
+    final percentOff = hasDiscount
+        ? (((compareAtPrice - product.price) / compareAtPrice) * 100).round()
+        : 0;
     final imageUrl = product.images.isNotEmpty ? product.images.first : '';
     final isInitialRatingFlow = _savedRating == null;
     final isReadOnlyMode = _savedRating != null;
@@ -407,6 +412,40 @@ class _ManageOrderPageState extends State<ManageOrderPage> {
                           color: Colors.blue,
                         ),
                       ),
+                      if (hasDiscount) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text(
+                              '\$${compareAtPrice.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                decoration: TextDecoration.lineThrough,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withAlpha(24),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$percentOff% OFF',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
