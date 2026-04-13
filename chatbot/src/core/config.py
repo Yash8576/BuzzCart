@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db"
     CHAT_HISTORY_TABLE: str = "chat_messages"
 
-    EMBEDDING_MODEL_NAME: str = "BAAI/bge-large-en-v1.5"
-    RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-large"
+    EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
+    RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-v2-m3"
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "mistral"
     OLLAMA_TIMEOUT_SECONDS: int = 60
@@ -26,8 +26,12 @@ class Settings(BaseSettings):
     CHUNK_SIZE_TOKENS: int = 400
     CHUNK_OVERLAP_TOKENS: int = 80
     TOP_K_RESULTS: int = 10
+    RETRIEVAL_CANDIDATE_POOL: int = 24
+    LEXICAL_SEARCH_LIMIT: int = 24
     RERANK_TOP_K: int = 3
     SENTENCE_TOP_K: int = 8
+    NEIGHBOR_WINDOW: int = 1
+    MAX_EVIDENCE_BLOCKS: int = 3
 
     DOCUMENT_URL_REWRITE_FROM: List[str] = Field(
         default_factory=lambda: ["localhost", "127.0.0.1", "10.0.2.2"]

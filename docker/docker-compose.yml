@@ -144,13 +144,17 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db
-      EMBEDDING_MODEL_NAME: BAAI/bge-large-en-v1.5
-      RERANKER_MODEL_NAME: BAAI/bge-reranker-large
+      EMBEDDING_MODEL_NAME: BAAI/bge-m3
+      RERANKER_MODEL_NAME: BAAI/bge-reranker-v2-m3
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
       VECTOR_STORE_DIR: /app/data/vector_store
       DOCUMENTS_PATH: /app/data/documents
       MODEL_CACHE_DIR: /app/models/cache
+      RETRIEVAL_CANDIDATE_POOL: 24
+      LEXICAL_SEARCH_LIMIT: 24
+      NEIGHBOR_WINDOW: 1
+      MAX_EVIDENCE_BLOCKS: 3
       DOCUMENT_URL_REWRITE_FROM: '["localhost","127.0.0.1","10.0.2.2"]'
       DOCUMENT_URL_REWRITE_TO: minio:9000
       DEBUG: "true"

@@ -99,6 +99,40 @@ class DocumentProcessor:
     async def get_status(self, product_id: str) -> Dict[str, Any]:
         return self.vector_store.get_product_status(product_id)
 
+    async def ensure_index_current(
+        self,
+        product_id: str,
+        document_url: Optional[str] = None,
+    ) -> None:
+        if not self.vector_store.should_reindex(product_id, document_url):
+            return
+
+        manifest = self.vector_store.get_product_manifest(product_id)
+        if document_url:
+            await self.sync_product_document(
+                product_id=product_id,
+                document_url=document_url,
+                filename=manifest.get("source_name"),
+                force=True,
+            )
+            return
+
+        saved_path_value = manifest.get("saved_path")
+        if not saved_path_value:
+            return
+
+        saved_path = Path(saved_path_value)
+        if not saved_path.exists():
+            return
+
+        payload = saved_path.read_bytes()
+        self._index_pdf_bytes(
+            product_id=product_id,
+            payload=payload,
+            source_name=manifest.get("source_name") or saved_path.name,
+            document_url=manifest.get("document_url"),
+        )
+
     async def delete_document(self, product_id: str) -> None:
         product_dir = self.documents_path / self._safe_product_id(product_id)
         if product_dir.exists():
@@ -151,7 +185,7 @@ class DocumentProcessor:
         pages: List[Dict[str, Any]] = []
 
         for page_index, page in enumerate(reader.pages, start=1):
-            raw_text = page.extract_text() or ""
+            raw_text = self._extract_page_text(page)
             text = self._normalize_text(raw_text)
             if text:
                 pages.append({"page": page_index, "text": text})
@@ -168,7 +202,7 @@ class DocumentProcessor:
 
         for page in pages:
             page_chunks = self.vector_store.chunk_text_by_tokens(page["text"])
-            for page_chunk in page_chunks:
+            for page_chunk_index, page_chunk in enumerate(page_chunks):
                 chunks.append(
                     {
                         "text": page_chunk,
@@ -176,6 +210,9 @@ class DocumentProcessor:
                             "product_id": product_id,
                             "page": page["page"],
                             "chunk_id": chunk_id,
+                            "page_chunk_index": page_chunk_index,
+                            "section_title": self._guess_section_title(page_chunk),
+                            "token_count": self.vector_store.count_tokens(page_chunk),
                         },
                     }
                 )
@@ -226,13 +263,51 @@ class DocumentProcessor:
             raise ValueError("Invalid product_id")
         return safe_value
 
+    def _extract_page_text(self, page: Any) -> str:
+        try:
+            layout_text = page.extract_text(extraction_mode="layout") or ""
+            if layout_text.strip():
+                return layout_text
+        except TypeError:
+            logger.debug("Layout extraction mode is unavailable; falling back to default")
+        except Exception as exc:
+            logger.warning("Layout extraction failed, falling back to default: %s", exc)
+
+        return page.extract_text() or ""
+
     def _normalize_text(self, text: str) -> str:
         cleaned = text.replace("\x00", " ")
-        # Many PDF extracts collapse section headers into adjacent words.
-        cleaned = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", cleaned)
-        cleaned = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", cleaned)
-        cleaned = re.sub(r"\s+", " ", cleaned)
-        return cleaned.strip()
+        cleaned = re.sub(r"(\w)-\s*[\r\n]+\s*(\w)", r"\1\2", cleaned)
+        normalized_lines: List[str] = []
+
+        for raw_line in re.split(r"[\r\n]+", cleaned):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # Many PDF extracts collapse section headers into adjacent words.
+            line = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", line)
+            line = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", line)
+            line = re.sub(r"\s+", " ", line)
+            line = line.strip(" |")
+            if line:
+                normalized_lines.append(line)
+
+        return "\n".join(normalized_lines)
+
+    def _guess_section_title(self, text: str) -> Optional[str]:
+        for raw_line in re.split(r"[\r\n]+", text):
+            line = raw_line.strip()
+            if not line:
+                continue
+            if len(line) > 90 or len(line.split()) > 12:
+                continue
+            if line.endswith((".", "?", "!")):
+                continue
+            capitalized_words = sum(1 for word in line.split() if word[:1].isupper())
+            if capitalized_words >= max(1, len(line.split()) - 1):
+                return line
+        return None
 
     def _parse_timestamp(self, value: Optional[str]) -> datetime:
         if not value:
