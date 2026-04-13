@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import faiss
 import numpy as np
+import torch
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from transformers import AutoTokenizer
 
@@ -38,15 +39,22 @@ class VectorStoreManager:
         self.embedding_model: Optional[SentenceTransformer] = None
         self.reranker: Optional[CrossEncoder] = None
         self.tokenizer = None
+        self.model_device = "cpu"
 
     async def initialize(self) -> None:
         self.vector_store_dir.mkdir(parents=True, exist_ok=True)
         self.model_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.model_device = self._resolve_model_device()
+
+        logger.info("Using model device: %s", self.model_device)
+        if self.model_device.startswith("cuda") and torch.cuda.is_available():
+            logger.info("CUDA device: %s", torch.cuda.get_device_name(0))
 
         logger.info("Loading embedding model: %s", settings.EMBEDDING_MODEL_NAME)
         self.embedding_model = SentenceTransformer(
             settings.EMBEDDING_MODEL_NAME,
             cache_folder=str(self.model_cache_dir),
+            device=self.model_device,
         )
 
         logger.info("Loading tokenizer: %s", settings.EMBEDDING_MODEL_NAME)
@@ -59,6 +67,7 @@ class VectorStoreManager:
         self.reranker = CrossEncoder(
             settings.RERANKER_MODEL_NAME,
             max_length=512,
+            device=self.model_device,
         )
 
     def count_tokens(self, text: str) -> int:
@@ -548,6 +557,14 @@ class VectorStoreManager:
 
     def _tokenize_search_text(self, text: str) -> List[str]:
         return [token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) > 1]
+
+    def _resolve_model_device(self) -> str:
+        configured = settings.MODEL_DEVICE.strip().lower()
+        if configured and configured != "auto":
+            return configured
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
 
     def _product_dir(self, product_id: str) -> Path:
         safe_product_id = "".join(char for char in product_id if char.isalnum() or char in {"-", "_"})

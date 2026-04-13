@@ -72,6 +72,7 @@ class ChatEngine:
         self,
         product_id: str,
         query: str,
+        product_name: Optional[str] = None,
         document_url: Optional[str] = None,
         force_document_sync: bool = False,
         user_id: Optional[str] = None,
@@ -122,7 +123,11 @@ class ChatEngine:
         if not selected_evidence:
             return self._fallback()
 
-        answer = self._render_grounded_answer(cleaned_query, selected_evidence)
+        answer = self._render_grounded_answer(
+            cleaned_query,
+            selected_evidence,
+            product_name=product_name,
+        )
         if answer == FALLBACK_ANSWER:
             return self._fallback()
 
@@ -191,9 +196,16 @@ class ChatEngine:
         return candidates[: max(settings.SENTENCE_TOP_K * 3, 12)]
 
     def _extract_candidate_spans(self, query: str, text: str) -> List[str]:
+        structured_facts = [fact["text"] for fact in self._extract_structured_facts(text)]
         lines = self._split_lines(text)
         sentences = self._split_sentences(text)
-        spans = [*lines, *sentences, *self._build_sentence_windows(sentences), *self._extract_query_windows(query, text)]
+        spans = [
+            *structured_facts,
+            *lines,
+            *sentences,
+            *self._build_sentence_windows(sentences),
+            *self._extract_query_windows(query, text),
+        ]
 
         compact = self._normalize_candidate_text(text)
         if compact and len(compact) <= 420:
@@ -295,19 +307,29 @@ class ChatEngine:
         self,
         query: str,
         evidence_blocks: List[Dict[str, Any]],
+        product_name: Optional[str] = None,
     ) -> str:
         if not evidence_blocks:
             return FALLBACK_ANSWER
 
-        rewritten = self._rewrite_with_ollama(query, evidence_blocks)
+        rewritten = self._rewrite_with_ollama(
+            query,
+            evidence_blocks,
+            product_name=product_name,
+        )
         if rewritten:
             return rewritten
-        return self._deterministic_rewrite(query, evidence_blocks)
+        return self._deterministic_rewrite(
+            query,
+            evidence_blocks,
+            product_name=product_name,
+        )
 
     def _rewrite_with_ollama(
         self,
         query: str,
         evidence_blocks: List[Dict[str, Any]],
+        product_name: Optional[str] = None,
     ) -> Optional[str]:
         prompt_lines = [
             "You answer product-document questions using only the evidence blocks.",
@@ -316,9 +338,13 @@ class ChatEngine:
             "- Keep numbers, units, capacities, and limits exactly as written.",
             "- If the evidence is insufficient, return exactly the fallback answer.",
             "- If the evidence shows configuration-dependent options, say that clearly.",
+            "- Rewrite specification key-value pairs into natural sentences instead of copying raw labels.",
+            "- Mirror the wording of the question when possible.",
+            "- When a product name is provided, mention it naturally in the answer.",
             "- Return JSON only.",
             "",
             f"Question: {query}",
+            f"Product name: {product_name or 'unknown'}",
             f"Fallback answer: {FALLBACK_ANSWER}",
             "Evidence blocks:",
         ]
@@ -367,18 +393,27 @@ class ChatEngine:
         self,
         query: str,
         evidence_blocks: List[Dict[str, Any]],
+        product_name: Optional[str] = None,
     ) -> str:
         primary_text = self._focus_evidence_for_query(query, evidence_blocks[0]["text"])
         if not primary_text:
             return FALLBACK_ANSWER
-        concise_fact = self._rewrite_fact_line(query, primary_text)
+        concise_fact = self._rewrite_fact_line(
+            query,
+            primary_text,
+            product_name=product_name,
+        )
         if concise_fact:
             return concise_fact
         if self._expects_yes_no_answer(query):
-            return f"Yes. {self._ensure_terminal_period(primary_text)}"
+            subject = self._product_subject(product_name)
+            return f"Yes, {subject.lower() if subject == 'It' else subject} has {primary_text}."
         return self._ensure_terminal_period(primary_text)
 
     def _focus_evidence_for_query(self, query: str, evidence: str) -> str:
+        structured_fact = self._best_matching_structured_fact(query, evidence)
+        if structured_fact:
+            return structured_fact["text"]
         return self._best_matching_line(query, evidence) or self._normalize_candidate_text(evidence)
 
     def _support_ratio(self, query: str, sentence: str) -> float:
@@ -402,7 +437,8 @@ class ChatEngine:
     def _best_matching_line(self, query: str, text: str) -> Optional[str]:
         best_line: Optional[str] = None
         best_score = -1.0
-        for raw_line in re.split(r"[\r\n]+", text):
+        candidate_lines = re.split(r"[\r\n]+|(?:\s*[•\u2022]\s*)", text)
+        for raw_line in candidate_lines:
             line = self._normalize_candidate_text(raw_line)
             if len(line) < 4:
                 continue
@@ -481,13 +517,30 @@ class ChatEngine:
             bonus -= 0.08
         return bonus
 
-    def _rewrite_fact_line(self, query: str, evidence: str) -> Optional[str]:
+    def _rewrite_fact_line(
+        self,
+        query: str,
+        evidence: str,
+        product_name: Optional[str] = None,
+    ) -> Optional[str]:
         lowered_query = query.lower()
+        structured_fact = self._best_matching_structured_fact(query, evidence)
+        if structured_fact:
+            rewritten_fact = self._rewrite_structured_fact(
+                query,
+                structured_fact["key"],
+                structured_fact["value"],
+                product_name=product_name,
+            )
+            if rewritten_fact:
+                return rewritten_fact
+
+        subject = self._product_subject(product_name)
 
         if "memory" in lowered_query:
             match = re.search(r"(\d+\s*(?:GB|TB)\s+unified\s+memory)", evidence, flags=re.IGNORECASE)
             if match:
-                return f"It has {match.group(1)}."
+                return f"{subject} has {match.group(1)}."
 
         if "processor" in lowered_query or "chip" in lowered_query:
             match = re.search(
@@ -496,31 +549,229 @@ class ChatEngine:
                 flags=re.IGNORECASE,
             )
             if match:
-                return f"It uses {self._normalize_candidate_text(match.group(1))}."
+                return f"{subject} uses {self._normalize_candidate_text(match.group(1))}."
             match = re.search(
                 r"\b([A-Z][A-Za-z0-9 .+\-]{1,60}\b(?:processor|chip))",
                 evidence,
                 flags=re.IGNORECASE,
             )
             if match:
-                return f"It uses the {self._normalize_candidate_text(match.group(1))}."
+                return f"{subject} uses the {self._normalize_candidate_text(match.group(1))}."
 
         if "storage" in lowered_query:
             match = re.search(r"(\d+\s*(?:GB|TB)\s+SSD)", evidence, flags=re.IGNORECASE)
             if match:
-                return f"It has {match.group(1)} storage."
+                return f"{subject} has {match.group(1)} storage."
 
         if "battery" in lowered_query:
             match = re.search(r"(Up to\s+\d+\s+hours\s+(?:video streaming|wireless web))", evidence, flags=re.IGNORECASE)
             if match:
-                return self._ensure_terminal_period(match.group(1))
+                return self._ensure_terminal_period(f"{subject} delivers {match.group(1).lower()}")
 
         if "weight" in lowered_query:
             match = re.search(r"(\d+(?:\.\d+)?\s+pounds\s+\(\d+(?:\.\d+)?\s+kg\))", evidence, flags=re.IGNORECASE)
             if match:
-                return f"It weighs {match.group(1)}."
+                return f"{subject} weighs {match.group(1)}."
 
         return None
+
+    def _extract_structured_facts(self, text: str) -> List[Dict[str, str]]:
+        facts: List[Dict[str, str]] = []
+        seen = set()
+        fragments = re.split(r"[\r\n]+|(?:\s*[•\u2022]\s*)", text)
+
+        for raw_fragment in fragments:
+            fragment = self._normalize_candidate_text(raw_fragment)
+            if ":" not in fragment:
+                continue
+
+            for key, value in self._split_structured_fragment(fragment):
+                normalized_key = self._normalize_spec_key(key)
+                normalized_value = self._normalize_candidate_text(value)
+                if not normalized_key or not normalized_value:
+                    continue
+                if len(normalized_key) > 60 or len(normalized_value) > 160:
+                    continue
+
+                combined = f"{normalized_key}: {normalized_value}"
+                lowered = combined.lower()
+                if lowered in seen:
+                    continue
+                seen.add(lowered)
+                facts.append(
+                    {
+                        "key": normalized_key,
+                        "value": normalized_value,
+                        "text": combined,
+                    }
+                )
+
+        return facts
+
+    def _split_structured_fragment(self, fragment: str) -> List[tuple[str, str]]:
+        pattern = re.compile(
+            r"([A-Za-z][A-Za-z0-9/&()+.\- ]{1,50}?):\s*(.+?)(?=(?:\s+[A-Z][A-Za-z0-9/&()+.\- ]{1,50}:\s)|$)"
+        )
+        matches = [
+            (match.group(1).strip(), match.group(2).strip())
+            for match in pattern.finditer(fragment)
+        ]
+        if matches:
+            return matches
+
+        key, value = fragment.split(":", 1)
+        return [(key.strip(), value.strip())]
+
+    def _normalize_spec_key(self, key: str) -> str:
+        normalized = self._normalize_candidate_text(key)
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized.strip(" :")
+
+    def _best_matching_structured_fact(
+        self,
+        query: str,
+        text: str,
+    ) -> Optional[Dict[str, str]]:
+        best_fact: Optional[Dict[str, str]] = None
+        best_score = -1.0
+
+        for fact in self._extract_structured_facts(text):
+            score = self._structured_fact_score(query, fact)
+            if score > best_score:
+                best_fact = fact
+                best_score = score
+
+        if best_score < 0.28:
+            return None
+        return best_fact
+
+    def _structured_fact_score(self, query: str, fact: Dict[str, str]) -> float:
+        score = self._support_ratio(query, fact["text"])
+        key_support = self._support_ratio(query, fact["key"])
+        value_support = self._support_ratio(query, fact["value"])
+        score += key_support * 0.45
+        score += value_support * 0.15
+
+        if self._expects_numeric_answer(query) and self._contains_numeric_value(fact["value"]):
+            score += 0.18
+        if self._expects_yes_no_answer(query) and self._is_boolean_like_value(fact["value"]):
+            score += 0.14
+        if len(fact["value"]) <= 40:
+            score += 0.05
+
+        return score
+
+    def _rewrite_structured_fact(
+        self,
+        query: str,
+        key: str,
+        value: str,
+        product_name: Optional[str] = None,
+    ) -> Optional[str]:
+        subject = self._product_subject(product_name)
+        possessive_subject = self._product_possessive(product_name)
+        lowered_query = query.lower()
+        key_lower = key.lower()
+        value_clean = self._normalize_candidate_text(value)
+
+        if self._expects_yes_no_answer(query):
+            feature = self._feature_phrase(query, key)
+            if self._is_positive_value(value_clean):
+                if "support" in lowered_query:
+                    return f"Yes, {subject} supports {feature}."
+                if lowered_query.startswith(("has ", "have ")):
+                    return f"Yes, {subject} has {feature}."
+                return f"Yes, {subject} includes {feature}."
+            if self._is_negative_value(value_clean):
+                if "support" in lowered_query:
+                    return f"No, {subject} does not support {feature}."
+                if lowered_query.startswith(("has ", "have ")):
+                    return f"No, {subject} does not have {feature}."
+                return f"No, {subject} does not include {feature}."
+
+        if key_lower in {"display size", "screen size"}:
+            return f"{subject} comes with a {value_clean} display."
+        if key_lower in {"display type", "screen type"}:
+            return f"{subject} has a {value_clean} display."
+        if key_lower == "true tone":
+            return f"{subject} supports True Tone display." if self._is_positive_value(value_clean) else None
+        if key_lower == "resolution":
+            return f"{possessive_subject} resolution is {value_clean}."
+        if key_lower == "brightness":
+            return f"{possessive_subject} brightness is {value_clean}."
+        if key_lower in {"weight", "product weight"}:
+            return f"{subject} weighs {value_clean}."
+        if key_lower in {"color support", "wide color"}:
+            return f"{subject} supports {value_clean}."
+
+        return f"{possessive_subject} {self._humanize_key(key)} is {value_clean}."
+
+    def _feature_phrase(self, query: str, key: str) -> str:
+        normalized_query = query.lower().strip().rstrip("?.!")
+        normalized_query = re.sub(r"^(?:is|are|does|do|can|has|have)\s+", "", normalized_query)
+        normalized_query = re.sub(r"^(?:it|this|the\s+product|the\s+device)\s+", "", normalized_query)
+        normalized_query = re.sub(r"^(?:support|supports|include|includes|feature|features|come with|comes with|have|has)\s+", "", normalized_query)
+        normalized_query = normalized_query.strip()
+        if normalized_query:
+            return normalized_query
+        return self._humanize_key(key)
+
+    def _humanize_key(self, key: str) -> str:
+        cleaned = self._normalize_spec_key(key)
+        if not cleaned:
+            return "specification"
+        return cleaned[:1].lower() + cleaned[1:]
+
+    def _product_subject(self, product_name: Optional[str]) -> str:
+        cleaned = " ".join((product_name or "").split()).strip(" .")
+        if not cleaned:
+            return "It"
+        if cleaned.lower().startswith("the "):
+            return cleaned[:1].upper() + cleaned[1:]
+        return f"The {cleaned}"
+
+    def _product_possessive(self, product_name: Optional[str]) -> str:
+        subject = self._product_subject(product_name)
+        if subject == "It":
+            return "Its"
+        return f"{subject}'s"
+
+    def _is_boolean_like_value(self, value: str) -> bool:
+        lowered = value.lower().strip()
+        return lowered in {
+            "yes",
+            "no",
+            "supported",
+            "not supported",
+            "available",
+            "not available",
+            "included",
+            "not included",
+            "enabled",
+            "disabled",
+            "true",
+            "false",
+        }
+
+    def _is_positive_value(self, value: str) -> bool:
+        return value.lower().strip() in {
+            "yes",
+            "supported",
+            "available",
+            "included",
+            "enabled",
+            "true",
+        }
+
+    def _is_negative_value(self, value: str) -> bool:
+        return value.lower().strip() in {
+            "no",
+            "not supported",
+            "not available",
+            "not included",
+            "disabled",
+            "false",
+        }
 
     def _is_duplicate_evidence(
         self,

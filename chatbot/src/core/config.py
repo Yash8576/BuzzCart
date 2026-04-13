@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
     RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-v2-m3"
+    MODEL_DEVICE: str = "auto"
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "mistral"
     OLLAMA_TIMEOUT_SECONDS: int = 60

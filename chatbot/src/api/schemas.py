@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 class ProductChatRequest(BaseModel):
     product_id: str = Field(..., description="Product identifier for strict filtering")
     query: str = Field(..., description="User question about the product document")
+    product_name: Optional[str] = Field(
+        default=None,
+        description="Optional product title used to render natural answers",
+    )
     user_id: Optional[str] = Field(default=None, description="Optional user identifier")
     document_url: Optional[str] = Field(
         default=None,

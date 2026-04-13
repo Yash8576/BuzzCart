@@ -456,6 +456,7 @@ class _ShopPageState extends State<ShopPage> {
                   final answer = await _chatbot.askProductDocument(
                     productId: product.id,
                     query: query,
+                    productName: product.title,
                     userId: currentUserId,
                     documentUrl: documentUrl,
                   );

@@ -39,6 +39,7 @@ async def send_message(
         return await chat_engine.generate_response(
             product_id=request.product_id,
             query=request.query,
+            product_name=request.product_name,
             document_url=request.document_url,
             force_document_sync=request.force_document_sync,
             user_id=request.user_id,

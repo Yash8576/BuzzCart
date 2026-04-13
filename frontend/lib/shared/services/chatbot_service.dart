@@ -14,6 +14,7 @@ class ChatbotService {
   Future<ProductDocumentAnswer> askProductDocument({
     required String productId,
     required String query,
+    String? productName,
     String? userId,
     String? documentUrl,
     bool forceDocumentSync = false,
@@ -28,6 +29,8 @@ class ChatbotService {
         body: jsonEncode({
           'product_id': productId,
           'query': query,
+          if (productName != null && productName.isNotEmpty)
+            'product_name': productName,
           if (userId != null) 'user_id': userId,
           if (documentUrl != null && documentUrl.isNotEmpty)
             'document_url': documentUrl,
