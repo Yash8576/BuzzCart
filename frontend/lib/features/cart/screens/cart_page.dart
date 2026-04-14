@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/models/models.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_card_social_preview.dart';
 
 class CartPage extends StatefulWidget {
   const CartPage({super.key});
@@ -28,12 +29,12 @@ class _CartPageState extends State<CartPage> {
   Widget build(BuildContext context) {
     final cartProvider = context.watch<CartProvider>();
     final cart = cartProvider.cart;
+    final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
+    final contentTopPadding = showPageAppBar ? 0.0 : 8.0;
 
     if (cartProvider.isLoading) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Your Cart'),
-        ),
+        appBar: showPageAppBar ? AppBar(title: const Text('Your Cart')) : null,
         body: const Center(
           child: CircularProgressIndicator(),
         ),
@@ -42,54 +43,59 @@ class _CartPageState extends State<CartPage> {
 
     if (cart.items.isEmpty) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Your Cart'),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.shopping_bag_outlined,
-                size: 80,
-                color: AppColors.lightMutedForeground,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Your cart is empty',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        appBar: showPageAppBar ? AppBar(title: const Text('Your Cart')) : null,
+        body: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(24, 24 + contentTopPadding, 24, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 80,
+                  color: AppColors.lightMutedForeground,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Add some products to get started!',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.lightMutedForeground,
-                    ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () => context.go('/shop'),
-                icon: const Icon(Icons.shopping_bag),
-                label: const Text('Continue Shopping'),
-              ),
-            ],
+                const SizedBox(height: 24),
+                const Text(
+                  'Your cart is empty',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Add some products to get started!',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.lightMutedForeground,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () => context.go('/shop'),
+                  icon: const Icon(Icons.shopping_bag),
+                  label: const Text('Continue Shopping'),
+                ),
+              ],
+            ),
           ),
         ),
       );
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Your Cart (${cart.itemCount} items)'),
-      ),
+      appBar: showPageAppBar
+          ? AppBar(
+              title: Text('Your Cart (${cart.itemCount} items)'),
+            )
+          : null,
       body: Column(
         children: [
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(16, contentTopPadding, 16, 16),
               itemCount: cart.items.length,
               itemBuilder: (context, index) {
                 final item = cart.items[index];
@@ -223,7 +229,8 @@ class _CartItemCard extends StatelessWidget {
                     item.product.sellerName,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  if (item.product.stockQuantity > 0 && item.product.stockQuantity < 10) ...[
+                  if (item.product.stockQuantity > 0 &&
+                      item.product.stockQuantity < 10) ...[
                     const SizedBox(height: 6),
                     Text(
                       'Low stock',
@@ -250,6 +257,11 @@ class _CartItemCard extends StatelessWidget {
                             color: AppColors.lightMutedForeground,
                           ),
                     ),
+                  const SizedBox(height: 6),
+                  ProductCardSocialPreview(
+                    productId: item.product.id,
+                    maxAvatars: 2,
+                  ),
                 ],
               ),
             ),
@@ -289,10 +301,11 @@ class _CartItemCard extends StatelessWidget {
                         padding: const EdgeInsets.only(left: 4),
                         child: Text(
                           'Max',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.grey[700],
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey[700],
+                                  ),
                         ),
                       ),
                   ],
@@ -309,11 +322,13 @@ class _CartItemCard extends StatelessWidget {
                           ),
                           actions: [
                             TextButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(false),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(false),
                               child: const Text('Cancel'),
                             ),
                             TextButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(true),
+                              onPressed: () =>
+                                  Navigator.of(dialogContext).pop(true),
                               child: const Text('Remove'),
                             ),
                           ],

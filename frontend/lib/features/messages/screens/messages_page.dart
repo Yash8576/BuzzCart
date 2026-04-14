@@ -178,65 +178,111 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final provider = context.watch<MessagesProvider>();
     final isWide = MediaQuery.of(context).size.width >= 900;
+    final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
     final title = provider.hasSelectedConversation && !isWide
         ? (provider.selectedParticipant?.name ?? 'Messages')
         : 'Messages';
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        leading: provider.hasSelectedConversation && !isWide
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () {
-                  _typingTimer?.cancel();
-                  provider.setTyping(false);
-                  provider.clearSelection();
-                  _messageController.clear();
-                },
+    Widget content = isWide
+        ? Row(
+            children: [
+              SizedBox(
+                width: 360,
+                child: _ConversationList(
+                  onStartChat: () => _showConnectionsSheet(provider),
+                ),
+              ),
+              VerticalDivider(
+                width: 1,
+                color: Theme.of(context).dividerColor,
+              ),
+              Expanded(
+                child: provider.hasSelectedConversation
+                    ? _ChatThread(
+                        controller: _messageController,
+                        onChanged: (value) => _handleTyping(provider, value),
+                        onSend: () => _sendMessage(provider),
+                      )
+                    : const _EmptyChatState(),
+              ),
+            ],
+          )
+        : provider.hasSelectedConversation
+            ? _ChatThread(
+                controller: _messageController,
+                onChanged: (value) => _handleTyping(provider, value),
+                onSend: () => _sendMessage(provider),
               )
-            : null,
-        actions: [
-          IconButton(
-            tooltip: 'New chat',
-            onPressed: () => _showConnectionsSheet(provider),
-            icon: const Icon(Icons.edit_outlined),
-          ),
-        ],
-      ),
-      body: isWide
-          ? Row(
-              children: [
-                SizedBox(
-                  width: 360,
-                  child: _ConversationList(
-                    onStartChat: () => _showConnectionsSheet(provider),
-                  ),
-                ),
-                VerticalDivider(
-                  width: 1,
-                  color: Theme.of(context).dividerColor,
-                ),
-                Expanded(
-                  child: provider.hasSelectedConversation
-                      ? _ChatThread(
-                          controller: _messageController,
-                          onChanged: (value) => _handleTyping(provider, value),
-                          onSend: () => _sendMessage(provider),
-                        )
-                      : const _EmptyChatState(),
+            : _ConversationList(
+                onStartChat: () => _showConnectionsSheet(provider),
+              );
+
+    return Scaffold(
+      appBar: showPageAppBar
+          ? AppBar(
+              title: Text(title),
+              leading: provider.hasSelectedConversation && !isWide
+                  ? IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () {
+                        _typingTimer?.cancel();
+                        provider.setTyping(false);
+                        provider.clearSelection();
+                        _messageController.clear();
+                      },
+                    )
+                  : null,
+              actions: [
+                IconButton(
+                  tooltip: 'New chat',
+                  onPressed: () => _showConnectionsSheet(provider),
+                  icon: const Icon(Icons.edit_outlined),
                 ),
               ],
             )
-          : provider.hasSelectedConversation
-              ? _ChatThread(
-                  controller: _messageController,
-                  onChanged: (value) => _handleTyping(provider, value),
-                  onSend: () => _sendMessage(provider),
-                )
-              : _ConversationList(
-                  onStartChat: () => _showConnectionsSheet(provider),
-                ),
+          : null,
+      body: Column(
+        children: [
+          if (!showPageAppBar)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+              child: Row(
+                children: [
+                  if (provider.hasSelectedConversation && !isWide)
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: () {
+                        _typingTimer?.cancel();
+                        provider.setTyping(false);
+                        provider.clearSelection();
+                        _messageController.clear();
+                      },
+                    )
+                  else
+                    const SizedBox(width: 48),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style:
+                          Theme.of(context).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'New chat',
+                    onPressed: () => _showConnectionsSheet(provider),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                ],
+              ),
+            ),
+          Expanded(child: content),
+        ],
+      ),
     );
   }
 }
@@ -255,11 +301,12 @@ class _ConversationList extends StatelessWidget {
         }
 
         if (provider.conversations.isEmpty) {
-          return Center(
+          return Align(
+            alignment: Alignment.topCenter,
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     Icons.forum_outlined,
@@ -295,6 +342,7 @@ class _ConversationList extends StatelessWidget {
         return RefreshIndicator(
           onRefresh: provider.refreshConversations,
           child: ListView.separated(
+            padding: EdgeInsets.zero,
             itemCount: provider.conversations.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, index) {
@@ -479,7 +527,7 @@ class _ChatThread extends StatelessWidget {
               ? const _EmptyMessageTimeline()
               : ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                   itemCount: messages.length + (showTypingIndicator ? 1 : 0),
                   itemBuilder: (context, index) {
                     if (showTypingIndicator && index == 0) {

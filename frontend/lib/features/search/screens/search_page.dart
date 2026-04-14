@@ -107,105 +107,162 @@ class _SearchPageState extends State<SearchPage>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Search'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search products, videos, creators...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: _clearSearch,
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onSubmitted: (_) => _performSearch(),
-              onChanged: _onSearchChanged,
+    final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
+    final contentTopPadding = showPageAppBar ? 0.0 : 8.0;
+
+    Widget buildSearchField({EdgeInsetsGeometry padding = EdgeInsets.zero}) {
+      return Padding(
+        padding: padding,
+        child: TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Search products, videos, creators...',
+            prefixIcon: const Icon(Icons.search),
+            suffixIcon: _searchController.text.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: _clearSearch,
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
             ),
           ),
+          onSubmitted: (_) => _performSearch(),
+          onChanged: _onSearchChanged,
         ),
-      ),
+      );
+    }
+
+    return Scaffold(
+      appBar: showPageAppBar
+          ? AppBar(
+              title: const Text('Search'),
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(60),
+                child: buildSearchField(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                ),
+              ),
+            )
+          : null,
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : !_searched
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.search, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'Search for products, videos, and more',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                    ],
+          ? Column(
+              children: [
+                if (!showPageAppBar)
+                  buildSearchField(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      contentTopPadding,
+                      16,
+                      12,
+                    ),
                   ),
-                )
-              : _totalResults == 0
-                  ? const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.search_off, size: 64, color: Colors.grey),
-                          SizedBox(height: 16),
-                          Text(
-                            'No results found',
-                            style: TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Try a different search term',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Column(
-                      children: [
-                        TabBar(
-                          controller: _tabController,
-                          isScrollable: true,
-                          tabs: [
-                            Tab(text: 'All ($_totalResults)'),
-                            Tab(
-                                text:
-                                    'Products (${_results['products']!.length})'),
-                            Tab(text: 'Videos (${_results['videos']!.length})'),
-                            Tab(text: 'Reels (${_results['reels']!.length})'),
-                            Tab(text: 'Users (${_results['users']!.length})'),
+                const Expanded(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 24),
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                if (!showPageAppBar)
+                  buildSearchField(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      contentTopPadding,
+                      16,
+                      12,
+                    ),
+                  ),
+                if (!_searched)
+                  const Expanded(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(24, 24, 24, 0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.search, size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              'Search for products, videos, and more',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 16, color: Colors.grey),
+                            ),
                           ],
                         ),
-                        Expanded(
-                          child: TabBarView(
-                            controller: _tabController,
-                            children: [
-                              _buildAllTab(),
-                              _buildProductsTab(),
-                              _buildVideosTab(),
-                              _buildReelsTab(),
-                              _buildUsersTab(),
-                            ],
-                          ),
+                      ),
+                    ),
+                  )
+                else if (_totalResults == 0)
+                  const Expanded(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(24, 24, 24, 0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.search_off,
+                                size: 64, color: Colors.grey),
+                            SizedBox(height: 16),
+                            Text(
+                              'No results found',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Try a different search term',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ],
                         ),
+                      ),
+                    ),
+                  )
+                else ...[
+                  TabBar(
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabs: [
+                      Tab(text: 'All ($_totalResults)'),
+                      Tab(text: 'Products (${_results['products']!.length})'),
+                      Tab(text: 'Videos (${_results['videos']!.length})'),
+                      Tab(text: 'Reels (${_results['reels']!.length})'),
+                      Tab(text: 'Users (${_results['users']!.length})'),
+                    ],
+                  ),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildAllTab(),
+                        _buildProductsTab(),
+                        _buildVideosTab(),
+                        _buildReelsTab(),
+                        _buildUsersTab(),
                       ],
                     ),
+                  ),
+                ],
+              ],
+            ),
     );
   }
 
   Widget _buildAllTab() {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       children: [
         if (_results['products']!.isNotEmpty)
           const Text(
@@ -255,7 +312,7 @@ class _SearchPageState extends State<SearchPage>
 
   Widget _buildProductsTab() {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         childAspectRatio: 0.75,
@@ -272,7 +329,7 @@ class _SearchPageState extends State<SearchPage>
 
   Widget _buildVideosTab() {
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: _results['videos']!.length,
       itemBuilder: (context, index) {
         final video = _results['videos']![index];
@@ -283,7 +340,7 @@ class _SearchPageState extends State<SearchPage>
 
   Widget _buildReelsTab() {
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
         childAspectRatio: 9 / 16,
@@ -322,7 +379,7 @@ class _SearchPageState extends State<SearchPage>
 
   Widget _buildUsersTab() {
     return ListView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: _results['users']!.length,
       itemBuilder: (context, index) {
         final user = _results['users']![index];

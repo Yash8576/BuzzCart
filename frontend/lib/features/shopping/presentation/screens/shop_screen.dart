@@ -46,7 +46,7 @@ class ShopScreen extends StatelessWidget {
           // Products Grid
           Expanded(
             child: GridView.builder(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 childAspectRatio: 0.7,
