@@ -711,30 +711,44 @@ func Search(db *sql.DB) gin.HandlerFunc {
 
 		searchPattern := "%" + query + "%"
 
-		// Search products (case-insensitive search in title, description, category, and tags)
-		productRows, _ := db.Query(
-			`SELECT id, title, description, price, images, category, tags, seller_id, seller_name, rating, reviews_count, views, created_at 
-			 FROM products 
-			 WHERE title ILIKE $1 
-			    OR description ILIKE $1 
-			    OR category ILIKE $1
-			    OR EXISTS (
-			        SELECT 1 FROM unnest(tags) AS tag 
-			        WHERE tag ILIKE $1
-			    )
-			 ORDER BY created_at DESC LIMIT 10`,
-			searchPattern,
-		)
+		// Search products by product name only, using the same projection as the
+		// product listing endpoints so search stays compatible with both schemas.
+		productQuery := productSelectBase + `
+		 AND (
+			p.title ILIKE $1
+			OR regexp_replace(lower(p.title), '[^a-z0-9]+', '', 'g')
+			   LIKE '%' || regexp_replace(lower($1), '[^a-z0-9%]+', '', 'g') || '%'
+		 )
+		 ORDER BY p.created_at DESC LIMIT 10`
+		productRows, productErr := db.Query(productQuery, searchPattern)
+		useLegacyProductScan := false
 		var products []models.Product
-		if productRows != nil {
+		if productErr != nil {
+			legacyQuery := productSelectLegacy + `
+			 WHERE (
+				p.title ILIKE $1
+				OR regexp_replace(lower(p.title), '[^a-z0-9]+', '', 'g')
+				   LIKE '%' || regexp_replace(lower($1), '[^a-z0-9%]+', '', 'g') || '%'
+			 )
+			 ORDER BY p.created_at DESC LIMIT 10`
+			productRows, productErr = db.Query(legacyQuery, searchPattern)
+			useLegacyProductScan = productErr == nil
+		}
+		if productRows != nil && productErr == nil {
 			defer productRows.Close()
 			for productRows.Next() {
-				var product models.Product
-				productRows.Scan(
-					&product.ID, &product.Title, &product.Description, &product.Price, pq.Array(&product.Images),
-					&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
-					&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
+				var (
+					product models.Product
+					scanErr error
 				)
+				if useLegacyProductScan {
+					product, scanErr = scanProductLegacy(productRows)
+				} else {
+					product, scanErr = scanProduct(productRows)
+				}
+				if scanErr != nil {
+					continue
+				}
 				products = append(products, product)
 			}
 		}
@@ -803,7 +817,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Search users (case-insensitive search in name, username, email, and bio)
+		// Search users by display name only.
 		// Exclude the current logged-in user from results (if authenticated)
 		var userRows *sql.Rows
 		var err error
@@ -811,10 +825,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			userRows, err = db.Query(
 				`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
 				 FROM users 
-				 WHERE (name ILIKE $1 
-				    OR COALESCE(username, '') ILIKE $1
-				    OR email ILIKE $1 
-				    OR COALESCE(bio, '') ILIKE $1)
+				 WHERE name ILIKE $1
 				    AND id != $2
 				 LIMIT 10`,
 				searchPattern, currentUserID,
@@ -823,10 +834,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 			userRows, err = db.Query(
 				`SELECT id, name, email, avatar, bio, followers_count, following_count, created_at 
 				 FROM users 
-				 WHERE name ILIKE $1 
-				    OR COALESCE(username, '') ILIKE $1
-				    OR email ILIKE $1 
-				    OR COALESCE(bio, '') ILIKE $1
+				 WHERE name ILIKE $1
 				 LIMIT 10`,
 				searchPattern,
 			)

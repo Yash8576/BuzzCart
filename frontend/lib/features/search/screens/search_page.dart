@@ -13,16 +13,24 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage>
-    with SingleTickerProviderStateMixin {
+{
   final ApiService _api = ApiService();
   final TextEditingController _searchController = TextEditingController();
-  late TabController _tabController;
   Map<String, List<dynamic>> _results = {
     'products': [],
     'videos': [],
     'reels': [],
     'users': [],
   };
+  final List<String> _filterOrder = const [
+    'all',
+    'users',
+    'products',
+    'videos',
+    'reels',
+  ];
+  static const int _minimumSearchLength = 2;
+  final Set<String> _selectedFilters = {'all'};
   bool _loading = false;
   bool _searched = false;
   Timer? _debounce;
@@ -30,29 +38,40 @@ class _SearchPageState extends State<SearchPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
-    _tabController.dispose();
     super.dispose();
   }
 
   void _onSearchChanged(String query) {
     // Cancel previous timer
     _debounce?.cancel();
+    final trimmedQuery = query.trim();
 
-    // If query is empty, clear results immediately
-    if (query.trim().isEmpty) {
+    // Search starts from the second character.
+    if (trimmedQuery.isEmpty) {
       _clearSearch();
       return;
     }
 
-    // Set debounce timer for 500ms
-    _debounce = Timer(const Duration(milliseconds: 500), () {
+    if (trimmedQuery.length < _minimumSearchLength) {
+      setState(() {
+        _results = {
+          'products': [],
+          'videos': [],
+          'reels': [],
+          'users': [],
+        };
+        _searched = false;
+      });
+      return;
+    }
+
+    _debounce = Timer(const Duration(milliseconds: 250), () {
       _performSearch();
     });
 
@@ -61,7 +80,7 @@ class _SearchPageState extends State<SearchPage>
 
   Future<void> _performSearch() async {
     final query = _searchController.text.trim();
-    if (query.isEmpty) return;
+    if (query.length < _minimumSearchLength) return;
 
     setState(() {
       _loading = true;
@@ -99,16 +118,354 @@ class _SearchPageState extends State<SearchPage>
         'users': [],
       };
       _searched = false;
+      _selectedFilters
+        ..clear()
+        ..add('all');
     });
   }
 
   int get _totalResults =>
       _results.values.fold(0, (sum, list) => sum + list.length);
 
+  int _countForFilter(String filter) {
+    switch (filter) {
+      case 'users':
+        return _results['users']!.length;
+      case 'products':
+        return _results['products']!.length;
+      case 'videos':
+        return _results['videos']!.length;
+      case 'reels':
+        return _results['reels']!.length;
+      case 'all':
+      default:
+        return _totalResults;
+    }
+  }
+
+  String _labelForFilter(String filter) {
+    switch (filter) {
+      case 'users':
+        return 'Users';
+      case 'products':
+        return 'Products';
+      case 'videos':
+        return 'Videos';
+      case 'reels':
+        return 'Shorts';
+      case 'all':
+      default:
+        return 'All';
+    }
+  }
+
+  void _toggleFilter(String filter) {
+    setState(() {
+      if (filter == 'all') {
+        _selectedFilters
+          ..clear()
+          ..add('all');
+        return;
+      }
+
+      _selectedFilters.remove('all');
+      if (_selectedFilters.contains(filter)) {
+        _selectedFilters.remove(filter);
+      } else {
+        _selectedFilters.add(filter);
+      }
+
+      if (_selectedFilters.isEmpty) {
+        _selectedFilters.add('all');
+      }
+    });
+  }
+
+  Widget _buildFilterChips() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Row(
+        children: _filterOrder.map((filter) {
+          final selected = _selectedFilters.contains(filter);
+          final count = _countForFilter(filter);
+          final label = _labelForFilter(filter);
+
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: filter == _filterOrder.last ? 0 : 6,
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: () => _toggleFilter(filter),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? AppColors.electricBlue
+                        : Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: selected
+                          ? AppColors.electricBlue
+                          : Colors.white.withOpacity(0.10),
+                    ),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$label ($count)',
+                      maxLines: 1,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? Colors.white : Colors.white70,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSelectedResults() {
+    if (_selectedFilters.contains('all')) {
+      return _buildAllTab();
+    }
+
+    final activeFilters =
+        _filterOrder.where((filter) => _selectedFilters.contains(filter)).toList();
+    if (activeFilters.length == 1) {
+      switch (activeFilters.first) {
+        case 'users':
+          return MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              itemCount: _results['users']!.length,
+              itemBuilder: (context, index) {
+                final user = _results['users']![index];
+                return _UserCard(user: user);
+              },
+            ),
+          );
+        case 'products':
+          return MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 0.75,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: _results['products']!.length,
+              itemBuilder: (context, index) {
+                final product = _results['products']![index];
+                return _ProductCard(product: product);
+              },
+            ),
+          );
+        case 'videos':
+          return MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              itemCount: _results['videos']!.length,
+              itemBuilder: (context, index) {
+                final video = _results['videos']![index];
+                return _VideoCard(video: video);
+              },
+            ),
+          );
+        case 'reels':
+          return MediaQuery.removePadding(
+            context: context,
+            removeTop: true,
+            child: GridView.builder(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 9 / 16,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: _results['reels']!.length,
+              itemBuilder: (context, index) {
+                final reel = _results['reels']![index];
+                return InkWell(
+                  onTap: () => context.go('/reels'),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          UrlHelper.getPlatformUrl(reel['thumbnail']),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.videocam),
+                          ),
+                        ),
+                      ),
+                      const Center(
+                        child: Icon(
+                          Icons.play_circle_fill,
+                          color: Colors.white,
+                          size: 48,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+      }
+    }
+
+    final sections = <Widget>[];
+
+    void addSection({
+      required String filter,
+      required String title,
+      required Widget content,
+    }) {
+      if (!_selectedFilters.contains(filter) || _countForFilter(filter) == 0) {
+        return;
+      }
+
+      if (sections.isNotEmpty) {
+        sections.add(const SizedBox(height: 24));
+      }
+
+      sections.add(
+        Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+      );
+      sections.add(const SizedBox(height: 12));
+      sections.add(content);
+    }
+
+    addSection(
+      filter: 'users',
+      title: 'Users',
+      content: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _results['users']!.length,
+        itemBuilder: (context, index) {
+          final user = _results['users']![index];
+          return _UserCard(user: user);
+        },
+      ),
+    );
+    addSection(
+      filter: 'products',
+      title: 'Products',
+      content: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 0.75,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
+        itemCount: _results['products']!.length,
+        itemBuilder: (context, index) {
+          final product = _results['products']![index];
+          return _ProductCard(product: product);
+        },
+      ),
+    );
+    addSection(
+      filter: 'videos',
+      title: 'Videos',
+      content: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: _results['videos']!.length,
+        itemBuilder: (context, index) {
+          final video = _results['videos']![index];
+          return _VideoCard(video: video);
+        },
+      ),
+    );
+    addSection(
+      filter: 'reels',
+      title: 'Shorts',
+      content: GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 3,
+          childAspectRatio: 9 / 16,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+        ),
+        itemCount: _results['reels']!.length,
+        itemBuilder: (context, index) {
+          final reel = _results['reels']![index];
+          return InkWell(
+            onTap: () => context.go('/reels'),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    UrlHelper.getPlatformUrl(reel['thumbnail']),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.videocam),
+                    ),
+                  ),
+                ),
+                const Center(
+                  child: Icon(
+                    Icons.play_circle_fill,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: sections,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
-    final contentTopPadding = showPageAppBar ? 0.0 : 8.0;
+    final contentTopPadding = 0.0;
 
     Widget buildSearchField({EdgeInsetsGeometry padding = EdgeInsets.zero}) {
       return Padding(
@@ -116,7 +473,7 @@ class _SearchPageState extends State<SearchPage>
         child: TextField(
           controller: _searchController,
           decoration: InputDecoration(
-            hintText: 'Search products, videos, creators...',
+            hintText: 'Search product names, videos, people...',
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _searchController.text.isNotEmpty
                 ? IconButton(
@@ -192,7 +549,7 @@ class _SearchPageState extends State<SearchPage>
                             Icon(Icons.search, size: 64, color: Colors.grey),
                             SizedBox(height: 16),
                             Text(
-                              'Search for products, videos, and more',
+                              'Search by product name, video caption, or person name',
                               textAlign: TextAlign.center,
                               style: TextStyle(fontSize: 16, color: Colors.grey),
                             ),
@@ -231,28 +588,9 @@ class _SearchPageState extends State<SearchPage>
                     ),
                   )
                 else ...[
-                  TabBar(
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs: [
-                      Tab(text: 'All ($_totalResults)'),
-                      Tab(text: 'Products (${_results['products']!.length})'),
-                      Tab(text: 'Videos (${_results['videos']!.length})'),
-                      Tab(text: 'Reels (${_results['reels']!.length})'),
-                      Tab(text: 'Users (${_results['users']!.length})'),
-                    ],
-                  ),
+                  _buildFilterChips(),
                   Expanded(
-                    child: TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildAllTab(),
-                        _buildProductsTab(),
-                        _buildVideosTab(),
-                        _buildReelsTab(),
-                        _buildUsersTab(),
-                      ],
-                    ),
+                    child: _buildSelectedResults(),
                   ),
                 ],
               ],
@@ -261,9 +599,21 @@ class _SearchPageState extends State<SearchPage>
   }
 
   Widget _buildAllTab() {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      children: [
+    return MediaQuery.removePadding(
+      context: context,
+      removeTop: true,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+        if (_results['users']!.isNotEmpty)
+          const Text(
+            'Users',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+        if (_results['users']!.isNotEmpty) const SizedBox(height: 12),
+        if (_results['users']!.isNotEmpty)
+          ...(_results['users']!.take(3).map((user) => _UserCard(user: user))),
+        if (_results['users']!.isNotEmpty) const SizedBox(height: 24),
         if (_results['products']!.isNotEmpty)
           const Text(
             'Products',
@@ -287,15 +637,6 @@ class _SearchPageState extends State<SearchPage>
             },
           ),
         if (_results['products']!.isNotEmpty) const SizedBox(height: 24),
-        if (_results['users']!.isNotEmpty)
-          const Text(
-            'Users',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        if (_results['users']!.isNotEmpty) const SizedBox(height: 12),
-        if (_results['users']!.isNotEmpty)
-          ...(_results['users']!.take(3).map((user) => _UserCard(user: user))),
-        if (_results['users']!.isNotEmpty) const SizedBox(height: 24),
         if (_results['videos']!.isNotEmpty)
           const Text(
             'Videos',
@@ -306,85 +647,58 @@ class _SearchPageState extends State<SearchPage>
           ...(_results['videos']!
               .take(3)
               .map((video) => _VideoCard(video: video))),
-      ],
-    );
-  }
-
-  Widget _buildProductsTab() {
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 0.75,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemCount: _results['products']!.length,
-      itemBuilder: (context, index) {
-        final product = _results['products']![index];
-        return _ProductCard(product: product);
-      },
-    );
-  }
-
-  Widget _buildVideosTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      itemCount: _results['videos']!.length,
-      itemBuilder: (context, index) {
-        final video = _results['videos']![index];
-        return _VideoCard(video: video);
-      },
-    );
-  }
-
-  Widget _buildReelsTab() {
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 9 / 16,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-      ),
-      itemCount: _results['reels']!.length,
-      itemBuilder: (context, index) {
-        final reel = _results['reels']![index];
-        return InkWell(
-          onTap: () => context.go('/reels'),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  UrlHelper.getPlatformUrl(reel['thumbnail']),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.videocam),
-                  ),
-                ),
-              ),
-              const Center(
-                child:
-                    Icon(Icons.play_circle_fill, color: Colors.white, size: 48),
-              ),
-            ],
+        if (_results['videos']!.isNotEmpty &&
+            _results['reels']!.isNotEmpty)
+          const SizedBox(height: 24),
+        if (_results['reels']!.isNotEmpty)
+          const Text(
+            'Shorts',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildUsersTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      itemCount: _results['users']!.length,
-      itemBuilder: (context, index) {
-        final user = _results['users']![index];
-        return _UserCard(user: user);
-      },
+        if (_results['reels']!.isNotEmpty) const SizedBox(height: 12),
+        if (_results['reels']!.isNotEmpty)
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              childAspectRatio: 9 / 16,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: _results['reels']!.length.clamp(0, 6),
+            itemBuilder: (context, index) {
+              final reel = _results['reels']![index];
+              return InkWell(
+                onTap: () => context.go('/reels'),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        UrlHelper.getPlatformUrl(reel['thumbnail']),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.videocam),
+                        ),
+                      ),
+                    ),
+                    const Center(
+                      child: Icon(
+                        Icons.play_circle_fill,
+                        color: Colors.white,
+                        size: 48,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
@@ -430,6 +744,8 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final price = (product['price'] as num?)?.toDouble() ?? 0;
     final compareAtPrice = (product['compare_at_price'] as num?)?.toDouble();
+    final images = (product['images'] as List?) ?? const [];
+    final firstImage = images.isNotEmpty ? images.first?.toString() : null;
     final hasDiscount = compareAtPrice != null && compareAtPrice > price;
     final percentOff = hasDiscount
         ? (((compareAtPrice - price) / compareAtPrice) * 100).round()
@@ -443,15 +759,20 @@ class _ProductCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Image.network(
-                UrlHelper.getPlatformUrl(product['images']?[0]),
-                fit: BoxFit.cover,
-                width: double.infinity,
-                errorBuilder: (_, __, ___) => Container(
-                  color: Colors.grey[300],
-                  child: const Icon(Icons.image),
-                ),
-              ),
+              child: firstImage == null || firstImage.isEmpty
+                  ? Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.image),
+                    )
+                  : Image.network(
+                      UrlHelper.getPlatformUrl(firstImage),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (_, __, ___) => Container(
+                        color: Colors.grey[300],
+                        child: const Icon(Icons.image),
+                      ),
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.all(8),

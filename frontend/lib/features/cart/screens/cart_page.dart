@@ -30,7 +30,7 @@ class _CartPageState extends State<CartPage> {
     final cartProvider = context.watch<CartProvider>();
     final cart = cartProvider.cart;
     final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
-    final contentTopPadding = showPageAppBar ? 0.0 : 8.0;
+    final contentTopPadding = 0.0;
 
     if (cartProvider.isLoading) {
       return Scaffold(
@@ -100,13 +100,17 @@ class _CartPageState extends State<CartPage> {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.fromLTRB(16, contentTopPadding, 16, 16),
-              itemCount: cart.items.length,
-              itemBuilder: (context, index) {
-                final item = cart.items[index];
-                return _CartItemCard(item: item);
-              },
+            child: MediaQuery.removePadding(
+              context: context,
+              removeTop: true,
+              child: ListView.builder(
+                padding: EdgeInsets.fromLTRB(16, contentTopPadding, 16, 16),
+                itemCount: cart.items.length,
+                itemBuilder: (context, index) {
+                  final item = cart.items[index];
+                  return _CartItemCard(item: item);
+                },
+              ),
             ),
           ),
           // Cart summary
