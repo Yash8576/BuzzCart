@@ -112,6 +112,7 @@ func GetCart(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusOK, models.CartResponse{
 				Items:     []models.CartItem{},
 				Subtotal:  0,
+				Discount:  0,
 				Total:     0,
 				ItemCount: 0,
 			})
@@ -151,16 +152,30 @@ func GetCart(db *sql.DB) gin.HandlerFunc {
 
 		// Calculate totals
 		subtotal := 0.0
+		discount := 0.0
+		total := 0.0
 		itemCount := 0
 		for _, item := range items {
-			subtotal += item.Price * float64(item.Quantity)
+			originalPrice := item.Price
+			if item.CompareAtPrice != nil && *item.CompareAtPrice > item.Price {
+				originalPrice = *item.CompareAtPrice
+			}
+
+			lineSubtotal := originalPrice * float64(item.Quantity)
+			lineTotal := item.Price * float64(item.Quantity)
+			lineDiscount := lineSubtotal - lineTotal
+
+			subtotal += lineSubtotal
+			discount += lineDiscount
+			total += lineTotal
 			itemCount += item.Quantity
 		}
 
 		c.JSON(http.StatusOK, models.CartResponse{
 			Items:     items,
 			Subtotal:  subtotal,
-			Total:     subtotal,
+			Discount:  discount,
+			Total:     total,
 			ItemCount: itemCount,
 		})
 	}

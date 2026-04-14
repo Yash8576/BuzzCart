@@ -275,6 +275,7 @@ type Cart struct {
 type CartResponse struct {
 	Items     []CartItem `json:"items"`
 	Subtotal  float64    `json:"subtotal"`
+	Discount  float64    `json:"discount"`
 	Total     float64    `json:"total"`
 	ItemCount int        `json:"item_count"`
 }

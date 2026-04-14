@@ -607,12 +607,14 @@ class CartItemModel {
 class CartModel {
   final List<CartItemModel> items;
   final double subtotal;
+  final double discount;
   final double total;
   final int itemCount;
 
   CartModel({
     required this.items,
     required this.subtotal,
+    required this.discount,
     required this.total,
     required this.itemCount,
   });
@@ -623,6 +625,7 @@ class CartModel {
           .map((item) => CartItemModel.fromJson(item as Map<String, dynamic>))
           .toList(),
       subtotal: (json['subtotal'] as num).toDouble(),
+      discount: (json['discount'] as num?)?.toDouble() ?? 0,
       total: (json['total'] as num).toDouble(),
       itemCount: json['item_count'] as int,
     );
@@ -632,6 +635,7 @@ class CartModel {
     return CartModel(
       items: [],
       subtotal: 0,
+      discount: 0,
       total: 0,
       itemCount: 0,
     );
