@@ -46,39 +46,45 @@ class _CartPageState extends State<CartPage> {
         appBar: showPageAppBar ? AppBar(title: const Text('Your Cart')) : null,
         body: SafeArea(
           top: false,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(24, 24 + contentTopPadding, 24, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.shopping_bag_outlined,
-                  size: 80,
-                  color: AppColors.lightMutedForeground,
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Your cart is empty',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Add some products to get started!',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.lightMutedForeground,
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(24, 24 + contentTopPadding, 24, 24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.shopping_bag_outlined,
+                      size: 80,
+                      color: AppColors.lightMutedForeground,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Your cart is empty',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
-                  textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Add some products to get started!',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.lightMutedForeground,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () => context.go('/shop'),
+                      icon: const Icon(Icons.shopping_bag),
+                      label: const Text('Continue Shopping'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: () => context.go('/shop'),
-                  icon: const Icon(Icons.shopping_bag),
-                  label: const Text('Continue Shopping'),
-                ),
-              ],
+              ),
             ),
           ),
         ),
