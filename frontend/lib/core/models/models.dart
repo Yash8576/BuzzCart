@@ -458,6 +458,49 @@ class ProductBuyerModel {
   }
 }
 
+class ReviewPreviewModel {
+  final String userId;
+  final String username;
+  final String? userAvatar;
+  final bool isFollowing;
+
+  ReviewPreviewModel({
+    required this.userId,
+    required this.username,
+    this.userAvatar,
+    this.isFollowing = false,
+  });
+
+  factory ReviewPreviewModel.fromJson(Map<String, dynamic> json) {
+    return ReviewPreviewModel(
+      userId: json['user_id'] as String,
+      username: json['username'] as String? ?? 'Unknown',
+      userAvatar: json['user_avatar'] as String?,
+      isFollowing: json['is_following'] as bool? ?? false,
+    );
+  }
+}
+
+class ProductReviewPreviewModel {
+  final int reviewCount;
+  final List<ReviewPreviewModel> reviews;
+
+  ProductReviewPreviewModel({
+    required this.reviewCount,
+    this.reviews = const <ReviewPreviewModel>[],
+  });
+
+  factory ProductReviewPreviewModel.fromJson(Map<String, dynamic> json) {
+    return ProductReviewPreviewModel(
+      reviewCount: json['review_count'] as int? ?? 0,
+      reviews: (json['reviews'] as List? ?? [])
+          .map((item) =>
+              ReviewPreviewModel.fromJson(item as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 class VideoModel {
   final String id;
   final String title;

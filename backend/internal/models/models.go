@@ -202,6 +202,18 @@ type ProductBuyer struct {
 	IsConnection  bool      `json:"is_connection"`
 }
 
+type ReviewPreview struct {
+	UserID      string  `json:"user_id"`
+	Username    string  `json:"username"`
+	UserAvatar  *string `json:"user_avatar,omitempty"`
+	IsFollowing bool    `json:"is_following"`
+}
+
+type ProductReviewPreview struct {
+	ReviewCount int             `json:"review_count"`
+	Reviews     []ReviewPreview `json:"reviews"`
+}
+
 type Video struct {
 	ID            string          `json:"id" db:"id"`
 	Title         string          `json:"title" db:"title"`

@@ -51,12 +51,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Ensure token is loaded from storage first
-      await _api.ensureTokenLoaded();
-      _pendingAvatarPreviewPath =
-          await _storage.read(key: _pendingAvatarPreviewPathKey);
-
-      // Check if token exists
       final hasToken = await _api.hasToken();
       if (!hasToken) {
         debugPrint('No token found - user needs to login');
@@ -68,23 +62,28 @@ class AuthProvider extends ChangeNotifier {
         return;
       }
 
-      final rememberMeEnabled =
-          (await _storage.read(key: _rememberMeKey)) == 'true';
+      final bootstrapValues = await Future.wait<String?>([
+        _storage.read(key: _pendingAvatarPreviewPathKey),
+        _storage.read(key: _rememberMeKey),
+        _storage.read(key: _sessionStartedAtKey),
+        _storage.read(key: _lastActivityKey),
+      ]);
+      _pendingAvatarPreviewPath = bootstrapValues[0];
+      final rememberMeEnabled = bootstrapValues[1] == 'true';
+      final sessionStartedAtRaw = bootstrapValues[2];
+      final lastActivityRaw = bootstrapValues[3];
 
       if (rememberMeEnabled) {
-        final sessionStartedAtRaw =
-            await _storage.read(key: _sessionStartedAtKey);
         DateTime sessionStartedAt;
 
         if (sessionStartedAtRaw == null) {
           // Backfill missing key for older sessions so they remain valid.
-          final lastActivityRaw = await _storage.read(key: _lastActivityKey);
           sessionStartedAt =
               DateTime.tryParse(lastActivityRaw ?? '') ?? DateTime.now();
-          await _storage.write(
+          unawaited(_storage.write(
             key: _sessionStartedAtKey,
             value: sessionStartedAt.toIso8601String(),
-          );
+          ));
         } else {
           sessionStartedAt =
               DateTime.tryParse(sessionStartedAtRaw) ?? DateTime.now();
@@ -143,10 +142,10 @@ class AuthProvider extends ChangeNotifier {
           );
       if ((_user?.avatar ?? '').trim().isNotEmpty) {
         _pendingAvatarPreviewPath = null;
-        await _storage.delete(key: _pendingAvatarPreviewPathKey);
+        unawaited(_storage.delete(key: _pendingAvatarPreviewPathKey));
       }
       _isAuthenticated = true;
-      await _updateLastActivity();
+      _scheduleLastActivityUpdate();
       debugPrint('User authenticated successfully: ${_user?.email}');
     } catch (e) {
       debugPrint('Auth init error: $e');
@@ -158,6 +157,10 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  void _scheduleLastActivityUpdate() {
+    unawaited(_updateLastActivity());
   }
 
   Future<void> _updateLastActivity() async {

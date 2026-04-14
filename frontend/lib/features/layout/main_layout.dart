@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:async';
 import '../../core/theme/app_colors.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
 import '../../features/messages/providers/messages_provider.dart';
 
 class MainLayout extends StatefulWidget {
-  final Widget child;
+  final StatefulNavigationShell navigationShell;
 
-  const MainLayout({super.key, required this.child});
+  const MainLayout({super.key, required this.navigationShell});
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -39,7 +40,10 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _updateActivity();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_updateActivity());
+    });
     _initializeCart();
   }
   
@@ -81,27 +85,18 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       messagesProvider.clearSelection();
     }
 
-    context.go(path);
-  }
+    final branchIndex = _navItems.indexWhere((item) => item.path == path);
+    if (branchIndex != -1) {
+      final isCurrentBranch =
+          widget.navigationShell.currentIndex == branchIndex;
+      widget.navigationShell.goBranch(
+        branchIndex,
+        initialLocation: isCurrentBranch,
+      );
+      return;
+    }
 
-  int _getCurrentIndex() {
-    final location = GoRouterState.of(context).matchedLocation;
-    
-    // Find exact match first, then check for path prefix
-    for (int i = 0; i < _navItems.length; i++) {
-      if (location == _navItems[i].path) {
-        return i;
-      } else if (location.startsWith(_navItems[i].path) && _navItems[i].path != '/') {
-        return i;
-      }
-    }
-    
-    // Default to home (index 0) if on root path
-    if (location == '/') {
-      return 0;
-    }
-    
-    return 0; // fallback to home
+    context.go(path);
   }
 
   @override
@@ -124,7 +119,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                     if (!isDesktop) _buildMobileHeader(),
 
                     // Page content
-                    Expanded(child: widget.child),
+                    Expanded(child: widget.navigationShell),
                   ],
                 ),
               ),
@@ -552,7 +547,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
 
   Widget _buildBottomNav() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final currentIndex = _getCurrentIndex();
+    final currentIndex = widget.navigationShell.currentIndex;
 
     return Container(
       decoration: BoxDecoration(

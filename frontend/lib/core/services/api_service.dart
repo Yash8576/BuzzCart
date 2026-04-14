@@ -21,6 +21,10 @@ class ApiService {
       <String, _CachedReviewCollection>{};
   final Map<String, _InFlightReviewRequest> _rankedReviewInFlight =
       <String, _InFlightReviewRequest>{};
+  final Map<String, _CachedReviewPreviewCollection> _reviewPreviewCache =
+      <String, _CachedReviewPreviewCollection>{};
+  final Map<String, _InFlightReviewPreviewRequest> _reviewPreviewInFlight =
+      <String, _InFlightReviewPreviewRequest>{};
 
   bool _shouldSuppressErrorLog(DioException error) {
     final statusCode = error.response?.statusCode;
@@ -481,12 +485,40 @@ class ApiService {
     return List<ReviewModel>.from(cached.slice(limit));
   }
 
+  ProductReviewPreviewModel? peekCachedProductReviewPreview(
+    String productId, {
+    int limit = 3,
+  }) {
+    final cacheKey = _reviewPreviewCacheKey(productId);
+    final cached = _reviewPreviewCache[cacheKey];
+    if (cached == null) {
+      return null;
+    }
+    if (cached.isExpired(_productReviewCacheTtl)) {
+      _reviewPreviewCache.remove(cacheKey);
+      return null;
+    }
+    if (!cached.canSatisfy(limit)) {
+      return null;
+    }
+    return ProductReviewPreviewModel(
+      reviewCount: cached.reviewCount,
+      reviews: List<ReviewPreviewModel>.from(cached.slice(limit)),
+    );
+  }
+
   void invalidateProductReviewCache(String productId) {
     final cacheKeySuffix = '::$productId';
     _rankedReviewCache.removeWhere(
       (key, _) => key.endsWith(cacheKeySuffix),
     );
     _rankedReviewInFlight.removeWhere(
+      (key, _) => key.endsWith(cacheKeySuffix),
+    );
+    _reviewPreviewCache.removeWhere(
+      (key, _) => key.endsWith(cacheKeySuffix),
+    );
+    _reviewPreviewInFlight.removeWhere(
       (key, _) => key.endsWith(cacheKeySuffix),
     );
   }
@@ -581,6 +613,99 @@ class ApiService {
       debugPrint('Error fetching product buyers: $e');
       return [];
     }
+  }
+
+  Future<ProductReviewPreviewModel> getProductReviewPreview(
+    String productId, {
+    int limit = 3,
+    bool forceRefresh = false,
+  }) async {
+    await _loadToken();
+    final cacheKey = _reviewPreviewCacheKey(productId);
+
+    if (!forceRefresh) {
+      final cached =
+          peekCachedProductReviewPreview(productId, limit: limit);
+      if (cached != null) {
+        return cached;
+      }
+
+      final inFlight = _reviewPreviewInFlight[cacheKey];
+      if (inFlight != null && inFlight.requestedLimit >= limit) {
+        final preview = await inFlight.future;
+        return ProductReviewPreviewModel(
+          reviewCount: preview.reviewCount,
+          reviews: List<ReviewPreviewModel>.from(preview.reviews.take(limit)),
+        );
+      }
+    }
+
+    final request = _fetchProductReviewPreviewNetwork(
+      cacheKey,
+      productId,
+      limit: limit,
+    );
+    _reviewPreviewInFlight[cacheKey] = _InFlightReviewPreviewRequest(
+      future: request,
+      requestedLimit: limit,
+    );
+
+    try {
+      return await request;
+    } finally {
+      final activeRequest = _reviewPreviewInFlight[cacheKey];
+      if (identical(activeRequest?.future, request)) {
+        _reviewPreviewInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<ProductReviewPreviewModel> _fetchProductReviewPreviewNetwork(
+    String cacheKey,
+    String productId, {
+    required int limit,
+  }) async {
+    final response = await _dio.get(
+      '/products/$productId/reviews/preview',
+      queryParameters: {'limit': limit},
+    );
+    final preview = ProductReviewPreviewModel.fromJson(
+      response.data as Map<String, dynamic>,
+    );
+    _storeReviewPreviewCache(cacheKey, preview, requestedLimit: limit);
+    final cached = _reviewPreviewCache[cacheKey];
+    return ProductReviewPreviewModel(
+      reviewCount: cached?.reviewCount ?? preview.reviewCount,
+      reviews: List<ReviewPreviewModel>.from(
+        cached?.slice(limit) ?? preview.reviews.take(limit),
+      ),
+    );
+  }
+
+  void _storeReviewPreviewCache(
+    String cacheKey,
+    ProductReviewPreviewModel preview, {
+    required int requestedLimit,
+  }) {
+    final existing = _reviewPreviewCache[cacheKey];
+    final isComplete = preview.reviewCount < requestedLimit ||
+        preview.reviewCount <= preview.reviews.length;
+    final shouldKeepExistingLarger = existing != null &&
+        !existing.isExpired(_productReviewCacheTtl) &&
+        !isComplete &&
+        existing.reviews.length > preview.reviews.length;
+
+    _reviewPreviewCache[cacheKey] = _CachedReviewPreviewCollection(
+      reviews: List<ReviewPreviewModel>.unmodifiable(
+        shouldKeepExistingLarger ? existing.reviews : preview.reviews,
+      ),
+      reviewCount: shouldKeepExistingLarger
+          ? existing.reviewCount
+          : preview.reviewCount,
+      fetchedAt: DateTime.now(),
+      isComplete:
+          isComplete || (shouldKeepExistingLarger && existing.isComplete),
+    );
   }
 
   // Videos APIs
@@ -1274,6 +1399,9 @@ class ApiService {
   String _rankedReviewCacheKey(String productId) =>
       '${_token ?? 'anonymous'}::$productId';
 
+  String _reviewPreviewCacheKey(String productId) =>
+      '${_token ?? 'anonymous'}::$productId';
+
   Future<ReviewModel> getReview(String reviewId) async {
     try {
       final response = await _dio.get('/reviews/$reviewId');
@@ -1452,5 +1580,40 @@ class _InFlightReviewRequest {
   });
 
   final Future<List<ReviewModel>> future;
+  final int requestedLimit;
+}
+
+class _CachedReviewPreviewCollection {
+  const _CachedReviewPreviewCollection({
+    required this.reviews,
+    required this.reviewCount,
+    required this.fetchedAt,
+    required this.isComplete,
+  });
+
+  final List<ReviewPreviewModel> reviews;
+  final int reviewCount;
+  final DateTime fetchedAt;
+  final bool isComplete;
+
+  bool isExpired(Duration ttl) => DateTime.now().difference(fetchedAt) > ttl;
+
+  bool canSatisfy(int limit) => isComplete || reviews.length >= limit;
+
+  List<ReviewPreviewModel> slice(int limit) {
+    if (reviews.length <= limit) {
+      return reviews;
+    }
+    return reviews.take(limit).toList(growable: false);
+  }
+}
+
+class _InFlightReviewPreviewRequest {
+  const _InFlightReviewPreviewRequest({
+    required this.future,
+    required this.requestedLimit,
+  });
+
+  final Future<ProductReviewPreviewModel> future;
   final int requestedLimit;
 }

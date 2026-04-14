@@ -138,6 +138,7 @@ func main() {
 			// Product review routes
 			products.POST("/:product_id/reviews", middleware.Auth(cfg.JWTSecret), handlers.CreateReview(db))
 			products.GET("/:product_id/buyers", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetProductBuyers(db))
+			products.GET("/:product_id/reviews/preview", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetProductReviewPreview(db))
 			products.GET("/:product_id/reviews/ranked", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetProductReviewsRanked(db))
 			products.GET("/:product_id/reviews", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetProductReviews(db))
 		}

@@ -1401,9 +1401,128 @@ func GetProductBuyers(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// GetProductReviewsRanked retrieves reviews for a product ranked by relationship to the current user
-// Ranking logic: Direct followers (weight: 1.0) → Mutual follows (0.7) → Following (0.5) → Public (0.3)
-// Results are cached in Redis for 5 minutes
+// GetProductReviewPreview retrieves just the review avatars and total count for
+// the ranked review surface so product details can render that row immediately
+// while the full ranked reviews warm in the background.
+func GetProductReviewPreview(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		productID := c.Param("product_id")
+		userID := c.GetString("user_id")
+		limit := parseListLimit(c, 3)
+
+		var productExists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", productID).Scan(&productExists)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify product"})
+			return
+		}
+		if !productExists {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
+		var rows *sql.Rows
+		if userID != "" {
+			rows, err = db.Query(
+				`SELECT
+					pr.user_id,
+					COALESCE(u.name, u.username, ''),
+					u.avatar,
+					CASE
+						WHEN uf_author_follows_user.follower_id IS NOT NULL
+							AND uf_user_follows_author.follower_id IS NOT NULL
+						THEN 0.7
+						WHEN uf_author_follows_user.follower_id IS NOT NULL
+						THEN 1.0
+						WHEN uf_user_follows_author.follower_id IS NOT NULL
+						THEN 0.5
+						ELSE 0.3
+					END AS relationship_weight,
+					COUNT(*) OVER() AS review_count
+				FROM product_ratings pr
+				JOIN users u ON u.id = pr.user_id
+				LEFT JOIN user_follows uf_author_follows_user
+					ON uf_author_follows_user.follower_id = pr.user_id
+					AND uf_author_follows_user.following_id = $2
+				LEFT JOIN user_follows uf_user_follows_author
+					ON uf_user_follows_author.follower_id = $2
+					AND uf_user_follows_author.following_id = pr.user_id
+				WHERE pr.product_id = $1
+					AND ((pr.moderation_status = 'approved' AND pr.is_private = false) OR pr.user_id = $2)
+				ORDER BY relationship_weight DESC, pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC
+				LIMIT $3`,
+				productID, userID, limit,
+			)
+		} else {
+			rows, err = db.Query(
+				`SELECT
+					pr.user_id,
+					COALESCE(u.name, u.username, ''),
+					u.avatar,
+					COUNT(*) OVER() AS review_count
+				FROM product_ratings pr
+				JOIN users u ON u.id = pr.user_id
+				WHERE pr.product_id = $1
+					AND pr.moderation_status = 'approved'
+					AND pr.is_private = false
+				ORDER BY pr.helpful_count DESC, pr.updated_at DESC, pr.created_at DESC
+				LIMIT $2`,
+				productID, limit,
+			)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch review preview"})
+			return
+		}
+		defer rows.Close()
+
+		preview := models.ProductReviewPreview{
+			ReviewCount: 0,
+			Reviews:     make([]models.ReviewPreview, 0),
+		}
+
+		for rows.Next() {
+			var item models.ReviewPreview
+			var reviewCount int
+			if userID != "" {
+				var relationshipWeight float64
+				err = rows.Scan(
+					&item.UserID,
+					&item.Username,
+					&item.UserAvatar,
+					&relationshipWeight,
+					&reviewCount,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode review preview"})
+					return
+				}
+				item.IsFollowing = relationshipWeight > 0.3
+			} else {
+				err = rows.Scan(
+					&item.UserID,
+					&item.Username,
+					&item.UserAvatar,
+					&reviewCount,
+				)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode review preview"})
+					return
+				}
+				item.IsFollowing = false
+			}
+
+			preview.ReviewCount = reviewCount
+			preview.Reviews = append(preview.Reviews, item)
+		}
+
+		c.JSON(http.StatusOK, preview)
+	}
+}
+
+// GetProductReviewsRanked retrieves reviews for a product ranked by relationship to the current user.
+// Ranking logic: Direct followers (1.0) -> Mutual follows (0.7) -> Following (0.5) -> Public (0.3).
+// Results are cached in Redis for 5 minutes.
 func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		productID := c.Param("product_id")

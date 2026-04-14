@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../../core/models/models.dart';
 import '../../../core/services/api_service.dart';
@@ -179,7 +180,7 @@ class _CompactAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: 9,
       backgroundImage: imageUrl.isNotEmpty
-          ? NetworkImage(UrlHelper.getPlatformUrl(imageUrl))
+          ? CachedNetworkImageProvider(UrlHelper.getPlatformUrl(imageUrl))
           : null,
       child: imageUrl.isEmpty
           ? Text(

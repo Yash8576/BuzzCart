@@ -76,177 +76,207 @@ GoRouter createAppRouter(AuthProvider authProvider) {
         builder: (context, state) => const SignupScreen(),
       ),
 
-      // Protected routes with layout
-      ShellRoute(
-        builder: (context, state, child) => MainLayout(child: child),
-        routes: [
-          GoRoute(
-            path: '/',
-            builder: (context, state) => const HomePage(),
-          ),
-          GoRoute(
-            path: '/shop',
-            builder: (context, state) => const ShopPage(),
-          ),
-          GoRoute(
-            path: '/shop/:productId',
-            builder: (context, state) {
-              final productId = state.pathParameters['productId']!;
-              final ownPreview =
-                  state.uri.queryParameters['own_preview'] == '1';
-              return ShopPage(
-                productId: productId,
-                allowOwnProductPreview: ownPreview,
-              );
-            },
-          ),
-          GoRoute(
-            path: '/videos',
-            builder: (context, state) => const VideosPage(),
-          ),
-          GoRoute(
-            path: '/videos/:videoId',
-            builder: (context, state) {
-              final videoId = state.pathParameters['videoId']!;
-              return VideosPage(videoId: videoId);
-            },
-          ),
-          GoRoute(
-            path: '/reels',
-            builder: (context, state) => const ReelsPage(),
-          ),
-          GoRoute(
-            path: '/cart',
-            builder: (context, state) => const CartPage(),
-          ),
-          GoRoute(
-            path: '/checkout',
-            builder: (context, state) => const CheckoutPage(),
-          ),
-          GoRoute(
-            path: '/profile',
-            builder: (context, state) => const ProfilePage(),
-          ),
-          GoRoute(
-            path: '/profile/:userId',
-            builder: (context, state) {
-              final userId = state.pathParameters['userId']!;
-              return ProfilePage(userId: userId);
-            },
-          ),
-          GoRoute(
-            path: '/messages',
-            builder: (context, state) => MessagesPage(
-              intent: state.extra is MessagesRouteIntent
-                  ? state.extra as MessagesRouteIntent
-                  : null,
-            ),
-          ),
-          GoRoute(
-            path: '/search',
-            builder: (context, state) => const SearchPage(),
-          ),
-          GoRoute(
-            path: '/settings',
-            builder: (context, state) => const SettingsPage(),
-          ),
-          GoRoute(
-            path: '/orders/manage',
-            builder: (context, state) {
-              final product = state.extra is ProductModel
-                  ? state.extra as ProductModel
-                  : null;
-              if (product == null) {
-                return const Scaffold(
-                  body: Center(
-                    child: Text('No order selected'),
+      // Protected routes with persistent tab caching
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            MainLayout(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/',
+                builder: (context, state) => const HomePage(),
+                routes: [
+                  GoRoute(
+                    path: 'cart',
+                    builder: (context, state) => const CartPage(),
                   ),
-                );
-              }
-              return ManageOrderPage(product: product);
-            },
-          ),
-          GoRoute(
-            path: '/add-product',
-            builder: (context, state) {
-              final editingProduct =
-                  state.extra is ProductModel ? state.extra as ProductModel : null;
-              return AddProductScreen(editingProduct: editingProduct);
-            },
-            onExit: (context) async {
-              final provider = context.read<AddProductProvider>();
-              if (!provider.hasUnsavedWork) {
-                return true; // Allow navigation if no unsaved work
-              }
-
-              // Show confirmation dialog
-              final shouldLeave = await showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Discard Product?'),
-                  content: const Text(
-                    'You have unsaved changes. Are you sure you want to discard this product?',
+                  GoRoute(
+                    path: 'checkout',
+                    builder: (context, state) => const CheckoutPage(),
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Continue Editing'),
+                  GoRoute(
+                    path: 'messages',
+                    builder: (context, state) => MessagesPage(
+                      intent: state.extra is MessagesRouteIntent
+                          ? state.extra as MessagesRouteIntent
+                          : null,
                     ),
-                    TextButton(
-                      onPressed: () {
-                        provider.clearAll(); // Clear state on discard
-                        Navigator.pop(context, true);
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
-                      ),
-                      child: const Text('Discard'),
-                    ),
-                  ],
-                ),
-              );
-
-              return shouldLeave ?? false;
-            },
-          ),
-          GoRoute(
-            path: '/upload-content',
-            builder: (context, state) => const UploadContentScreen(),
-            onExit: (context) async {
-              final provider = context.read<UploadContentProvider>();
-              if (!provider.hasUnsavedWork) {
-                return true; // Allow navigation if no unsaved work
-              }
-
-              // Show confirmation dialog
-              final shouldLeave = await showDialog<bool>(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Discard Content?'),
-                  content: const Text(
-                    'You have unsaved changes. Are you sure you want to discard this content?',
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Continue Editing'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        provider.clearAll(); // Clear state on discard
-                        Navigator.pop(context, true);
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: Colors.red,
-                      ),
-                      child: const Text('Discard'),
-                    ),
-                  ],
-                ),
-              );
+                  GoRoute(
+                    path: 'search',
+                    builder: (context, state) => const SearchPage(),
+                  ),
+                  GoRoute(
+                    path: 'settings',
+                    builder: (context, state) => const SettingsPage(),
+                  ),
+                  GoRoute(
+                    path: 'orders/manage',
+                    builder: (context, state) {
+                      final product = state.extra is ProductModel
+                          ? state.extra as ProductModel
+                          : null;
+                      if (product == null) {
+                        return const Scaffold(
+                          body: Center(
+                            child: Text('No order selected'),
+                          ),
+                        );
+                      }
+                      return ManageOrderPage(product: product);
+                    },
+                  ),
+                  GoRoute(
+                    path: 'add-product',
+                    builder: (context, state) {
+                      final editingProduct = state.extra is ProductModel
+                          ? state.extra as ProductModel
+                          : null;
+                      return AddProductScreen(
+                        editingProduct: editingProduct,
+                      );
+                    },
+                    onExit: (context) async {
+                      final provider = context.read<AddProductProvider>();
+                      if (!provider.hasUnsavedWork) {
+                        return true;
+                      }
 
-              return shouldLeave ?? false;
-            },
+                      final shouldLeave = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Discard Product?'),
+                          content: const Text(
+                            'You have unsaved changes. Are you sure you want to discard this product?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Continue Editing'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                provider.clearAll();
+                                Navigator.pop(context, true);
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.red,
+                              ),
+                              child: const Text('Discard'),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      return shouldLeave ?? false;
+                    },
+                  ),
+                  GoRoute(
+                    path: 'upload-content',
+                    builder: (context, state) => const UploadContentScreen(),
+                    onExit: (context) async {
+                      final provider = context.read<UploadContentProvider>();
+                      if (!provider.hasUnsavedWork) {
+                        return true;
+                      }
+
+                      final shouldLeave = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Discard Content?'),
+                          content: const Text(
+                            'You have unsaved changes. Are you sure you want to discard this content?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Continue Editing'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                provider.clearAll();
+                                Navigator.pop(context, true);
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.red,
+                              ),
+                              child: const Text('Discard'),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      return shouldLeave ?? false;
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/videos',
+                builder: (context, state) => const VideosPage(),
+                routes: [
+                  GoRoute(
+                    path: ':videoId',
+                    builder: (context, state) {
+                      final videoId = state.pathParameters['videoId']!;
+                      return VideosPage(videoId: videoId);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/reels',
+                builder: (context, state) => const ReelsPage(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/shop',
+                builder: (context, state) => const ShopPage(),
+                routes: [
+                  GoRoute(
+                    path: ':productId',
+                    builder: (context, state) {
+                      final productId = state.pathParameters['productId']!;
+                      final ownPreview =
+                          state.uri.queryParameters['own_preview'] == '1';
+                      return ShopPage(
+                        productId: productId,
+                        allowOwnProductPreview: ownPreview,
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/profile',
+                builder: (context, state) => const ProfilePage(),
+                routes: [
+                  GoRoute(
+                    path: ':userId',
+                    builder: (context, state) {
+                      final userId = state.pathParameters['userId']!;
+                      return ProfilePage(userId: userId);
+                    },
+                  ),
+                ],
+              ),
+            ],
           ),
         ],
       ),

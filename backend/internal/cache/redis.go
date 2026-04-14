@@ -49,16 +49,25 @@ func GetClient() *redis.Client {
 
 // Set stores a value in Redis with a TTL
 func Set(key string, value interface{}, ttl time.Duration) error {
+	if client == nil {
+		return nil
+	}
 	return client.Set(ctx, key, value, ttl).Err()
 }
 
 // Get retrieves a value from Redis
 func Get(key string) (string, error) {
+	if client == nil {
+		return "", redis.Nil
+	}
 	return client.Get(ctx, key).Result()
 }
 
 // Delete removes a key from Redis
 func Delete(keys ...string) error {
+	if client == nil {
+		return nil
+	}
 	return client.Del(ctx, keys...).Err()
 }
 

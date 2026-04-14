@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -23,7 +25,12 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+  static final Map<String, _CachedProfileScreenState> _profileScreenCache =
+      <String, _CachedProfileScreenState>{};
+  static final Map<String, ImageProvider> _imageProviderCache =
+      <String, ImageProvider>{};
+
   final ApiService _api = ApiService();
   final ImagePicker _picker = ImagePicker();
   late TabController _tabController;
@@ -54,9 +61,84 @@ class _ProfilePageState extends State<ProfilePage>
     super.dispose();
   }
 
-  Future<void> _fetchUserContent() async {
+  Map<String, dynamic> _userToProfileJson(UserModel user) {
+    final profileJson = user.toJson();
+    profileJson['privacy_profile'] = user.privacyProfile.toLowerCase();
+    profileJson['visibility_mode'] = user.visibilityMode.toLowerCase();
+    profileJson['visibility_preferences'] = user.visibilityPreferences;
+    return profileJson;
+  }
+
+  void _hydrateFromCachedState(
+    _CachedProfileScreenState cached, {
+    required bool isOwnProfile,
+    required UserModel currentUser,
+  }) {
+    _profileUser = isOwnProfile
+        ? _userToProfileJson(currentUser)
+        : Map<String, dynamic>.from(cached.profileUser);
+    _photos = List<MediaItem>.from(cached.photos);
+    _videos = List<MediaItem>.from(cached.videos);
+    _reels = List<MediaItem>.from(cached.reels);
+    _products = List<ProductModel>.from(cached.products);
+  }
+
+  void _storeCurrentProfileCache() {
+    final currentUser = context.read<AuthProvider>().user;
+    final targetUserId = widget.userId ?? currentUser?.id;
+    if (targetUserId == null || _profileUser == null) {
+      return;
+    }
+
+    final isOwnProfile = currentUser != null && targetUserId == currentUser.id;
+    final profileUser = isOwnProfile
+        ? _userToProfileJson(currentUser)
+        : Map<String, dynamic>.from(_profileUser!);
+
+    _profileScreenCache[targetUserId] = _CachedProfileScreenState(
+      profileUser: Map<String, dynamic>.from(profileUser),
+      photos: List<MediaItem>.from(_photos),
+      videos: List<MediaItem>.from(_videos),
+      reels: List<MediaItem>.from(_reels),
+      products: List<ProductModel>.from(_products),
+    );
+  }
+
+  ImageProvider _cachedNetworkImageProvider(String imageUrl) {
+    final resolvedUrl = UrlHelper.getPlatformUrl(imageUrl);
+    return _imageProviderCache.putIfAbsent(
+      resolvedUrl,
+      () => CachedNetworkImageProvider(resolvedUrl),
+    );
+  }
+
+  void _warmVisibleProfileImages() {
+    if (!mounted) {
+      return;
+    }
+
+    final urls = <String>{
+      for (final photo in _photos.take(18))
+        if (photo.mediaUrl.trim().isNotEmpty) photo.mediaUrl.trim(),
+      for (final video in _videos.take(12))
+        if ((video.thumbnailUrl ?? video.mediaUrl).trim().isNotEmpty)
+          (video.thumbnailUrl ?? video.mediaUrl).trim(),
+      for (final reel in _reels.take(12))
+        if ((reel.thumbnailUrl ?? reel.mediaUrl).trim().isNotEmpty)
+          (reel.thumbnailUrl ?? reel.mediaUrl).trim(),
+      for (final product in _products.take(12))
+        if (product.images.isNotEmpty && product.images.first.trim().isNotEmpty)
+          product.images.first.trim(),
+    };
+
+    for (final url in urls) {
+      final provider = _cachedNetworkImageProvider(url);
+      unawaited(precacheImage(provider, context));
+    }
+  }
+
+  Future<void> _fetchUserContent({bool forceRefresh = false}) async {
     debugPrint('Fetching user content...');
-    setState(() => _loading = true);
 
     final currentUser = context.read<AuthProvider>().user;
     if (currentUser == null) {
@@ -72,15 +154,29 @@ class _ProfilePageState extends State<ProfilePage>
     debugPrint(
         'Fetching content for user: $targetUserId (own profile: $isOwnProfile)');
 
+    if (!forceRefresh) {
+      final cached = _profileScreenCache[targetUserId];
+      if (cached != null) {
+        setState(() {
+          _hydrateFromCachedState(
+            cached,
+            isOwnProfile: isOwnProfile,
+            currentUser: currentUser,
+          );
+          _loading = false;
+        });
+        debugPrint('Hydrated profile from cache for user: $targetUserId');
+        return;
+      }
+    }
+
+    setState(() => _loading = true);
+
     // If viewing another user's profile, fetch their user info
     if (!isOwnProfile && widget.userId != null) {
       try {
         final userModel = await _api.getUser(widget.userId!);
-        final profileJson = userModel.toJson();
-        profileJson['privacy_profile'] = userModel.privacyProfile.toLowerCase();
-        profileJson['visibility_mode'] = userModel.visibilityMode.toLowerCase();
-        profileJson['visibility_preferences'] = userModel.visibilityPreferences;
-        _profileUser = profileJson;
+        _profileUser = _userToProfileJson(userModel);
         debugPrint('Fetched profile user: ${_profileUser?['name']}');
       } catch (e) {
         debugPrint('Error fetching user profile: $e');
@@ -88,11 +184,7 @@ class _ProfilePageState extends State<ProfilePage>
         return;
       }
     } else {
-      final profileJson = currentUser.toJson();
-      profileJson['privacy_profile'] = currentUser.privacyProfile.toLowerCase();
-      profileJson['visibility_mode'] = currentUser.visibilityMode.toLowerCase();
-      profileJson['visibility_preferences'] = currentUser.visibilityPreferences;
-      _profileUser = profileJson;
+      _profileUser = _userToProfileJson(currentUser);
     }
 
     final isSellerProfile = isOwnProfile
@@ -154,6 +246,8 @@ class _ProfilePageState extends State<ProfilePage>
       _products = products;
       _loading = false;
     });
+    _storeCurrentProfileCache();
+    _warmVisibleProfileImages();
 
     debugPrint('State updated - Photos count: ${_photos.length}');
   }
@@ -200,7 +294,22 @@ class _ProfilePageState extends State<ProfilePage>
         await _api.followUser(targetUserId);
       }
       await authProvider.refreshUser();
-      await _fetchUserContent();
+      if (!mounted) {
+        return;
+      }
+      final updatedProfile = Map<String, dynamic>.from(_profileUser ?? {});
+      final currentFollowers =
+          (updatedProfile['followers_count'] as int? ?? 0);
+      final nextIsFollowing = !isFollowing;
+      updatedProfile['is_following'] = nextIsFollowing;
+      updatedProfile['followers_count'] =
+          nextIsFollowing ? currentFollowers + 1 : (currentFollowers > 0 ? currentFollowers - 1 : 0);
+      updatedProfile['is_connection'] =
+          nextIsFollowing && updatedProfile['is_followed_by'] == true;
+      setState(() {
+        _profileUser = updatedProfile;
+      });
+      _storeCurrentProfileCache();
     } catch (e) {
       if (!mounted) {
         return;
@@ -279,11 +388,7 @@ class _ProfilePageState extends State<ProfilePage>
                                 leading: CircleAvatar(
                                   backgroundImage:
                                       (user.avatar ?? '').isNotEmpty
-                                          ? NetworkImage(
-                                              UrlHelper.getPlatformUrl(
-                                                user.avatar,
-                                              ),
-                                            )
+                                          ? _cachedImageProvider(user.avatar)
                                           : null,
                                   child: (user.avatar ?? '').isEmpty
                                       ? Text(
@@ -402,6 +507,7 @@ class _ProfilePageState extends State<ProfilePage>
         }
         _deletingItemIds.remove(deletingKey);
       });
+      _storeCurrentProfileCache();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${_capitalizeLabel(itemLabel)} deleted')),
@@ -435,6 +541,7 @@ class _ProfilePageState extends State<ProfilePage>
         _products.removeWhere((item) => item.id == product.id);
         _deletingItemIds.remove(deletingKey);
       });
+      _storeCurrentProfileCache();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Product deleted')),
@@ -456,7 +563,7 @@ class _ProfilePageState extends State<ProfilePage>
       return;
     }
     if (result == true) {
-      await _fetchUserContent();
+      await _fetchUserContent(forceRefresh: true);
     }
   }
 
@@ -718,10 +825,10 @@ class _ProfilePageState extends State<ProfilePage>
                 if (!mounted) {
                   return;
                 }
-                await _fetchUserContent();
-                if (!mounted) {
-                  return;
-                }
+                setState(() {
+                  _profileUser = _userToProfileJson(authProvider.user!);
+                });
+                _storeCurrentProfileCache();
                 navigator.pop(true);
               } catch (e) {
                 if (!mounted) {
@@ -948,7 +1055,9 @@ class _ProfilePageState extends State<ProfilePage>
           _avatarVersion = DateTime.now().millisecondsSinceEpoch;
           _localAvatarPreviewBytes = null;
           _localAvatarPreviewPath = null;
+          _profileUser = _userToProfileJson(authProvider.user!);
         });
+        _storeCurrentProfileCache();
 
         _showAvatarSnackBar('Profile photo updated successfully');
         return;
@@ -1032,7 +1141,9 @@ class _ProfilePageState extends State<ProfilePage>
         _avatarVersion = DateTime.now().millisecondsSinceEpoch;
         _localAvatarPreviewBytes = null;
         _localAvatarPreviewPath = null;
+        _profileUser = _userToProfileJson(authProvider.user!);
       });
+      _storeCurrentProfileCache();
 
       _showAvatarSnackBar('Profile photo updated successfully');
     } catch (e) {
@@ -1056,7 +1167,11 @@ class _ProfilePageState extends State<ProfilePage>
         _avatarVersion = DateTime.now().millisecondsSinceEpoch;
         _localAvatarPreviewPath = null;
         _localAvatarPreviewBytes = null;
+        if (authProvider.user != null) {
+          _profileUser = _userToProfileJson(authProvider.user!);
+        }
       });
+      _storeCurrentProfileCache();
 
       _showAvatarSnackBar('Profile photo removed');
     } catch (e) {
@@ -1155,8 +1270,35 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  Widget _buildCachedImage(
+    String imageUrl, {
+    BoxFit fit = BoxFit.cover,
+    Widget? errorWidget,
+    double? width,
+    double? height,
+  }) {
+    final provider = _cachedNetworkImageProvider(imageUrl);
+    return Image(
+      image: provider,
+      fit: fit,
+      width: width,
+      height: height,
+      gaplessPlayback: true,
+      errorBuilder: (_, __, ___) => errorWidget ?? const SizedBox.shrink(),
+    );
+  }
+
+  ImageProvider? _cachedImageProvider(String? imageUrl) {
+    final trimmed = imageUrl?.trim() ?? '';
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    return _cachedNetworkImageProvider(trimmed);
+  }
+
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final authProvider = context.watch<AuthProvider>();
     final currentUser = authProvider.user;
 
@@ -1201,7 +1343,7 @@ class _ProfilePageState extends State<ProfilePage>
     } else if (hasProviderPreview) {
       avatarImageProvider = FileImage(File(providerPreviewPath));
     } else if (avatarDisplayUrl != null) {
-      avatarImageProvider = NetworkImage(avatarDisplayUrl);
+      avatarImageProvider = CachedNetworkImageProvider(avatarDisplayUrl);
     }
     final isDesktop = MediaQuery.sizeOf(context).width >= 1024;
     final postsCount = _photos.length + _videos.length + _reels.length;
@@ -1595,17 +1737,13 @@ class _ProfilePageState extends State<ProfilePage>
                       child: Stack(
                         children: [
                           Center(
-                            child: Image.network(
-                              UrlHelper.getPlatformUrl(photo.mediaUrl),
+                            child: _buildCachedImage(
+                              photo.mediaUrl,
                               fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                debugPrint(
-                                    'Error loading fullscreen image: $error');
-                                return const Center(
-                                  child: Icon(Icons.broken_image,
-                                      size: 64, color: Colors.white),
-                                );
-                              },
+                              errorWidget: const Center(
+                                child: Icon(Icons.broken_image,
+                                    size: 64, color: Colors.white),
+                              ),
                             ),
                           ),
                           Positioned(
@@ -1627,38 +1765,22 @@ class _ProfilePageState extends State<ProfilePage>
             children: [
               Opacity(
                 opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: Image.network(
-                  UrlHelper.getPlatformUrl(photo.mediaUrl),
+                child: _buildCachedImage(
+                  photo.mediaUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    debugPrint('Error loading thumbnail image: $error');
-                    return Container(
-                      color: Colors.grey[300],
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.broken_image,
-                              color: Colors.grey, size: 32),
-                          SizedBox(height: 4),
-                          Text('Error',
-                              style:
-                                  TextStyle(fontSize: 10, color: Colors.grey)),
-                        ],
-                      ),
-                    );
-                  },
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) {
-                      debugPrint('Thumbnail loaded: ${photo.mediaUrl}');
-                      return child;
-                    }
-                    return Container(
-                      color: Colors.grey[200],
-                      child: const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    );
-                  },
+                  errorWidget: Container(
+                    color: Colors.grey[300],
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                        SizedBox(height: 4),
+                        Text('Error',
+                            style:
+                                TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               if (isOwnProfile)
@@ -1722,16 +1844,13 @@ class _ProfilePageState extends State<ProfilePage>
             children: [
               Opacity(
                 opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: Image.network(
-                  UrlHelper.getPlatformUrl(
-                      video.thumbnailUrl ?? video.mediaUrl),
+                child: _buildCachedImage(
+                  video.thumbnailUrl ?? video.mediaUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.video_library, size: 48),
-                    );
-                  },
+                  errorWidget: Container(
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.video_library, size: 48),
+                  ),
                 ),
               ),
               const Center(
@@ -1796,15 +1915,13 @@ class _ProfilePageState extends State<ProfilePage>
             children: [
               Opacity(
                 opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: Image.network(
-                  UrlHelper.getPlatformUrl(reel.thumbnailUrl ?? reel.mediaUrl),
+                child: _buildCachedImage(
+                  reel.thumbnailUrl ?? reel.mediaUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.video_camera_back, size: 36),
-                    );
-                  },
+                  errorWidget: Container(
+                    color: Colors.grey[300],
+                    child: const Icon(Icons.video_camera_back, size: 36),
+                  ),
                 ),
               ),
               const Center(
@@ -1920,21 +2037,19 @@ class _ProfilePageState extends State<ProfilePage>
                       borderRadius: BorderRadius.circular(14),
                       child: Opacity(
                         opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                        child: Image.network(
-                          UrlHelper.getPlatformUrl(product.images.isNotEmpty
-                              ? product.images[0]
-                              : ''),
-                          fit: BoxFit.cover,
+                        child: SizedBox(
                           width: 92,
                           height: 92,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
+                          child: _buildCachedImage(
+                            product.images.isNotEmpty ? product.images[0] : '',
+                            fit: BoxFit.cover,
+                            errorWidget: Container(
                               width: 92,
                               height: 92,
                               color: Colors.grey[300],
                               child: const Icon(Icons.shopping_bag, size: 36),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -2119,7 +2234,7 @@ class _ProfilePageState extends State<ProfilePage>
                                     extra: product,
                                   );
                                   if (updated == true && mounted) {
-                                    await _fetchUserContent();
+                                    await _fetchUserContent(forceRefresh: true);
                                   }
                                 },
                           icon:
@@ -2205,6 +2320,9 @@ class _ProfilePageState extends State<ProfilePage>
       ),
     );
   }
+
+  @override
+  bool get wantKeepAlive => true;
 }
 
 class _StatItem extends StatelessWidget {
@@ -2278,4 +2396,20 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(_TabBarDelegate oldDelegate) => false;
+}
+
+class _CachedProfileScreenState {
+  const _CachedProfileScreenState({
+    required this.profileUser,
+    required this.photos,
+    required this.videos,
+    required this.reels,
+    required this.products,
+  });
+
+  final Map<String, dynamic> profileUser;
+  final List<MediaItem> photos;
+  final List<MediaItem> videos;
+  final List<MediaItem> reels;
+  final List<ProductModel> products;
 }
