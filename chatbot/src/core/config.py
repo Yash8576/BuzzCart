@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
-    API_PORT: int = 8000
+    API_PORT: int = 8001
     DEBUG: bool = False
 
     DATABASE_URL: str = "postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db"

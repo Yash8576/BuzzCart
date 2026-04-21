@@ -632,7 +632,7 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
                         ),
                         child: Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.edit_outlined,
                               color: AppColors.electricBlue,
                             ),
@@ -770,7 +770,7 @@ class _ReviewListItemState extends State<_ReviewListItem> {
               runSpacing: 8,
               children: [
                 if (review.isFollowing)
-                  _Badge(label: 'Connection', color: AppColors.electricBlue),
+                  const _Badge(label: 'Connection', color: AppColors.electricBlue),
                 if (review.isVerifiedPurchase)
                   const _Badge(label: 'Verified Purchase', color: Colors.green),
               ],

@@ -141,8 +141,9 @@ services:
     container_name: like2share_chatbot
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8001:8001"
     environment:
+      API_PORT: 8001
       DATABASE_URL: postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db
       EMBEDDING_MODEL_NAME: BAAI/bge-m3
       RERANKER_MODEL_NAME: BAAI/bge-reranker-v2-m3

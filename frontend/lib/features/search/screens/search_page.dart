@@ -465,7 +465,7 @@ class _SearchPageState extends State<SearchPage>
   @override
   Widget build(BuildContext context) {
     final showPageAppBar = MediaQuery.of(context).size.width >= 1024;
-    final contentTopPadding = 0.0;
+    const contentTopPadding = 0.0;
 
     Widget buildSearchField({EdgeInsetsGeometry padding = EdgeInsets.zero}) {
       return Padding(
@@ -508,7 +508,7 @@ class _SearchPageState extends State<SearchPage>
               children: [
                 if (!showPageAppBar)
                   buildSearchField(
-                    padding: EdgeInsets.fromLTRB(
+                    padding: const EdgeInsets.fromLTRB(
                       16,
                       contentTopPadding,
                       16,
@@ -530,7 +530,7 @@ class _SearchPageState extends State<SearchPage>
               children: [
                 if (!showPageAppBar)
                   buildSearchField(
-                    padding: EdgeInsets.fromLTRB(
+                    padding: const EdgeInsets.fromLTRB(
                       16,
                       contentTopPadding,
                       16,

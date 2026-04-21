@@ -1707,7 +1707,7 @@ class _ReviewsPreviewButton extends StatelessWidget {
     if (previewReviews.isEmpty) {
       return Text(
         reviewCount > 0 ? reviewLabel : 'No reviews yet',
-        style: TextStyle(
+        style: const TextStyle(
           fontWeight: FontWeight.w700,
         ),
       );

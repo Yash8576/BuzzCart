@@ -6,7 +6,12 @@
 -- PART 1: Create Moderation Status ENUM
 -- ============================================================================
 
-CREATE TYPE review_moderation_status AS ENUM ('pending', 'approved', 'rejected');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'review_moderation_status') THEN
+        CREATE TYPE review_moderation_status AS ENUM ('pending', 'approved', 'rejected');
+    END IF;
+END $$;
 
 COMMENT ON TYPE review_moderation_status IS 'Review moderation status: pending (awaiting review), approved (visible to all), rejected (hidden)';
 
@@ -29,8 +34,8 @@ COMMENT ON COLUMN product_ratings.moderated_at IS 'Timestamp when review was mod
 -- PART 3: Create Index for Performance
 -- ============================================================================
 
-CREATE INDEX idx_product_ratings_moderation_status ON product_ratings(moderation_status);
-CREATE INDEX idx_product_ratings_moderated_by ON product_ratings(moderated_by);
+CREATE INDEX IF NOT EXISTS idx_product_ratings_moderation_status ON product_ratings(moderation_status);
+CREATE INDEX IF NOT EXISTS idx_product_ratings_moderated_by ON product_ratings(moderated_by);
 
 -- ============================================================================
 -- PART 4: Create View for Approved Reviews

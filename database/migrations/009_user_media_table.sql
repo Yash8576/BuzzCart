@@ -1,7 +1,12 @@
 -- Migration 009: Add user_media table for unified media storage
 -- This table stores all user-uploaded media (photos, videos, reels) for profile gallery
 
-CREATE TYPE media_type AS ENUM ('photo', 'video', 'reel');
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'media_type') THEN
+        CREATE TYPE media_type AS ENUM ('photo', 'video', 'reel');
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS user_media (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -49,10 +54,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_user_media_updated_at ON user_media;
 CREATE TRIGGER trigger_update_user_media_updated_at
 BEFORE UPDATE ON user_media
 FOR EACH ROW
 EXECUTE FUNCTION update_user_media_updated_at();
+
+-- Backward-compatible references expected by older app paths
+ALTER TABLE user_media ADD COLUMN IF NOT EXISTS video_id UUID;
+ALTER TABLE user_media ADD COLUMN IF NOT EXISTS reel_id UUID;
 
 -- View for user gallery (non-archived media)
 CREATE OR REPLACE VIEW user_gallery AS

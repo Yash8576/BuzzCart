@@ -59,6 +59,9 @@ frontend/.gradle-user-home/
 
 # Local Go cache
 .gocache-local/
+.gocache/
+.gopath/
+backend/.gocache/
 
 # IDE
 .vscode/

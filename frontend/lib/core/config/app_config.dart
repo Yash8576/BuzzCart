@@ -10,7 +10,7 @@ class AppConfig {
   }
 
   static const String _port = '8080';
-  static const String _chatbotPort = '8000';
+  static const String _chatbotPort = '8001';
 
   // API Configuration - Cross-platform compatible URLs
   static String get apiBaseUrl => 'http://$_baseHost:$_port/api';
