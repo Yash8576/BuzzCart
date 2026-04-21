@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers/add_product_provider.dart';
+import '../../../../core/providers/app_refresh_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/services/api_service.dart';
 import '../../../../core/utils/url_helper.dart';
@@ -772,6 +773,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
       }
 
       context.read<AddProductProvider>().clearAll();
+      context.read<AppRefreshProvider>().notifyProductPublished();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(

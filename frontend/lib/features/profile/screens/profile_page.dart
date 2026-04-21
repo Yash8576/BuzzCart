@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/models/models.dart';
@@ -46,6 +47,9 @@ class _ProfilePageState extends State<ProfilePage>
   String? _localAvatarPreviewPath;
   Uint8List? _localAvatarPreviewBytes;
   Map<String, dynamic>? _profileUser;
+  AppRefreshProvider? _appRefreshProvider;
+  int _lastContentVersion = 0;
+  int _lastProductVersion = 0;
 
   @override
   void initState() {
@@ -57,8 +61,43 @@ class _ProfilePageState extends State<ProfilePage>
 
   @override
   void dispose() {
+    _appRefreshProvider?.removeListener(_handleAppRefresh);
     _tabController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AppRefreshProvider>();
+    if (!identical(_appRefreshProvider, provider)) {
+      _appRefreshProvider?.removeListener(_handleAppRefresh);
+      _appRefreshProvider = provider;
+      _lastContentVersion = provider.contentVersion;
+      _lastProductVersion = provider.productVersion;
+      provider.addListener(_handleAppRefresh);
+    }
+  }
+
+  void _handleAppRefresh() {
+    final provider = _appRefreshProvider;
+    if (provider == null) {
+      return;
+    }
+
+    final didContentChange = provider.contentVersion != _lastContentVersion;
+    final didProductChange = provider.productVersion != _lastProductVersion;
+    if (!didContentChange && !didProductChange) {
+      return;
+    }
+
+    _lastContentVersion = provider.contentVersion;
+    _lastProductVersion = provider.productVersion;
+
+    if (!mounted) {
+      return;
+    }
+    _fetchUserContent(forceRefresh: true);
   }
 
   Map<String, dynamic> _userToProfileJson(UserModel user) {
@@ -298,12 +337,12 @@ class _ProfilePageState extends State<ProfilePage>
         return;
       }
       final updatedProfile = Map<String, dynamic>.from(_profileUser ?? {});
-      final currentFollowers =
-          (updatedProfile['followers_count'] as int? ?? 0);
+      final currentFollowers = (updatedProfile['followers_count'] as int? ?? 0);
       final nextIsFollowing = !isFollowing;
       updatedProfile['is_following'] = nextIsFollowing;
-      updatedProfile['followers_count'] =
-          nextIsFollowing ? currentFollowers + 1 : (currentFollowers > 0 ? currentFollowers - 1 : 0);
+      updatedProfile['followers_count'] = nextIsFollowing
+          ? currentFollowers + 1
+          : (currentFollowers > 0 ? currentFollowers - 1 : 0);
       updatedProfile['is_connection'] =
           nextIsFollowing && updatedProfile['is_followed_by'] == true;
       setState(() {
@@ -1776,8 +1815,7 @@ class _ProfilePageState extends State<ProfilePage>
                         Icon(Icons.broken_image, color: Colors.grey, size: 32),
                         SizedBox(height: 4),
                         Text('Error',
-                            style:
-                                TextStyle(fontSize: 10, color: Colors.grey)),
+                            style: TextStyle(fontSize: 10, color: Colors.grey)),
                       ],
                     ),
                   ),

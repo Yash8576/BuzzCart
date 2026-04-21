@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/models/models.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/services/api_service.dart';
@@ -34,6 +35,9 @@ class _HomePageState extends State<HomePage> {
   final Map<int, ScrollController> _productRailControllers = {};
   final Set<int> _canScrollRailLeft = {};
   final Set<int> _canScrollRailRight = {};
+  AppRefreshProvider? _appRefreshProvider;
+  int _lastContentVersion = 0;
+  int _lastProductVersion = 0;
 
   @override
   void initState() {
@@ -42,11 +46,46 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AppRefreshProvider>();
+    if (!identical(_appRefreshProvider, provider)) {
+      _appRefreshProvider?.removeListener(_handleAppRefresh);
+      _appRefreshProvider = provider;
+      _lastContentVersion = provider.contentVersion;
+      _lastProductVersion = provider.productVersion;
+      provider.addListener(_handleAppRefresh);
+    }
+  }
+
+  @override
   void dispose() {
+    _appRefreshProvider?.removeListener(_handleAppRefresh);
     for (final controller in _productRailControllers.values) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _handleAppRefresh() {
+    final provider = _appRefreshProvider;
+    if (provider == null) {
+      return;
+    }
+
+    final didContentChange = provider.contentVersion != _lastContentVersion;
+    final didProductChange = provider.productVersion != _lastProductVersion;
+    if (!didContentChange && !didProductChange) {
+      return;
+    }
+
+    _lastContentVersion = provider.contentVersion;
+    _lastProductVersion = provider.productVersion;
+
+    if (!mounted) {
+      return;
+    }
+    _fetchFeed();
   }
 
   ScrollController _getProductRailController(int sectionIndex) {

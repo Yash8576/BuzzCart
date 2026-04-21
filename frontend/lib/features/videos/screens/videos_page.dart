@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/utils/url_helper.dart';
@@ -19,6 +20,8 @@ class _VideosPageState extends State<VideosPage> {
   List<dynamic> _videos = [];
   dynamic _videoDetail;
   bool _loading = true;
+  AppRefreshProvider? _appRefreshProvider;
+  int _lastContentVersion = 0;
 
   @override
   void initState() {
@@ -28,6 +31,38 @@ class _VideosPageState extends State<VideosPage> {
     } else {
       _fetchVideos();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AppRefreshProvider>();
+    if (!identical(_appRefreshProvider, provider)) {
+      _appRefreshProvider?.removeListener(_handleContentRefresh);
+      _appRefreshProvider = provider;
+      _lastContentVersion = provider.contentVersion;
+      provider.addListener(_handleContentRefresh);
+    }
+  }
+
+  @override
+  void dispose() {
+    _appRefreshProvider?.removeListener(_handleContentRefresh);
+    super.dispose();
+  }
+
+  void _handleContentRefresh() {
+    final provider = _appRefreshProvider;
+    if (provider == null || provider.contentVersion == _lastContentVersion) {
+      return;
+    }
+
+    _lastContentVersion = provider.contentVersion;
+
+    if (!mounted || widget.videoId != null) {
+      return;
+    }
+    _fetchVideos();
   }
 
   Future<void> _fetchVideos() async {
@@ -133,7 +168,8 @@ class _VideosPageState extends State<VideosPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       backgroundImage: video['creator_avatar'] != null
-                          ? NetworkImage(UrlHelper.getPlatformUrl(video['creator_avatar']))
+                          ? NetworkImage(
+                              UrlHelper.getPlatformUrl(video['creator_avatar']))
                           : null,
                       child: video['creator_avatar'] == null
                           ? Text(video['creator_name']?[0] ?? 'U')
@@ -141,7 +177,8 @@ class _VideosPageState extends State<VideosPage> {
                     ),
                     title: Text(
                       video['title'] ?? '',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -166,7 +203,8 @@ class _VideosPageState extends State<VideosPage> {
                   if (video['description'] != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(video['description'], style: const TextStyle(height: 1.5)),
+                      child: Text(video['description'],
+                          style: const TextStyle(height: 1.5)),
                     ),
                   if (products.isNotEmpty)
                     Column(
@@ -175,7 +213,8 @@ class _VideosPageState extends State<VideosPage> {
                         const SizedBox(height: 8),
                         const Text(
                           'Featured Products',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 12),
                         SizedBox(
@@ -186,21 +225,26 @@ class _VideosPageState extends State<VideosPage> {
                             itemBuilder: (context, index) {
                               final product = products[index];
                               return InkWell(
-                                onTap: () => context.go('/shop/${product['id']}'),
+                                onTap: () =>
+                                    context.go('/shop/${product['id']}'),
                                 child: Container(
                                   width: 150,
                                   margin: const EdgeInsets.only(right: 12),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Expanded(
                                         child: ClipRRect(
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
                                           child: Image.network(
-                                            UrlHelper.getPlatformUrl(product['images']?[0]),
+                                            UrlHelper.getPlatformUrl(
+                                                product['images']?[0]),
                                             fit: BoxFit.cover,
                                             width: double.infinity,
-                                            errorBuilder: (_, __, ___) => Container(
+                                            errorBuilder: (_, __, ___) =>
+                                                Container(
                                               color: Colors.grey[300],
                                               child: const Icon(Icons.image),
                                             ),
@@ -212,11 +256,13 @@ class _VideosPageState extends State<VideosPage> {
                                         product['title'] ?? '',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontWeight: FontWeight.w500),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500),
                                       ),
                                       Text(
                                         '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold),
                                       ),
                                       const SizedBox(height: 4),
                                       SizedBox(
@@ -227,22 +273,29 @@ class _VideosPageState extends State<VideosPage> {
                                                 .read<CartProvider>()
                                                 .addToCart(
                                                   product['id'],
-                                                  maxQuantity: product['stock_quantity'] as int?,
+                                                  maxQuantity:
+                                                      product['stock_quantity']
+                                                          as int?,
                                                 );
                                             if (context.mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
                                                 SnackBar(
                                                   content: Text(
-                                                    added ? 'Added to cart!' : 'Failed to add',
+                                                    added
+                                                        ? 'Added to cart!'
+                                                        : 'Failed to add',
                                                   ),
                                                 ),
                                               );
                                             }
                                           },
-                                          icon: const Icon(Icons.shopping_bag, size: 16),
+                                          icon: const Icon(Icons.shopping_bag,
+                                              size: 16),
                                           label: const Text('Add'),
                                           style: ElevatedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8),
                                           ),
                                         ),
                                       ),
@@ -323,7 +376,8 @@ class _VideosPageState extends State<VideosPage> {
                                   video['title'] ?? '',
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.w500),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w500),
                                 ),
                                 const SizedBox(height: 4),
                                 Row(

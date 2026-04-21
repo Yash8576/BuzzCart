@@ -7,6 +7,7 @@ import 'core/providers/cart_provider.dart';
 import 'core/providers/theme_provider.dart';
 import 'core/providers/upload_content_provider.dart';
 import 'core/providers/add_product_provider.dart';
+import 'core/providers/app_refresh_provider.dart';
 import 'core/services/api_service.dart';
 import 'core/router/app_router.dart';
 import 'features/messages/providers/messages_provider.dart';
@@ -14,13 +15,13 @@ import 'features/messages/providers/messages_provider.dart';
 void main() async {
   // Ensure Flutter binding is initialized
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   runApp(
     MultiProvider(
       providers: [
         Provider<ApiService>(
           create: (_) => ApiService(),
-          lazy: false,  // Initialize immediately
+          lazy: false, // Initialize immediately
         ),
         ChangeNotifierProvider<ThemeProvider>(
           create: (_) => ThemeProvider(),
@@ -29,7 +30,7 @@ void main() async {
           create: (context) => AuthProvider(
             apiService: context.read<ApiService>(),
           ),
-          lazy: false,  // Initialize immediately to load token
+          lazy: false, // Initialize immediately to load token
         ),
         ChangeNotifierProxyProvider<AuthProvider, MessagesProvider>(
           create: (context) => MessagesProvider(
@@ -55,6 +56,9 @@ void main() async {
         ),
         ChangeNotifierProvider<AddProductProvider>(
           create: (_) => AddProductProvider(),
+        ),
+        ChangeNotifierProvider<AppRefreshProvider>(
+          create: (_) => AppRefreshProvider(),
         ),
       ],
       child: const BuzzSocialCartApp(),

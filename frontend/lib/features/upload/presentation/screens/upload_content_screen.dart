@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/providers/app_refresh_provider.dart';
 import '../../../../core/providers/upload_content_provider.dart';
 import '../../../../core/services/api_service.dart';
 import '../../../../core/utils/aspect_ratio_helper.dart';
@@ -363,6 +364,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       final file = provider.selectedFiles.first;
       final contentType = provider.selectedMediaType;
       final caption = _captionController.text.trim();
+      final appRefresh = context.read<AppRefreshProvider>();
 
       if (contentType == 'photo') {
         // Use uploadPhoto which saves to user_media and creates a post
@@ -375,6 +377,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           if (mounted) {
             provider.notifyUploadSuccess();
             provider.clearAll();
+            appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(result['post_created'] == true
@@ -403,6 +406,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
           if (mounted) {
             provider.clearAll();
+            appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Video uploaded successfully!')),
             );
@@ -424,6 +428,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
           if (mounted) {
             provider.clearAll();
+            appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Reel uploaded successfully!')),
             );
