@@ -755,7 +755,7 @@ class _HomePageState extends State<HomePage> {
         margin: EdgeInsets.zero,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => context.go('/shop/${product.id}'),
+          onTap: () => context.push('/shop/${product.id}'),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -934,7 +934,7 @@ class _HomePageState extends State<HomePage> {
     return _buildMediaCard(
       maxWidth: _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
-      onTap: () => context.go('/videos/${video.id}'),
+      onTap: () => context.push('/videos/${video.id}'),
       media: _buildFramedMedia(
         imageUrl: video.thumbnail,
         aspectRatio: 16 / 9,
@@ -951,7 +951,7 @@ class _HomePageState extends State<HomePage> {
     return _buildMediaCard(
       maxWidth: _reelCardMaxWidth,
       viewportWidth: viewportWidth,
-      onTap: () => context.go('/reels?id=${reel.id}'),
+      onTap: () => context.push('/reels?id=${reel.id}'),
       media: _buildFramedMedia(
         imageUrl: reel.thumbnail,
         aspectRatio: 9 / 14,

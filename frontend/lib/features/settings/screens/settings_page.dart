@@ -474,7 +474,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   leading: const Icon(Icons.person),
                   title: const Text('Edit Profile'),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.go('/profile'),
+                  onTap: () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go('/profile');
+                    }
+                  },
                 ),
                 const Divider(height: 1),
                 ListTile(

@@ -84,6 +84,14 @@ class _ShopPageState extends State<ShopPage> {
   AppRefreshProvider? _appRefreshProvider;
   int _lastProductVersion = 0;
 
+  void _handleBackNavigation() {
+    if (context.canPop()) {
+      context.pop();
+      return;
+    }
+    context.go('/shop');
+  }
+
   @override
   void dispose() {
     _appRefreshProvider?.removeListener(_handleProductRefresh);
@@ -714,7 +722,7 @@ class _ShopPageState extends State<ShopPage> {
             ? AppBar(
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back),
-                  onPressed: () => context.go('/shop'),
+                  onPressed: _handleBackNavigation,
                 ),
               )
             : null,
@@ -734,7 +742,7 @@ class _ShopPageState extends State<ShopPage> {
           ? AppBar(
               leading: IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () => context.go('/shop'),
+                onPressed: _handleBackNavigation,
               ),
               actions: [
                 IconButton(
@@ -767,7 +775,7 @@ class _ShopPageState extends State<ShopPage> {
                         children: [
                           IconButton(
                             icon: const Icon(Icons.arrow_back),
-                            onPressed: () => context.go('/shop'),
+                            onPressed: _handleBackNavigation,
                             visualDensity: VisualDensity.compact,
                           ),
                           const Spacer(),
@@ -1422,7 +1430,7 @@ class _ShopPageState extends State<ShopPage> {
                           return Card(
                             clipBehavior: Clip.antiAlias,
                             child: InkWell(
-                              onTap: () => context.go('/shop/${product.id}'),
+                              onTap: () => context.push('/shop/${product.id}'),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [

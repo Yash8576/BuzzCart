@@ -260,7 +260,7 @@ class _ReelCardState extends State<_ReelCard> {
         child: Row(
           children: products.map<Widget>((product) {
             return InkWell(
-              onTap: () => context.go('/shop/${product['id']}'),
+              onTap: () => context.push('/shop/${product['id']}'),
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.all(8),

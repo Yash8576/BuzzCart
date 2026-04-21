@@ -306,7 +306,7 @@ class _SearchPageState extends State<SearchPage>
               itemBuilder: (context, index) {
                 final reel = _results['reels']![index];
                 return InkWell(
-                  onTap: () => context.go('/reels'),
+                  onTap: () => context.push('/reels'),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
@@ -423,7 +423,7 @@ class _SearchPageState extends State<SearchPage>
         itemBuilder: (context, index) {
           final reel = _results['reels']![index];
           return InkWell(
-            onTap: () => context.go('/reels'),
+            onTap: () => context.push('/reels'),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -670,7 +670,7 @@ class _SearchPageState extends State<SearchPage>
             itemBuilder: (context, index) {
               final reel = _results['reels']![index];
               return InkWell(
-                onTap: () => context.go('/reels'),
+                onTap: () => context.push('/reels'),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -713,7 +713,7 @@ class _UserCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
-        onTap: () => context.go('/profile/${user['id']}'),
+        onTap: () => context.push('/profile/${user['id']}'),
         leading: CircleAvatar(
           backgroundImage:
               user['avatar'] != null && user['avatar'].toString().isNotEmpty
@@ -754,7 +754,7 @@ class _ProductCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => context.go('/shop/${product['id']}'),
+        onTap: () => context.push('/shop/${product['id']}'),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -859,7 +859,7 @@ class _VideoCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () => context.go('/videos/${video['id']}'),
+        onTap: () => context.push('/videos/${video['id']}'),
         child: Row(
           children: [
             Container(

@@ -1412,7 +1412,7 @@ class _ProfilePageState extends State<ProfilePage>
                 if (isOwnProfile)
                   IconButton(
                     icon: const Icon(Icons.settings),
-                    onPressed: () => context.go('/settings'),
+                    onPressed: () => context.push('/settings'),
                   ),
               ],
             ),
@@ -1876,7 +1876,7 @@ class _ProfilePageState extends State<ProfilePage>
         return InkWell(
           onTap: _isDeleting(deletingKey)
               ? null
-              : () => context.go('/videos/${video.id}'),
+              : () => context.push('/videos/${video.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -1947,7 +1947,7 @@ class _ProfilePageState extends State<ProfilePage>
         final reel = _reels[index];
         final deletingKey = 'media:${reel.id}';
         return InkWell(
-          onTap: _isDeleting(deletingKey) ? null : () => context.go('/reels'),
+          onTap: _isDeleting(deletingKey) ? null : () => context.push('/reels'),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -2053,7 +2053,7 @@ class _ProfilePageState extends State<ProfilePage>
                   } else if (canManagePurchasedOrder) {
                     context.push('/shop/${product.id}');
                   } else {
-                    context.go('/shop/${product.id}');
+                    context.push('/shop/${product.id}');
                   }
                 },
           borderRadius: BorderRadius.circular(18),

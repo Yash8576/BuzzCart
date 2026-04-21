@@ -96,7 +96,17 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       return;
     }
 
-    context.go(path);
+    final location = GoRouterState.of(context).matchedLocation;
+    if (location == path) {
+      return;
+    }
+
+    if (path == '/login' || path == '/signup' || path == '/splash') {
+      context.go(path);
+      return;
+    }
+
+    context.push(path);
   }
 
   @override

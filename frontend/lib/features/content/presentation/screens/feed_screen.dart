@@ -124,7 +124,7 @@ class _ProductCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: InkWell(
-        onTap: () => context.go('/shop/${product['id']}'),
+        onTap: () => context.push('/shop/${product['id']}'),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

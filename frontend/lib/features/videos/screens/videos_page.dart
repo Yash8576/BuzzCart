@@ -89,7 +89,11 @@ class _VideosPageState extends State<VideosPage> {
     } catch (e) {
       setState(() => _loading = false);
       if (mounted) {
-        context.go('/videos');
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/videos');
+        }
       }
     }
   }
@@ -125,7 +129,13 @@ class _VideosPageState extends State<VideosPage> {
         backgroundColor: Colors.transparent,
         leading: IconButton(
           icon: const Icon(Icons.close, color: Colors.white),
-          onPressed: () => context.go('/videos'),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/videos');
+            }
+          },
         ),
       ),
       body: Column(
@@ -226,7 +236,7 @@ class _VideosPageState extends State<VideosPage> {
                               final product = products[index];
                               return InkWell(
                                 onTap: () =>
-                                    context.go('/shop/${product['id']}'),
+                                    context.push('/shop/${product['id']}'),
                                 child: Container(
                                   width: 150,
                                   margin: const EdgeInsets.only(right: 12),
@@ -338,7 +348,7 @@ class _VideosPageState extends State<VideosPage> {
                   return Card(
                     clipBehavior: Clip.antiAlias,
                     child: InkWell(
-                      onTap: () => context.go('/videos/${video['id']}'),
+                      onTap: () => context.push('/videos/${video['id']}'),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
