@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/cart_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../products/widgets/product_card_social_preview.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -14,6 +17,9 @@ class SearchPage extends StatefulWidget {
 
 class _SearchPageState extends State<SearchPage>
 {
+  static const double _gridSpacing = 12;
+  static const double _minTileWidth = 170;
+  static const double _maxTileWidth = 260;
   final ApiService _api = ApiService();
   final TextEditingController _searchController = TextEditingController();
   Map<String, List<dynamic>> _results = {
@@ -181,6 +187,59 @@ class _SearchPageState extends State<SearchPage>
     });
   }
 
+  int _calculateProductGridColumns(double availableWidth) {
+    if (availableWidth <= 0) return 1;
+
+    var columns =
+        ((availableWidth + _gridSpacing) / (_minTileWidth + _gridSpacing))
+            .floor();
+    if (columns < 1) columns = 1;
+
+    while (columns > 1) {
+      final tileWidth =
+          (availableWidth - (columns - 1) * _gridSpacing) / columns;
+      if (tileWidth <= _maxTileWidth) {
+        break;
+      }
+      columns++;
+    }
+
+    return columns;
+  }
+
+  Widget _buildProductResultsGrid(
+    List<dynamic> products, {
+    bool shrinkWrap = false,
+    int? limit,
+  }) {
+    final visibleProducts =
+        limit == null ? products : products.take(limit).toList();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = _calculateProductGridColumns(constraints.maxWidth);
+        return GridView.builder(
+          shrinkWrap: shrinkWrap,
+          physics: shrinkWrap
+              ? const NeverScrollableScrollPhysics()
+              : const AlwaysScrollableScrollPhysics(),
+          padding: shrinkWrap ? EdgeInsets.zero : const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            childAspectRatio: 0.64,
+            crossAxisSpacing: _gridSpacing,
+            mainAxisSpacing: _gridSpacing,
+          ),
+          itemCount: visibleProducts.length,
+          itemBuilder: (context, index) {
+            final product = visibleProducts[index];
+            return _ProductCard(product: product);
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildFilterChips() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -262,20 +321,7 @@ class _SearchPageState extends State<SearchPage>
           return MediaQuery.removePadding(
             context: context,
             removeTop: true,
-            child: GridView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 0.75,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemCount: _results['products']!.length,
-              itemBuilder: (context, index) {
-                final product = _results['products']![index];
-                return _ProductCard(product: product);
-              },
-            ),
+            child: _buildProductResultsGrid(_results['products']!),
           );
         case 'videos':
           return MediaQuery.removePadding(
@@ -378,20 +424,9 @@ class _SearchPageState extends State<SearchPage>
     addSection(
       filter: 'products',
       title: 'Products',
-      content: GridView.builder(
+      content: _buildProductResultsGrid(
+        _results['products']!,
         shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          childAspectRatio: 0.75,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: _results['products']!.length,
-        itemBuilder: (context, index) {
-          final product = _results['products']![index];
-          return _ProductCard(product: product);
-        },
       ),
     );
     addSection(
@@ -621,20 +656,10 @@ class _SearchPageState extends State<SearchPage>
           ),
         if (_results['products']!.isNotEmpty) const SizedBox(height: 12),
         if (_results['products']!.isNotEmpty)
-          GridView.builder(
+          _buildProductResultsGrid(
+            _results['products']!,
             shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 0.75,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            itemCount: _results['products']!.length.clamp(0, 4),
-            itemBuilder: (context, index) {
-              final product = _results['products']![index];
-              return _ProductCard(product: product);
-            },
+            limit: 4,
           ),
         if (_results['products']!.isNotEmpty) const SizedBox(height: 24),
         if (_results['videos']!.isNotEmpty)
@@ -735,13 +760,245 @@ class _UserCard extends StatelessWidget {
   }
 }
 
-class _ProductCard extends StatelessWidget {
+class _ProductCard extends StatefulWidget {
   final Map<String, dynamic> product;
 
   const _ProductCard({required this.product});
 
   @override
+  State<_ProductCard> createState() => _ProductCardState();
+}
+
+class _ProductCardState extends State<_ProductCard> {
+  int? _pendingQuantity;
+  bool _isUpdating = false;
+
+  int _stockQuantity() => widget.product['stock_quantity'] as int? ?? 0;
+
+  int _currentCartQuantity(List<dynamic> cartItems) {
+    if (_pendingQuantity != null) {
+      return _pendingQuantity!;
+    }
+
+    for (final item in cartItems) {
+      if (item.product.id == widget.product['id']) {
+        return item.quantity;
+      }
+    }
+    return 0;
+  }
+
+  int _remainingStock(int inCartQuantity) {
+    final stockQuantity = _stockQuantity();
+    if (stockQuantity <= 0) {
+      return 0;
+    }
+    final remaining = stockQuantity - inCartQuantity;
+    return remaining > 0 ? remaining : 0;
+  }
+
+  Future<bool> _confirmRemove() async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove item?'),
+          content: Text(
+            'Remove ${widget.product['title'] ?? 'this item'} from your cart?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return shouldRemove == true;
+  }
+
+  Future<void> _addToCart() async {
+    if (_isUpdating) {
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    final currentQuantity = _currentCartQuantity(cartProvider.cart.items);
+    final remainingStock = _remainingStock(currentQuantity);
+    if (remainingStock <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Max stock already in cart')),
+      );
+      return;
+    }
+
+    setState(() {
+      _pendingQuantity = currentQuantity + 1;
+      _isUpdating = true;
+    });
+
+    final added = await cartProvider.addToCart(
+      widget.product['id'] as String,
+      maxQuantity: remainingStock,
+    );
+    if (!mounted) return;
+
+    setState(() {
+      _pendingQuantity = added ? null : currentQuantity;
+      _isUpdating = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(added ? 'Added to cart!' : 'Failed to add to cart'),
+      ),
+    );
+  }
+
+  Future<void> _changeQuantity(int targetQuantity) async {
+    if (_isUpdating) {
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    final previousQuantity = _currentCartQuantity(cartProvider.cart.items);
+    final maxQuantity = _stockQuantity() > 0 ? _stockQuantity() : null;
+
+    if (targetQuantity <= 0) {
+      final shouldRemove = await _confirmRemove();
+      if (!shouldRemove) {
+        return;
+      }
+    }
+
+    setState(() {
+      _pendingQuantity = targetQuantity > 0 ? targetQuantity : 0;
+      _isUpdating = true;
+    });
+
+    final updated = targetQuantity <= 0
+        ? await cartProvider.removeFromCart(widget.product['id'] as String)
+        : await cartProvider.updateQuantity(
+            widget.product['id'] as String,
+            targetQuantity,
+            maxQuantity: maxQuantity,
+          );
+
+    if (!mounted) return;
+
+    setState(() {
+      _pendingQuantity = updated ? null : previousQuantity;
+      _isUpdating = false;
+    });
+
+    if (!updated) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update cart')),
+      );
+    }
+  }
+
+  Widget _buildQuantityButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Icon(
+          icon,
+          size: 21,
+          color: enabled ? Colors.black87 : Colors.grey,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCartControl(int inCartQuantity, int remainingStock) {
+    final canAddToCart = remainingStock > 0;
+
+    if (inCartQuantity < 1) {
+      return Material(
+        color: canAddToCart ? Colors.white : Colors.grey.shade300,
+        borderRadius: BorderRadius.circular(999),
+        elevation: 2,
+        child: InkWell(
+          onTap: canAddToCart && !_isUpdating ? _addToCart : null,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: _isUpdating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : Icon(
+                    Icons.add_shopping_cart_rounded,
+                    size: 20,
+                    color: canAddToCart ? Colors.black : Colors.grey,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(999),
+      elevation: 2,
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildQuantityButton(
+              icon: Icons.remove_circle_outline,
+              onTap: _isUpdating
+                  ? null
+                  : () => _changeQuantity(inCartQuantity - 1),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: SizedBox(
+                width: 18,
+                child: Text(
+                  '$inCartQuantity',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+            _buildQuantityButton(
+              icon: Icons.add_circle_outline,
+              onTap: !_isUpdating && canAddToCart
+                  ? () => _changeQuantity(inCartQuantity + 1)
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final product = widget.product;
     final price = (product['price'] as num?)?.toDouble() ?? 0;
     final compareAtPrice = (product['compare_at_price'] as num?)?.toDouble();
     final images = (product['images'] as List?) ?? const [];
@@ -750,101 +1007,142 @@ class _ProductCard extends StatelessWidget {
     final percentOff = hasDiscount
         ? (((compareAtPrice - price) / compareAtPrice) * 100).round()
         : 0;
+    final brandName = (product['brand_name'] ?? product['seller_name'] ?? '')
+        .toString()
+        .trim();
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => context.push('/shop/${product['id']}'),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: firstImage == null || firstImage.isEmpty
-                  ? Container(
-                      color: Colors.grey[300],
-                      child: const Icon(Icons.image),
-                    )
-                  : Image.network(
-                      UrlHelper.getPlatformUrl(firstImage),
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: Colors.grey[300],
-                        child: const Icon(Icons.image),
-                      ),
-                    ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product['title'] ?? '',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 4),
-                  if (!hasDiscount)
-                    Text(
-                      '\$${price.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.electricBlue,
-                      ),
-                    )
-                  else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              '\$${price.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.electricBlue,
+    return Consumer<CartProvider>(
+      builder: (context, cartProvider, _) {
+        final inCartQuantity = _currentCartQuantity(cartProvider.cart.items);
+        final remainingStock = _remainingStock(inCartQuantity);
+
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => context.push('/shop/${product['id']}'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      firstImage == null || firstImage.isEmpty
+                          ? Container(
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.image),
+                            )
+                          : Image.network(
+                              UrlHelper.getPlatformUrl(firstImage),
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Colors.grey[300],
+                                child: const Icon(Icons.image),
                               ),
                             ),
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.successGreen.withAlpha(24),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                '$percentOff% OFF',
-                                style: const TextStyle(
-                                  color: AppColors.successGreen,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 11,
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: _buildCartControl(inCartQuantity, remainingStock),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product['title'] ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 6),
+                      if (brandName.isNotEmpty)
+                        Text(
+                          brandName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      if (brandName.isNotEmpty) const SizedBox(height: 4),
+                      if (!hasDiscount)
+                        Text(
+                          '\$${price.toStringAsFixed(2)}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.electricBlue,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '\$${price.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.electricBlue,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.successGreen.withAlpha(24),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '$percentOff% OFF',
+                                    style: const TextStyle(
+                                      color: AppColors.successGreen,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '\$${compareAtPrice.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                decoration: TextDecoration.lineThrough,
+                                fontSize: 12,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '\$${compareAtPrice.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            decoration: TextDecoration.lineThrough,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+                      const SizedBox(height: 6),
+                      ProductCardSocialPreview(
+                        productId: (product['id'] ?? '').toString(),
+                        maxAvatars: 2,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
