@@ -35,6 +35,8 @@ class _HomePageState extends State<HomePage> {
   final Map<int, ScrollController> _productRailControllers = {};
   final Set<int> _canScrollRailLeft = {};
   final Set<int> _canScrollRailRight = {};
+  final Map<String, int> _pendingCartQuantities = {};
+  final Set<String> _updatingCartProductIds = {};
   AppRefreshProvider? _appRefreshProvider;
   int _lastContentVersion = 0;
   int _lastProductVersion = 0;
@@ -424,8 +426,15 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _handleAddToCart(ProductModel product) async {
+    if (_updatingCartProductIds.contains(product.id)) {
+      return;
+    }
+
     final cartItems = context.read<CartProvider>().cart.items;
-    final remainingStock = _remainingStockForProduct(product, cartItems);
+    final inCartQuantity = _effectiveCartQuantity(product, cartItems);
+    final remainingStock = product.stockQuantity > 0
+        ? math.max(product.stockQuantity - inCartQuantity, 0)
+        : 0;
     if (remainingStock <= 0) {
       _showCartToast(
         'Max stock already in cart',
@@ -434,10 +443,25 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
+    setState(() {
+      _pendingCartQuantities[product.id] = inCartQuantity + 1;
+      _updatingCartProductIds.add(product.id);
+    });
+
     final added = await context
         .read<CartProvider>()
         .addToCart(product.id, maxQuantity: remainingStock);
     if (!mounted) return;
+
+    setState(() {
+      if (added) {
+        _pendingCartQuantities.remove(product.id);
+      } else {
+        _pendingCartQuantities[product.id] = inCartQuantity;
+      }
+      _updatingCartProductIds.remove(product.id);
+    });
+
     if (added) {
       final cart = context.read<CartProvider>().cart;
       _showCartToast(
@@ -450,6 +474,200 @@ class _HomePageState extends State<HomePage> {
     _showCartToast(
       'Failed to add to cart',
       backgroundColor: AppColors.destructive,
+    );
+  }
+
+  int _effectiveCartQuantity(
+    ProductModel product,
+    List<CartItemModel> cartItems,
+  ) {
+    return _pendingCartQuantities[product.id] ??
+        _cartQuantityForProduct(product.id, cartItems);
+  }
+
+  Future<bool> _confirmRemoveFromCart(ProductModel product) async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove item?'),
+          content: Text('Remove ${product.title} from your cart?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return shouldRemove == true;
+  }
+
+  Future<void> _handleProductQuantityChange(
+    ProductModel product,
+    int targetQuantity,
+  ) async {
+    if (_updatingCartProductIds.contains(product.id)) {
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    final maxQuantity = product.stockQuantity > 0 ? product.stockQuantity : null;
+    final cartItems = cartProvider.cart.items;
+    final previousQuantity = _effectiveCartQuantity(product, cartItems);
+
+    if (targetQuantity <= 0) {
+      final shouldRemove = await _confirmRemoveFromCart(product);
+      if (!shouldRemove) {
+        return;
+      }
+    }
+
+    setState(() {
+      _pendingCartQuantities[product.id] = targetQuantity > 0 ? targetQuantity : 0;
+      _updatingCartProductIds.add(product.id);
+    });
+
+    final updated = targetQuantity <= 0
+        ? await cartProvider.removeFromCart(product.id)
+        : await cartProvider.updateQuantity(
+            product.id,
+            targetQuantity,
+            maxQuantity: maxQuantity,
+          );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      if (updated) {
+        _pendingCartQuantities.remove(product.id);
+      } else {
+        _pendingCartQuantities[product.id] = previousQuantity;
+      }
+      _updatingCartProductIds.remove(product.id);
+    });
+
+    if (!updated) {
+      _showCartToast(
+        'Failed to update cart',
+        backgroundColor: AppColors.destructive,
+      );
+    }
+  }
+
+  Widget _buildCartActionButton(
+    ProductModel product,
+    List<CartItemModel> cartItems,
+  ) {
+    final inCartQuantity = _effectiveCartQuantity(product, cartItems);
+    final remainingStock = product.stockQuantity > 0
+        ? math.max(product.stockQuantity - inCartQuantity, 0)
+        : 0;
+    final canAddToCart = remainingStock > 0;
+    final canIncrease = remainingStock > 0;
+    final isUpdating = _updatingCartProductIds.contains(product.id);
+
+    if (inCartQuantity < 1) {
+      return Material(
+        color: canAddToCart ? Colors.white : Colors.grey.shade300,
+        borderRadius: BorderRadius.circular(999),
+        elevation: 2,
+        child: InkWell(
+          onTap: canAddToCart && !isUpdating ? () => _handleAddToCart(product) : null,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: isUpdating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : Icon(
+                    Icons.add_shopping_cart_rounded,
+                    size: 20,
+                    color: canAddToCart ? Colors.black : Colors.grey,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(999),
+      elevation: 2,
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildQuantityIconButton(
+              icon: Icons.remove_circle_outline,
+              onTap: isUpdating
+                  ? null
+                  : () => _handleProductQuantityChange(
+                        product,
+                        inCartQuantity - 1,
+                      ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: SizedBox(
+                width: 18,
+                child: Text(
+                  '$inCartQuantity',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+            _buildQuantityIconButton(
+              icon: Icons.add_circle_outline,
+              onTap: !isUpdating && canIncrease
+                  ? () => _handleProductQuantityChange(
+                        product,
+                        inCartQuantity + 1,
+                      )
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuantityIconButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    final enabled = onTap != null;
+
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Icon(
+          icon,
+          size: 21,
+          color: enabled ? Colors.black87 : Colors.grey,
+        ),
+      ),
     );
   }
 
@@ -746,8 +964,6 @@ class _HomePageState extends State<HomePage> {
   Widget _buildProductTile(
       ProductModel product, List<CartItemModel> cartItems) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final remainingStock = _remainingStockForProduct(product, cartItems);
-    final canAddToCart = remainingStock > 0;
 
     return SizedBox(
       width: _productRailCardWidth,
@@ -778,26 +994,7 @@ class _HomePageState extends State<HomePage> {
                     Positioned(
                       right: 10,
                       bottom: 10,
-                      child: Material(
-                        color:
-                            canAddToCart ? Colors.white : Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(999),
-                        elevation: 2,
-                        child: InkWell(
-                          onTap: canAddToCart
-                              ? () => _handleAddToCart(product)
-                              : null,
-                          borderRadius: BorderRadius.circular(999),
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Icon(
-                              Icons.add_shopping_cart_rounded,
-                              size: 20,
-                              color: canAddToCart ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
+                      child: _buildCartActionButton(product, cartItems),
                     ),
                   ],
                 ),
@@ -922,6 +1119,7 @@ class _HomePageState extends State<HomePage> {
           post.mediaType == 'reel' ? _reelCardMaxWidth : _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: null,
+      onHeaderTap: () => context.push('/profile/${post.userId}'),
       media: _buildPostMedia(post),
       creatorName: post.authorName,
       creatorAvatar: post.authorAvatar,
@@ -935,6 +1133,7 @@ class _HomePageState extends State<HomePage> {
       maxWidth: _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: () => context.push('/videos/${video.id}'),
+      onHeaderTap: () => context.push('/profile/${video.creatorId}'),
       media: _buildFramedMedia(
         imageUrl: video.thumbnail,
         aspectRatio: 16 / 9,
@@ -952,6 +1151,7 @@ class _HomePageState extends State<HomePage> {
       maxWidth: _reelCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: () => context.push('/reels?id=${reel.id}'),
+      onHeaderTap: () => context.push('/profile/${reel.creatorId}'),
       media: _buildFramedMedia(
         imageUrl: reel.thumbnail,
         aspectRatio: 9 / 14,
@@ -1026,6 +1226,7 @@ class _HomePageState extends State<HomePage> {
     String? creatorAvatar,
     String? bodyText,
     VoidCallback? onTap,
+    VoidCallback? onHeaderTap,
   }) {
     return _buildSectionShell(
       maxWidth: viewportWidth,
@@ -1038,49 +1239,79 @@ class _HomePageState extends State<HomePage> {
           child: Card(
             margin: EdgeInsets.zero,
             clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: onTap,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
-                    child: Row(
-                      children: [
-                        _buildAvatar(creatorName, creatorAvatar),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                creatorName,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _formatFeedTime(createdAt),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(
-                                      color: Colors.grey[600],
-                                    ),
-                              ),
-                            ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                  child: InkWell(
+                    onTap: onHeaderTap,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 2,
+                        horizontal: 2,
+                      ),
+                      child: Row(
+                        children: [
+                          _buildAvatar(creatorName, creatorAvatar),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  creatorName,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _formatFeedTime(createdAt),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Colors.grey[600],
+                                      ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
+                ),
+                if (onTap != null)
+                  InkWell(
+                    onTap: onTap,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        media,
+                        if (bodyText != null && bodyText.trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                            child: Text(
+                              bodyText.trim(),
+                              style: Theme.of(context).textTheme.bodyMedium,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                    ),
+                  )
+                else ...[
                   media,
                   if (bodyText != null && bodyText.trim().isNotEmpty)
                     Padding(
@@ -1093,7 +1324,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                 ],
-              ),
+              ],
             ),
           ),
         ),

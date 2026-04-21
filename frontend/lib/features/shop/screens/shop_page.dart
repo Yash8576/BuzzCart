@@ -81,6 +81,8 @@ class _ShopPageState extends State<ShopPage> {
   String _category = '';
   int _currentImageIndex = 0;
   int _quantity = 1;
+  final Map<String, int> _pendingCartQuantities = {};
+  final Set<String> _updatingCartProductIds = {};
   AppRefreshProvider? _appRefreshProvider;
   int _lastProductVersion = 0;
 
@@ -267,9 +269,45 @@ class _ShopPageState extends State<ShopPage> {
     return remaining > 0 ? remaining : 0;
   }
 
+  int _effectiveCartQuantity(
+    ProductModel product,
+    List<CartItemModel> items,
+  ) {
+    return _pendingCartQuantities[product.id] ??
+        _cartQuantityForProduct(items, product.id);
+  }
+
+  Future<bool> _confirmRemoveFromCart(ProductModel product) async {
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove item?'),
+          content: Text('Remove ${product.title} from your cart?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return shouldRemove == true;
+  }
+
   Future<void> _handleGridAddToCart(ProductModel product) async {
+    if (_updatingCartProductIds.contains(product.id)) {
+      return;
+    }
+
     final cartItems = context.read<CartProvider>().cart.items;
-    final inCartQuantity = _cartQuantityForProduct(cartItems, product.id);
+    final inCartQuantity = _effectiveCartQuantity(product, cartItems);
     final remainingStock = _remainingStockForProduct(product, inCartQuantity);
 
     if (remainingStock <= 0) {
@@ -281,15 +319,188 @@ class _ShopPageState extends State<ShopPage> {
       return;
     }
 
+    setState(() {
+      _pendingCartQuantities[product.id] = inCartQuantity + 1;
+      _updatingCartProductIds.add(product.id);
+    });
+
     final added = await context
         .read<CartProvider>()
         .addToCart(product.id, maxQuantity: remainingStock);
     if (!mounted) return;
 
+    setState(() {
+      if (added) {
+        _pendingCartQuantities.remove(product.id);
+      } else {
+        _pendingCartQuantities[product.id] = inCartQuantity;
+      }
+      _updatingCartProductIds.remove(product.id);
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           added ? 'Added to cart!' : 'Failed to add to cart',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleGridQuantityChange(
+    ProductModel product,
+    int targetQuantity,
+  ) async {
+    if (_updatingCartProductIds.contains(product.id)) {
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    final maxQuantity = product.stockQuantity > 0 ? product.stockQuantity : null;
+    final cartItems = cartProvider.cart.items;
+    final previousQuantity = _effectiveCartQuantity(product, cartItems);
+
+    if (targetQuantity <= 0) {
+      final shouldRemove = await _confirmRemoveFromCart(product);
+      if (!shouldRemove) {
+        return;
+      }
+    }
+
+    setState(() {
+      _pendingCartQuantities[product.id] = targetQuantity > 0 ? targetQuantity : 0;
+      _updatingCartProductIds.add(product.id);
+    });
+
+    final updated = targetQuantity <= 0
+        ? await cartProvider.removeFromCart(product.id)
+        : await cartProvider.updateQuantity(
+            product.id,
+            targetQuantity,
+            maxQuantity: maxQuantity,
+          );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      if (updated) {
+        _pendingCartQuantities.remove(product.id);
+      } else {
+        _pendingCartQuantities[product.id] = previousQuantity;
+      }
+      _updatingCartProductIds.remove(product.id);
+    });
+
+    if (updated) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Failed to update cart')),
+    );
+  }
+
+  Widget _buildGridCartAction(
+    ProductModel product,
+    int inCartQuantity,
+    int remainingStock,
+  ) {
+    final canAddToCart = remainingStock > 0;
+    final isUpdating = _updatingCartProductIds.contains(product.id);
+
+    if (inCartQuantity < 1) {
+      return Material(
+        color: canAddToCart ? Colors.white : Colors.grey.shade300,
+        borderRadius: BorderRadius.circular(999),
+        elevation: 2,
+        child: InkWell(
+          onTap: canAddToCart && !isUpdating ? () => _handleGridAddToCart(product) : null,
+          borderRadius: BorderRadius.circular(999),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: isUpdating
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2.2),
+                  )
+                : Icon(
+                    Icons.add_shopping_cart_rounded,
+                    size: 20,
+                    color: canAddToCart ? Colors.black : Colors.grey,
+                  ),
+          ),
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(999),
+      elevation: 2,
+      child: Container(
+        height: 38,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildGridQuantityIconButton(
+              icon: Icons.remove_circle_outline,
+              onTap: isUpdating
+                  ? null
+                  : () => _handleGridQuantityChange(
+                        product,
+                        inCartQuantity - 1,
+                      ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: SizedBox(
+                width: 18,
+                child: Text(
+                  '$inCartQuantity',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+            _buildGridQuantityIconButton(
+              icon: Icons.add_circle_outline,
+              onTap: !isUpdating && canAddToCart
+                  ? () => _handleGridQuantityChange(
+                        product,
+                        inCartQuantity + 1,
+                      )
+                  : null,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGridQuantityIconButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    final isEnabled = onTap != null;
+
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Padding(
+        padding: const EdgeInsets.all(1),
+        child: Icon(
+          icon,
+          size: 21,
+          color: isEnabled ? Colors.black87 : Colors.grey,
         ),
       ),
     );
@@ -1425,10 +1636,9 @@ class _ShopPageState extends State<ShopPage> {
                           final cartItems =
                               context.watch<CartProvider>().cart.items;
                           final inCartQuantity =
-                              _cartQuantityForProduct(cartItems, product.id);
+                              _effectiveCartQuantity(product, cartItems);
                           final remainingStock = _remainingStockForProduct(
                               product, inCartQuantity);
-                          final canAddToCart = remainingStock > 0;
 
                           return Card(
                             clipBehavior: Clip.antiAlias,
@@ -1454,33 +1664,10 @@ class _ShopPageState extends State<ShopPage> {
                                         Positioned(
                                           right: 10,
                                           bottom: 10,
-                                          child: Material(
-                                            color: canAddToCart
-                                                ? Colors.white
-                                                : Colors.grey.shade300,
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                            elevation: 2,
-                                            child: InkWell(
-                                              onTap: canAddToCart
-                                                  ? () => _handleGridAddToCart(
-                                                      product)
-                                                  : null,
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.all(8),
-                                                child: Icon(
-                                                  Icons
-                                                      .add_shopping_cart_rounded,
-                                                  size: 20,
-                                                  color: canAddToCart
-                                                      ? Colors.black
-                                                      : Colors.grey,
-                                                ),
-                                              ),
-                                            ),
+                                          child: _buildGridCartAction(
+                                            product,
+                                            inCartQuantity,
+                                            remainingStock,
                                           ),
                                         ),
                                       ],
