@@ -78,6 +78,7 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 			Products:      products,
 			CreatedAt:     time.Now(),
 		}
+		resolveReelMediaURLs(&reel)
 
 		createdAt := reel.CreatedAt
 
@@ -157,6 +158,7 @@ func GetReels(db *sql.DB) gin.HandlerFunc {
 			if reel.Products == nil {
 				reel.Products = []models.ProductSimple{}
 			}
+			resolveReelMediaURLs(&reel)
 			reels = append(reels, reel)
 		}
 
@@ -196,6 +198,7 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 		if reel.Products == nil {
 			reel.Products = []models.ProductSimple{}
 		}
+		resolveReelMediaURLs(&reel)
 
 		// Increment views
 		db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)

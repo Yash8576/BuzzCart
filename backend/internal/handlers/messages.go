@@ -159,6 +159,7 @@ func GetConnections(db *sql.DB) gin.HandlerFunc {
 				connection.ConversationID = &conversationID.String
 				connection.HasExistingConversation = true
 			}
+			connection.Avatar = readableMediaURLPtr(connection.Avatar)
 			connections = append(connections, connection)
 		}
 
@@ -456,6 +457,7 @@ func getConversationParticipant(db *sql.DB, conversationID, userID string) (mode
 		conversationID,
 		userID,
 	).Scan(&participant.ID, &participant.Name, &participant.Avatar)
+	participant.Avatar = readableMediaURLPtr(participant.Avatar)
 	return participant, err
 }
 
@@ -558,6 +560,7 @@ func scanConversationSummary(scanner interface {
 	if err != nil {
 		return summary, err
 	}
+	summary.Participant.Avatar = readableMediaURLPtr(summary.Participant.Avatar)
 
 	if lastMessageID.Valid {
 		summary.LastMessage = &models.Message{
@@ -579,7 +582,7 @@ func scanConversationSummary(scanner interface {
 				ID:    productRowID.String,
 				Title: productTitle.String,
 				Price: productPrice.Float64,
-				Image: firstImage(productImages),
+				Image: readableMediaURL(firstImage(productImages)),
 			}
 		}
 	}
@@ -631,7 +634,7 @@ func scanMessage(scanner interface {
 			ID:    productRowID.String,
 			Title: productTitle.String,
 			Price: productPrice.Float64,
-			Image: firstImage(productImages),
+			Image: readableMediaURL(firstImage(productImages)),
 		}
 	}
 

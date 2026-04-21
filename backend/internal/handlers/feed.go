@@ -105,6 +105,7 @@ func GetFollowersFeed(db *sql.DB) gin.HandlerFunc {
 				continue
 			}
 			post.IsFollowing = true // By definition, in follower feed
+			resolvePostMediaURLs(&post)
 			posts = append(posts, post)
 		}
 
@@ -257,6 +258,7 @@ func GetDiscoveryFeed(db *sql.DB) gin.HandlerFunc {
 				continue
 			}
 			lastCreatedAt = post.CreatedAt
+			resolvePostMediaURLs(&post)
 			posts = append(posts, post)
 		}
 
@@ -403,6 +405,7 @@ func GetUserPosts(db *sql.DB) gin.HandlerFunc {
 			}
 			lastCreatedAt = post.CreatedAt
 			post.IsFollowing = isFollowing || (currentUserID == profileUserID)
+			resolvePostMediaURLs(&post)
 			posts = append(posts, post)
 		}
 
@@ -585,6 +588,7 @@ func GetFeed(db *sql.DB) gin.HandlerFunc {
 				if video.Products == nil {
 					video.Products = []models.ProductSimple{}
 				}
+				resolveVideoMediaURLs(&video)
 				videos = append(videos, video)
 			}
 		}
@@ -612,6 +616,7 @@ func GetFeed(db *sql.DB) gin.HandlerFunc {
 				if reel.Products == nil {
 					reel.Products = []models.ProductSimple{}
 				}
+				resolveReelMediaURLs(&reel)
 				reels = append(reels, reel)
 			}
 		}
@@ -656,6 +661,7 @@ func GetDiscover(db *sql.DB) gin.HandlerFunc {
 				if video.Products == nil {
 					video.Products = []models.ProductSimple{}
 				}
+				resolveVideoMediaURLs(&video)
 				videos = append(videos, video)
 			}
 		}
@@ -675,6 +681,7 @@ func GetDiscover(db *sql.DB) gin.HandlerFunc {
 					&product.Category, pq.Array(&product.Tags), &product.SellerID, &product.SellerName,
 					&product.Rating, &product.ReviewsCount, &product.Views, &product.CreatedAt,
 				)
+				resolveProductMediaURLs(&product)
 				products = append(products, product)
 			}
 		}
@@ -782,6 +789,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 				if video.Products == nil {
 					video.Products = []models.ProductSimple{}
 				}
+				resolveVideoMediaURLs(&video)
 				videos = append(videos, video)
 			}
 		}
@@ -813,6 +821,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 				if reel.Products == nil {
 					reel.Products = []models.ProductSimple{}
 				}
+				resolveReelMediaURLs(&reel)
 				reels = append(reels, reel)
 			}
 		}
@@ -849,6 +858,7 @@ func Search(db *sql.DB) gin.HandlerFunc {
 					&user.ID, &user.Name, &user.Email, &user.Avatar, &user.Bio,
 					&user.FollowersCount, &user.FollowingCount, &user.CreatedAt,
 				)
+				resolveUserMediaURLs(&user)
 				users = append(users, user)
 			}
 		}

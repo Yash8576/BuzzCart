@@ -5,8 +5,8 @@ import 'url_helper_platform.dart'
 
 /// Helper class for handling cross-platform URLs
 class UrlHelper {
-  /// Converts backend URLs to platform-specific URLs
-  /// 
+  /// Converts backend URLs to platform-specific URLs.
+  ///
   /// For Android emulator, replaces localhost with 10.0.2.2
   /// For other platforms, keeps the URL as-is
   static String getPlatformUrl(String? url) {
@@ -14,17 +14,11 @@ class UrlHelper {
       return '';
     }
 
-    // If URL doesn't contain localhost, return as-is
-    if (!url.contains('localhost')) {
-      return url;
-    }
-
-    // Use platform-specific URL conversion
     return UrlHelperPlatform.convertUrl(url);
   }
 
-  /// Gets the full storage URL for a media path
-  /// 
+  /// Gets the full storage URL for a media path.
+  ///
   /// If the path is already a full URL, converts it to platform-specific
   /// If it's a relative path, prepends the storage base URL
   static String getStorageUrl(String? path) {

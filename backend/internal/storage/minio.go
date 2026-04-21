@@ -149,6 +149,10 @@ func (m *StorageClient) UploadFile(file multipart.File, header *multipart.FileHe
 
 	writer := m.client.Bucket(m.bucket).Object(objectName).NewWriter(ctx)
 	writer.ContentType = contentType
+	downloadToken := uuid.New().String()
+	writer.Metadata = map[string]string{
+		"firebaseStorageDownloadTokens": downloadToken,
+	}
 
 	if _, err := io.Copy(writer, file); err != nil {
 		_ = writer.Close()
@@ -158,7 +162,7 @@ func (m *StorageClient) UploadFile(file multipart.File, header *multipart.FileHe
 		return "", fmt.Errorf("failed to finalize upload: %w", err)
 	}
 
-	return m.GetPublicURL(objectName), nil
+	return m.GetPublicURLWithToken(objectName, downloadToken), nil
 }
 
 // UploadFileFromReader uploads a file from an io.Reader
@@ -179,6 +183,10 @@ func (m *StorageClient) UploadFileFromReader(reader io.Reader, filename string, 
 
 	writer := m.client.Bucket(m.bucket).Object(objectName).NewWriter(ctx)
 	writer.ContentType = contentType
+	downloadToken := uuid.New().String()
+	writer.Metadata = map[string]string{
+		"firebaseStorageDownloadTokens": downloadToken,
+	}
 
 	if _, err := io.Copy(writer, reader); err != nil {
 		_ = writer.Close()
@@ -188,11 +196,17 @@ func (m *StorageClient) UploadFileFromReader(reader io.Reader, filename string, 
 		return "", fmt.Errorf("failed to finalize upload: %w", err)
 	}
 
-	return m.GetPublicURL(objectName), nil
+	return m.GetPublicURLWithToken(objectName, downloadToken), nil
 }
 
 // GetPublicURL returns the public URL for an object
 func (m *StorageClient) GetPublicURL(objectName string) string {
+	return m.GetPublicURLWithToken(objectName, "")
+}
+
+// GetPublicURLWithToken returns a Firebase/GCS URL for an object and includes
+// a Firebase download token when one was attached to object metadata.
+func (m *StorageClient) GetPublicURLWithToken(objectName string, downloadToken string) string {
 	normalizedObjectName := strings.TrimPrefix(strings.TrimSpace(objectName), "/")
 	if normalizedObjectName == "" {
 		return ""
@@ -202,13 +216,87 @@ func (m *StorageClient) GetPublicURL(objectName string) string {
 	escapedObject := url.QueryEscape(normalizedObjectName)
 
 	if strings.Contains(base, "/v0/b") {
-		return fmt.Sprintf("%s/%s/o/%s?alt=media", base, m.bucket, escapedObject)
+		publicURL := fmt.Sprintf("%s/%s/o/%s?alt=media", base, m.bucket, escapedObject)
+		if strings.TrimSpace(downloadToken) != "" {
+			publicURL += "&token=" + url.QueryEscape(strings.TrimSpace(downloadToken))
+		}
+		return publicURL
 	}
 	if strings.Contains(base, "storage.googleapis.com") {
 		return fmt.Sprintf("%s/%s/%s", base, m.bucket, normalizedObjectName)
 	}
 
 	return fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media", m.bucket, escapedObject)
+}
+
+// GetReadableURL returns a URL suitable for clients to render directly.
+// Firebase Storage download URLs need a token unless the bucket/object is public,
+// so tokenless Firebase URLs are repaired by adding metadata to the object.
+func (m *StorageClient) GetReadableURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if strings.Contains(raw, "token=") || strings.Contains(raw, "X-Goog-Signature=") {
+		return raw
+	}
+	if !strings.Contains(raw, "firebasestorage.googleapis.com") && !strings.Contains(raw, "storage.googleapis.com") {
+		return raw
+	}
+
+	objectName := m.normalizeObjectName(raw)
+	if objectName == "" {
+		return raw
+	}
+
+	if token, err := m.ensureDownloadToken(objectName); err == nil && token != "" {
+		return m.GetPublicURLWithToken(objectName, token)
+	}
+
+	if signedURL, err := m.GetPresignedURL(objectName, 7*24*time.Hour); err == nil && signedURL != "" {
+		return signedURL
+	}
+
+	return raw
+}
+
+func (m *StorageClient) ensureDownloadToken(objectName string) (string, error) {
+	ctx := context.Background()
+	objectHandle := m.client.Bucket(m.bucket).Object(objectName)
+
+	attrs, err := objectHandle.Attrs(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to read object metadata: %w", err)
+	}
+
+	const tokenKey = "firebaseStorageDownloadTokens"
+	if attrs.Metadata != nil {
+		if existing := strings.TrimSpace(attrs.Metadata[tokenKey]); existing != "" {
+			return firstMetadataToken(existing), nil
+		}
+	}
+
+	downloadToken := uuid.New().String()
+	metadata := map[string]string{}
+	for key, value := range attrs.Metadata {
+		metadata[key] = value
+	}
+	metadata[tokenKey] = downloadToken
+
+	if _, err := objectHandle.Update(ctx, storagepkg.ObjectAttrsToUpdate{Metadata: metadata}); err != nil {
+		return "", fmt.Errorf("failed to update object metadata: %w", err)
+	}
+
+	return downloadToken, nil
+}
+
+func firstMetadataToken(tokens string) string {
+	for _, token := range strings.Split(tokens, ",") {
+		if trimmed := strings.TrimSpace(token); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // GetPresignedURL generates a presigned URL for temporary access (expires in 7 days by default).

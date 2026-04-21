@@ -336,6 +336,7 @@ func Login(db *sql.DB) gin.HandlerFunc {
 		}
 
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
+		resolveUserMediaURLs(&user)
 		// Verify password
 		if !utils.VerifyPassword(req.Password, user.Password) {
 			if registerFailedLoginAttempt(c, rateLimitKey, &attemptState) {
@@ -383,6 +384,7 @@ func GetMe(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
+		resolveUserMediaURLs(&user)
 
 		c.JSON(http.StatusOK, user)
 	}
@@ -513,6 +515,7 @@ func UpdateProfile(db *sql.DB) gin.HandlerFunc {
 		}
 
 		user.VisibilityPreferences = parseVisibilityPreferences(updatedVisibilityPreferencesJSON, user.VisibilityMode)
+		resolveUserMediaURLs(&user)
 
 		c.JSON(http.StatusOK, user)
 	}
@@ -539,6 +542,7 @@ func GetUser(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 		user.VisibilityPreferences = parseVisibilityPreferences(visibilityPreferencesJSON, user.VisibilityMode)
+		resolveUserMediaURLs(&user)
 
 		if user.Status != models.StatusActive && viewerID != userID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "This account is hibernated"})

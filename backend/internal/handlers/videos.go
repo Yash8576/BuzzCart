@@ -80,6 +80,7 @@ func CreateVideo(db *sql.DB) gin.HandlerFunc {
 			Products:      products,
 			CreatedAt:     time.Now(),
 		}
+		resolveVideoMediaURLs(&video)
 
 		createdAt := video.CreatedAt
 
@@ -160,6 +161,7 @@ func GetVideos(db *sql.DB) gin.HandlerFunc {
 			if video.Products == nil {
 				video.Products = []models.ProductSimple{}
 			}
+			resolveVideoMediaURLs(&video)
 			videos = append(videos, video)
 		}
 
@@ -200,6 +202,7 @@ func GetVideo(db *sql.DB) gin.HandlerFunc {
 		if video.Products == nil {
 			video.Products = []models.ProductSimple{}
 		}
+		resolveVideoMediaURLs(&video)
 
 		// Increment views
 		db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", videoID)

@@ -548,6 +548,7 @@ func scanProduct(scanner productScanner) (models.Product, error) {
 	if product.Metadata == nil {
 		product.Metadata = map[string]any{}
 	}
+	resolveProductMediaURLs(&product)
 
 	return product, nil
 }
@@ -580,6 +581,7 @@ func scanProductLegacy(scanner productScanner) (models.Product, error) {
 	if err != nil {
 		return models.Product{}, err
 	}
+	resolveProductMediaURLs(&product)
 
 	return product, nil
 }
@@ -1129,6 +1131,7 @@ func CreateReview(db *sql.DB) gin.HandlerFunc {
 
 		// Get user info for response
 		db.QueryRow("SELECT name, avatar FROM users WHERE id = $1", userID).Scan(&review.Username, &review.UserAvatar)
+		review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 
 		c.JSON(http.StatusCreated, review)
 	}
@@ -1240,6 +1243,7 @@ func GetProductReviews(db *sql.DB) gin.HandlerFunc {
 				}
 				review.HasVoted = false
 			}
+			review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 			reviews = append(reviews, review)
 		}
 
@@ -1390,6 +1394,7 @@ func GetProductBuyers(db *sql.DB) gin.HandlerFunc {
 				}
 				buyer.IsConnection = false
 			}
+			buyer.BuyerAvatar = readableMediaURLPtr(buyer.BuyerAvatar)
 			buyers = append(buyers, buyer)
 		}
 
@@ -1513,6 +1518,7 @@ func GetProductReviewPreview(db *sql.DB) gin.HandlerFunc {
 			}
 
 			preview.ReviewCount = reviewCount
+			item.UserAvatar = readableMediaURLPtr(item.UserAvatar)
 			preview.Reviews = append(preview.Reviews, item)
 		}
 
@@ -1691,6 +1697,7 @@ func GetProductReviewsRanked(db *sql.DB) gin.HandlerFunc {
 				review.HasVoted = false
 				review.IsFollowing = false
 			}
+			review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 			reviews = append(reviews, review)
 		}
 
@@ -1746,6 +1753,7 @@ func GetReview(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 		c.JSON(http.StatusOK, review)
 	}
 }
@@ -1843,6 +1851,7 @@ func UpdateReview(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 		c.JSON(http.StatusOK, review)
 	}
 }
@@ -1943,6 +1952,7 @@ func GetUserReviews(db *sql.DB) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
 				return
 			}
+			review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 			reviews = append(reviews, review)
 		}
 
@@ -2105,6 +2115,7 @@ func GetPendingReviews(db *sql.DB) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reviews"})
 				return
 			}
+			review.UserAvatar = readableMediaURLPtr(review.UserAvatar)
 			reviews = append(reviews, review)
 		}
 

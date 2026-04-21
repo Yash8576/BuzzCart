@@ -220,6 +220,7 @@ func getFollowList(db *sql.DB, c *gin.Context, followers bool) {
 			return
 		}
 		user.IsConnection = user.IsFollowing && user.IsFollowedBy
+		user.Avatar = readableMediaURLPtr(user.Avatar)
 		users = append(users, user)
 	}
 

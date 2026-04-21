@@ -2,29 +2,6 @@
 version: '3.9'
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: like2share_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: like2share_user
-      POSTGRES_PASSWORD: like2share_dev_password
-      POSTGRES_DB: like2share_db
-      PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ../database/init.sh:/docker-entrypoint-initdb.d/init.sh
-      - ../database/migrations:/docker-entrypoint-initdb.d/migrations
-    networks:
-      - like2share_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U like2share_user -d like2share_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ../backend
@@ -33,25 +10,20 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    env_file:
+      - ../backend/.env
     environment:
-      DATABASE_URL: postgres://like2share_user:like2share_dev_password@postgres:5432/like2share_db?sslmode=disable
-      JWT_SECRET: dev_jwt_secret_change_in_production
       PORT: 8080
-      MINIO_ENDPOINT: minio:9000
-      MINIO_PUBLIC_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-      MINIO_USE_SSL: "false"
-      MINIO_BUCKET: buzzcart-media
+      REDIS_URL: redis://redis:6379/0
+      FIREBASE_STORAGE_CREDENTIALS_FILE: /app/firebase-credentials.json
     depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
+      redis:
         condition: service_healthy
     networks:
       - like2share_network
     volumes:
       - ../storage/media:/app/media
+      - C:/Users/dravi/Downloads/buzzcart-daeb6-98c5aac24eb0.json:/app/firebase-credentials.json:ro
 
   frontend:
     build:
@@ -112,28 +84,6 @@ services:
     volumes:
       - ollama_data:/root/.ollama
 
-  minio:
-    image: minio/minio:latest
-    container_name: like2share_minio
-    restart: unless-stopped
-    ports:
-      - "9000:9000"  # MinIO API
-      - "9001:9001"  # MinIO Console
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
-      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio_data:/data
-    networks:
-      - like2share_network
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   chatbot:
     build:
       context: ../chatbot
@@ -142,9 +92,10 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    env_file:
+      - ../chatbot/.env
     environment:
       API_PORT: 8001
-      DATABASE_URL: postgresql://like2share_user:like2share_dev_password@postgres:5432/like2share_db
       EMBEDDING_MODEL_NAME: BAAI/bge-m3
       RERANKER_MODEL_NAME: BAAI/bge-reranker-v2-m3
       MODEL_DEVICE: ${MODEL_DEVICE:-auto}
@@ -152,17 +103,18 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
       VECTOR_STORE_DIR: /app/data/vector_store
       DOCUMENTS_PATH: /app/data/documents
+      ALLOWED_EXTENSIONS: '[".pdf",".txt",".md",".docx",".html"]'
       MODEL_CACHE_DIR: /app/models/cache
+      REDIS_URL: redis://redis:6379/0
+      BACKEND_API_URL: http://backend:8080
       RETRIEVAL_CANDIDATE_POOL: 24
       LEXICAL_SEARCH_LIMIT: 24
       NEIGHBOR_WINDOW: 1
       MAX_EVIDENCE_BLOCKS: 3
       DOCUMENT_URL_REWRITE_FROM: '["localhost","127.0.0.1","10.0.2.2"]'
-      DOCUMENT_URL_REWRITE_TO: minio:9000
+      DOCUMENT_URL_REWRITE_TO: firebasestorage.googleapis.com
       DEBUG: "true"
     depends_on:
-      postgres:
-        condition: service_healthy
       ollama:
         condition: service_healthy
       ollama-init:
@@ -175,11 +127,7 @@ services:
       - chatbot_model_cache:/app/models/cache
 
 volumes:
-  postgres_data:
-    driver: local
   redis_data:
-    driver: local
-  minio_data:
     driver: local
   chatbot_documents:
     driver: local
