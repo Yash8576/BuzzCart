@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -331,6 +332,19 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		product, err = getProductByID(db, productID)
+		if err != nil {
+			log.Printf("[DeleteProduct] primary product load failed for cleanup (product_id=%s): %v", productID, err)
+			product, err = getProductByIDLegacy(db, productID)
+			if err != nil {
+				log.Printf("[DeleteProduct] legacy product load failed for cleanup (product_id=%s): %v", productID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+				return
+			}
+		}
+
+		storageTargets := collectProductStorageTargets(product)
+
 		ctx, cancel := database.NewContext()
 		defer cancel()
 
@@ -374,7 +388,101 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		deleteStorageObjects(storageTargets)
+		deleteProductDocumentIndex(productID)
+
 		c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
+	}
+}
+
+func collectProductStorageTargets(product models.Product) map[string]struct{} {
+	targets := map[string]struct{}{}
+
+	for _, imageURL := range product.Images {
+		addStorageObject(targets, imageURL)
+	}
+
+	if product.Metadata == nil {
+		return targets
+	}
+
+	if raw, ok := product.Metadata["specification_pdf_url"].(string); ok {
+		addStorageObject(targets, raw)
+	}
+
+	for _, mediaURL := range metadataStringSlice(product.Metadata["media_videos"]) {
+		addStorageObject(targets, mediaURL)
+	}
+
+	for _, mediaURL := range metadataMediaQueueURLs(product.Metadata["media_queue"]) {
+		addStorageObject(targets, mediaURL)
+	}
+
+	return targets
+}
+
+func metadataStringSlice(raw any) []string {
+	switch value := raw.(type) {
+	case []string:
+		return value
+	case []any:
+		results := make([]string, 0, len(value))
+		for _, item := range value {
+			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+				results = append(results, str)
+			}
+		}
+		return results
+	default:
+		return nil
+	}
+}
+
+func metadataMediaQueueURLs(raw any) []string {
+	queueItems, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	results := make([]string, 0, len(queueItems))
+	for _, item := range queueItems {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if url, ok := entry["url"].(string); ok && strings.TrimSpace(url) != "" {
+			results = append(results, url)
+		}
+	}
+	return results
+}
+
+func deleteProductDocumentIndex(productID string) {
+	baseURL := strings.TrimSpace(os.Getenv("CHATBOT_API_URL"))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(os.Getenv("CHATBOT_BASE_URL"))
+	}
+	if baseURL == "" {
+		baseURL = "http://chatbot:8001"
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/documents/" + productID
+	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
+	if err != nil {
+		log.Printf("[DeleteProduct] Failed to build chatbot document delete request for product %s: %v", productID, err)
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[DeleteProduct] Failed to delete chatbot product document for %s: %v", productID, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
+		log.Printf("[DeleteProduct] Chatbot document delete returned status %d for product %s", resp.StatusCode, productID)
 	}
 }
 
