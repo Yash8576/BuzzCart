@@ -1,6 +1,6 @@
-# MinIO Storage Integration for BuzzCart
+# Firebase Storage Integration for BuzzCart
 
-This package provides MinIO (S3-compatible) storage integration for the BuzzCart application, replacing local file storage.
+This package provides Firebase Storage (Google Cloud Storage) integration for the BuzzCart application, replacing local file storage.
 
 ## Features
 
@@ -11,7 +11,7 @@ This package provides MinIO (S3-compatible) storage integration for the BuzzCart
 - ✅ File deletion
 - ✅ File existence checking
 - ✅ List files in a folder
-- ✅ Automatic bucket creation with public read policy
+- ✅ Automatic bucket creation when project metadata is available
 
 ## Configuration
 
@@ -20,31 +20,17 @@ This package provides MinIO (S3-compatible) storage integration for the BuzzCart
 Add the following to your `.env` file:
 
 ```env
-MINIO_ENDPOINT=localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin123
-MINIO_USE_SSL=false
-MINIO_BUCKET=buzzcart-media
+FIREBASE_PROJECT_ID=your-gcp-project-id
+FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
+FIREBASE_STORAGE_LOCATION=us-east4
+FIREBASE_STORAGE_CREDENTIALS_FILE=/path/to/service-account.json
+FIREBASE_STORAGE_PUBLIC_BASE_URL=https://firebasestorage.googleapis.com/v0/b
 ```
 
-### Docker Compose
+### Authentication
 
-MinIO service is configured in `docker-compose.yml`:
-
-```yaml
-minio:
-  image: minio/minio:latest
-  ports:
-    - "9000:9000"  # API
-    - "9001:9001"  # Console
-  environment:
-    MINIO_ROOT_USER: minioadmin
-    MINIO_ROOT_PASSWORD: minioadmin123
-```
-
-**Access MinIO Console**: http://localhost:9001
-- Username: `minioadmin`
-- Password: `minioadmin123`
+Provide a Firebase service account JSON file and point `FIREBASE_STORAGE_CREDENTIALS_FILE` to it.
+The service account should have access to the configured storage bucket.
 
 ## Usage
 
@@ -63,7 +49,7 @@ func main() {
     // Load configuration
     cfg := config.Load()
     
-    // Initialize MinIO storage
+    // Initialize Firebase storage
     if err := storage.InitializeStorage(cfg); err != nil {
         log.Fatalf("Failed to initialize storage: %v", err)
     }
@@ -138,7 +124,7 @@ curl -X POST http://localhost:8000/api/upload/image \
 ```json
 {
   "success": true,
-  "url": "http://localhost:9000/buzzcart-media/products/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg",
+  "url": "https://firebasestorage.googleapis.com/v0/b/your-project-id.appspot.com/o/products%2Fa1b2c3d4-e5f6-7890-abcd-ef1234567890.jpg?alt=media",
   "message": "File uploaded successfully"
 }
 ```
@@ -169,7 +155,7 @@ curl -X DELETE http://localhost:8000/api/upload/products/a1b2c3d4-e5f6-7890-abcd
 ## Storage Client Methods
 
 ### UploadFile
-Uploads a multipart file to MinIO.
+Uploads a multipart file to Firebase Storage.
 
 ```go
 url, err := storageClient.UploadFile(file, header, "folder-name")
@@ -211,7 +197,7 @@ url, err := storageClient.GetPresignedURL("folder/filename.jpg", 24 * time.Hour)
 ```
 
 ### DeleteFile
-Deletes a file from MinIO.
+Deletes a file from Firebase Storage.
 
 ```go
 err := storageClient.DeleteFile("folder/filename.jpg")
@@ -248,16 +234,11 @@ buzzcart-media/
 
 ## Migration from Local Storage
 
-To migrate existing files from local storage to MinIO:
+To migrate existing files from local storage to Firebase Storage:
 
-1. **Access MinIO Console**: http://localhost:9001
-2. **Upload existing files** manually or use the MinIO CLI (`mc`)
-3. **Update database** to point to new MinIO URLs
-
-### Using MinIO CLI (mc)
-
-```bash
-# Install MinIO Client
+1. Upload existing media into your Firebase/GCS bucket.
+2. Update database URLs to Firebase/GCS URLs.
+3. Verify deletion and avatar update endpoints with migrated URLs.
 # Windows: Download mc.exe from https://min.io/download
 
 # Configure alias

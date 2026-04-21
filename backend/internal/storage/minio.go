@@ -2,106 +2,136 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net/url"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	storagepkg "cloud.google.com/go/storage"
 	"github.com/google/uuid"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
-// MinIOClient wraps the MinIO client with configuration
-type MinIOClient struct {
-	client         *minio.Client
-	bucket         string
-	endpoint       string
-	publicEndpoint string
-	useSSL         bool
+// StorageClient wraps the Firebase/GCS client with configuration.
+type StorageClient struct {
+	client              *storagepkg.Client
+	bucket              string
+	projectID           string
+	location            string
+	publicBaseURL       string
+	serviceAccountEmail string
+	privateKey          []byte
 }
 
-// MinIOConfig holds the configuration for MinIO
-type MinIOConfig struct {
-	Endpoint       string
-	PublicEndpoint string
-	AccessKey      string
-	SecretKey      string
-	UseSSL         bool
-	Bucket         string
+// StorageConfig holds the configuration for Firebase/GCS storage.
+type StorageConfig struct {
+	Bucket          string
+	ProjectID       string
+	Location        string
+	CredentialsFile string
+	PublicBaseURL   string
 }
 
-// NewMinIOClient creates a new MinIO client
-func NewMinIOClient(config MinIOConfig) (*MinIOClient, error) {
-	// Initialize MinIO client
-	minioClient, err := minio.New(config.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(config.AccessKey, config.SecretKey, ""),
-		Secure: config.UseSSL,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create minio client: %w", err)
+type serviceAccountCredentials struct {
+	ClientEmail string `json:"client_email"`
+	PrivateKey  string `json:"private_key"`
+}
+
+// NewStorageClient creates a new Firebase/GCS storage client.
+func NewStorageClient(config StorageConfig) (*StorageClient, error) {
+	bucketName := normalizeBucketName(config.Bucket)
+	if bucketName == "" {
+		return nil, fmt.Errorf("storage bucket is required")
 	}
 
-	client := &MinIOClient{
-		client:         minioClient,
-		bucket:         config.Bucket,
-		endpoint:       config.Endpoint,
-		publicEndpoint: config.PublicEndpoint,
-		useSSL:         config.UseSSL,
+	ctx := context.Background()
+
+	clientOptions := make([]option.ClientOption, 0, 1)
+	if strings.TrimSpace(config.CredentialsFile) != "" {
+		clientOptions = append(clientOptions, option.WithCredentialsFile(config.CredentialsFile))
+	}
+
+	gcsClient, err := storagepkg.NewClient(ctx, clientOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create google storage client: %w", err)
+	}
+
+	client := &StorageClient{
+		client:        gcsClient,
+		bucket:        bucketName,
+		projectID:     strings.TrimSpace(config.ProjectID),
+		location:      strings.TrimSpace(config.Location),
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(config.PublicBaseURL), "/"),
+	}
+
+	if client.publicBaseURL == "" {
+		client.publicBaseURL = "https://firebasestorage.googleapis.com/v0/b"
+	}
+
+	if strings.TrimSpace(config.CredentialsFile) != "" {
+		credsRaw, readErr := os.ReadFile(config.CredentialsFile)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read credentials file: %w", readErr)
+		}
+
+		var creds serviceAccountCredentials
+		if unmarshalErr := json.Unmarshal(credsRaw, &creds); unmarshalErr != nil {
+			return nil, fmt.Errorf("failed to parse credentials file: %w", unmarshalErr)
+		}
+
+		client.serviceAccountEmail = strings.TrimSpace(creds.ClientEmail)
+		if creds.PrivateKey != "" {
+			client.privateKey = []byte(creds.PrivateKey)
+		}
 	}
 
 	// Ensure bucket exists
 	if err := client.ensureBucket(); err != nil {
+		_ = client.client.Close()
 		return nil, err
 	}
 
 	return client, nil
 }
 
-// ensureBucket creates the bucket if it doesn't exist
-func (m *MinIOClient) ensureBucket() error {
-	ctx := context.Background()
-
-	// Check if bucket exists
-	exists, err := m.client.BucketExists(ctx, m.bucket)
-	if err != nil {
-		return fmt.Errorf("failed to check bucket existence: %w", err)
-	}
-
-	if exists {
+// ensureBucket creates the bucket if it doesn't exist.
+func (m *StorageClient) ensureBucket() error {
+	if m.projectID == "" {
+		// If no project is configured, skip creation and rely on an existing bucket.
 		return nil
 	}
 
-	// Create bucket
-	err = m.client.MakeBucket(ctx, m.bucket, minio.MakeBucketOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to create bucket: %w", err)
+	ctx := context.Background()
+	bucketHandle := m.client.Bucket(m.bucket)
+
+	_, err := bucketHandle.Attrs(ctx)
+	if err == nil {
+		return nil
+	}
+	if err != storagepkg.ErrBucketNotExist {
+		return fmt.Errorf("failed to check bucket existence: %w", err)
 	}
 
-	// Set bucket policy to public read (optional - for public access to uploaded files)
-	policy := fmt.Sprintf(`{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Principal": {"AWS": ["*"]},
-				"Action": ["s3:GetObject"],
-				"Resource": ["arn:aws:s3:::%s/*"]
-			}
-		]
-	}`, m.bucket)
+	attrs := &storagepkg.BucketAttrs{}
+	if m.location != "" {
+		attrs.Location = m.location
+	}
 
-	err = m.client.SetBucketPolicy(ctx, m.bucket, policy)
-	if err != nil {
-		return fmt.Errorf("failed to set bucket policy: %w", err)
+	if createErr := bucketHandle.Create(ctx, m.projectID, attrs); createErr != nil {
+		return fmt.Errorf("failed to create bucket %q: %w", m.bucket, createErr)
 	}
 
 	return nil
 }
 
-// UploadFile uploads a file to MinIO and returns the public URL
-func (m *MinIOClient) UploadFile(file multipart.File, header *multipart.FileHeader, folder string) (string, error) {
+// UploadFile uploads a file to Firebase/GCS and returns the public URL.
+func (m *StorageClient) UploadFile(file multipart.File, header *multipart.FileHeader, folder string) (string, error) {
 	ctx := context.Background()
 
 	// Generate unique filename
@@ -109,13 +139,7 @@ func (m *MinIOClient) UploadFile(file multipart.File, header *multipart.FileHead
 	filename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
 	// Add folder prefix if provided
-	objectName := filename
-	if folder != "" {
-		objectName = fmt.Sprintf("%s/%s", folder, filename)
-	}
-
-	// Get file size
-	fileSize := header.Size
+	objectName := buildObjectName(folder, filename)
 
 	// Get content type
 	contentType := header.Header.Get("Content-Type")
@@ -123,21 +147,22 @@ func (m *MinIOClient) UploadFile(file multipart.File, header *multipart.FileHead
 		contentType = "application/octet-stream"
 	}
 
-	// Upload file
-	_, err := m.client.PutObject(ctx, m.bucket, objectName, file, fileSize, minio.PutObjectOptions{
-		ContentType: contentType,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload file: %w", err)
+	writer := m.client.Bucket(m.bucket).Object(objectName).NewWriter(ctx)
+	writer.ContentType = contentType
+
+	if _, err := io.Copy(writer, file); err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("failed to write object: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize upload: %w", err)
 	}
 
-	// Generate public URL
-	url := m.GetPublicURL(objectName)
-	return url, nil
+	return m.GetPublicURL(objectName), nil
 }
 
 // UploadFileFromReader uploads a file from an io.Reader
-func (m *MinIOClient) UploadFileFromReader(reader io.Reader, filename string, size int64, contentType string, folder string) (string, error) {
+func (m *StorageClient) UploadFileFromReader(reader io.Reader, filename string, size int64, contentType string, folder string) (string, error) {
 	ctx := context.Background()
 
 	// Generate unique filename
@@ -145,58 +170,85 @@ func (m *MinIOClient) UploadFileFromReader(reader io.Reader, filename string, si
 	uniqueFilename := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
 	// Add folder prefix if provided
-	objectName := uniqueFilename
-	if folder != "" {
-		objectName = fmt.Sprintf("%s/%s", folder, uniqueFilename)
-	}
+	objectName := buildObjectName(folder, uniqueFilename)
 
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	_ = size
 
-	// Upload file
-	_, err := m.client.PutObject(ctx, m.bucket, objectName, reader, size, minio.PutObjectOptions{
-		ContentType: contentType,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to upload file: %w", err)
+	writer := m.client.Bucket(m.bucket).Object(objectName).NewWriter(ctx)
+	writer.ContentType = contentType
+
+	if _, err := io.Copy(writer, reader); err != nil {
+		_ = writer.Close()
+		return "", fmt.Errorf("failed to write object: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize upload: %w", err)
 	}
 
-	// Generate public URL
-	url := m.GetPublicURL(objectName)
-	return url, nil
+	return m.GetPublicURL(objectName), nil
 }
 
 // GetPublicURL returns the public URL for an object
-func (m *MinIOClient) GetPublicURL(objectName string) string {
-	protocol := "http"
-	if m.useSSL {
-		protocol = "https"
+func (m *StorageClient) GetPublicURL(objectName string) string {
+	normalizedObjectName := strings.TrimPrefix(strings.TrimSpace(objectName), "/")
+	if normalizedObjectName == "" {
+		return ""
 	}
-	return fmt.Sprintf("%s://%s/%s/%s", protocol, m.publicEndpoint, m.bucket, objectName)
+
+	base := strings.TrimRight(strings.TrimSpace(m.publicBaseURL), "/")
+	escapedObject := url.QueryEscape(normalizedObjectName)
+
+	if strings.Contains(base, "/v0/b") {
+		return fmt.Sprintf("%s/%s/o/%s?alt=media", base, m.bucket, escapedObject)
+	}
+	if strings.Contains(base, "storage.googleapis.com") {
+		return fmt.Sprintf("%s/%s/%s", base, m.bucket, normalizedObjectName)
+	}
+
+	return fmt.Sprintf("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media", m.bucket, escapedObject)
 }
 
-// GetPresignedURL generates a presigned URL for temporary access (expires in 7 days by default)
-func (m *MinIOClient) GetPresignedURL(objectName string, expiry time.Duration) (string, error) {
+// GetPresignedURL generates a presigned URL for temporary access (expires in 7 days by default).
+func (m *StorageClient) GetPresignedURL(objectName string, expiry time.Duration) (string, error) {
+	objectName = m.normalizeObjectName(objectName)
+	if objectName == "" {
+		return "", fmt.Errorf("object name is required")
+	}
+
 	if expiry == 0 {
 		expiry = 7 * 24 * time.Hour // Default 7 days
 	}
 
-	ctx := context.Background()
-	presignedURL, err := m.client.PresignedGetObject(ctx, m.bucket, objectName, expiry, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate presigned URL: %w", err)
+	if m.serviceAccountEmail == "" || len(m.privateKey) == 0 {
+		return "", fmt.Errorf("service account credentials with private key are required to sign URLs")
 	}
 
-	return presignedURL.String(), nil
+	signedURL, err := storagepkg.SignedURL(m.bucket, objectName, &storagepkg.SignedURLOptions{
+		GoogleAccessID: m.serviceAccountEmail,
+		PrivateKey:     m.privateKey,
+		Method:         "GET",
+		Expires:        time.Now().Add(expiry),
+		Scheme:         storagepkg.SigningSchemeV4,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to generate signed URL: %w", err)
+	}
+
+	return signedURL, nil
 }
 
-// DeleteFile deletes a file from MinIO
-func (m *MinIOClient) DeleteFile(objectName string) error {
-	ctx := context.Background()
+// DeleteFile deletes a file from Firebase/GCS.
+func (m *StorageClient) DeleteFile(objectName string) error {
+	objectName = m.normalizeObjectName(objectName)
+	if objectName == "" {
+		return fmt.Errorf("object name is required")
+	}
 
-	err := m.client.RemoveObject(ctx, m.bucket, objectName, minio.RemoveObjectOptions{})
-	if err != nil {
+	ctx := context.Background()
+	if err := m.client.Bucket(m.bucket).Object(objectName).Delete(ctx); err != nil && err != storagepkg.ErrObjectNotExist {
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
 
@@ -204,37 +256,113 @@ func (m *MinIOClient) DeleteFile(objectName string) error {
 }
 
 // ListFiles lists all files in a folder (prefix)
-func (m *MinIOClient) ListFiles(folder string) ([]string, error) {
+func (m *StorageClient) ListFiles(folder string) ([]string, error) {
 	ctx := context.Background()
 
 	var files []string
-	objectCh := m.client.ListObjects(ctx, m.bucket, minio.ListObjectsOptions{
-		Prefix:    folder,
-		Recursive: true,
-	})
+	prefix := strings.TrimSpace(folder)
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	iter := m.client.Bucket(m.bucket).Objects(ctx, &storagepkg.Query{Prefix: prefix})
 
-	for object := range objectCh {
-		if object.Err != nil {
-			return nil, fmt.Errorf("error listing objects: %w", object.Err)
+	for {
+		attrs, err := iter.Next()
+		if err == iterator.Done {
+			break
 		}
-		files = append(files, object.Key)
+		if err != nil {
+			return nil, fmt.Errorf("error listing objects: %w", err)
+		}
+		files = append(files, attrs.Name)
 	}
 
 	return files, nil
 }
 
-// FileExists checks if a file exists in MinIO
-func (m *MinIOClient) FileExists(objectName string) (bool, error) {
+// FileExists checks if a file exists in Firebase/GCS.
+func (m *StorageClient) FileExists(objectName string) (bool, error) {
+	objectName = m.normalizeObjectName(objectName)
+	if objectName == "" {
+		return false, nil
+	}
+
 	ctx := context.Background()
 
-	_, err := m.client.StatObject(ctx, m.bucket, objectName, minio.StatObjectOptions{})
+	_, err := m.client.Bucket(m.bucket).Object(objectName).Attrs(ctx)
 	if err != nil {
-		errResponse := minio.ToErrorResponse(err)
-		if errResponse.Code == "NoSuchKey" {
+		if err == storagepkg.ErrObjectNotExist {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check file existence: %w", err)
 	}
 
 	return true, nil
+}
+
+func (m *StorageClient) normalizeObjectName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+
+	if !strings.Contains(raw, "://") {
+		return strings.TrimPrefix(raw, "/")
+	}
+
+	parsedURL, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+
+	trimmedPath := strings.TrimPrefix(parsedURL.Path, "/")
+	if trimmedPath == "" {
+		return ""
+	}
+
+	pathParts := strings.Split(trimmedPath, "/")
+
+	// Firebase URL format: /v0/b/<bucket>/o/<url-encoded-object>
+	if len(pathParts) >= 5 && pathParts[0] == "v0" && pathParts[1] == "b" && pathParts[3] == "o" {
+		decoded, unescapeErr := url.QueryUnescape(strings.Join(pathParts[4:], "/"))
+		if unescapeErr == nil {
+			return decoded
+		}
+		return strings.Join(pathParts[4:], "/")
+	}
+
+	// Public GCS URL format: /<bucket>/<objectName>
+	if len(pathParts) > 1 && pathParts[0] == m.bucket {
+		return strings.Join(pathParts[1:], "/")
+	}
+
+	if strings.Contains(parsedURL.Host, "storage.googleapis.com") && len(pathParts) > 1 {
+		return strings.Join(pathParts[1:], "/")
+	}
+
+	return strings.TrimPrefix(raw, "/")
+}
+
+func buildObjectName(folder string, filename string) string {
+	cleanFolder := strings.Trim(strings.TrimSpace(folder), "/")
+	if cleanFolder == "" {
+		return filename
+	}
+	return cleanFolder + "/" + filename
+}
+
+func normalizeBucketName(raw string) string {
+	bucket := strings.TrimSpace(raw)
+	bucket = strings.TrimPrefix(bucket, "gs://")
+	bucket = strings.TrimPrefix(bucket, "https://storage.googleapis.com/")
+	bucket = strings.TrimPrefix(bucket, "http://storage.googleapis.com/")
+	bucket = strings.TrimPrefix(bucket, "https://")
+	bucket = strings.TrimPrefix(bucket, "http://")
+	bucket = strings.Trim(bucket, "/")
+
+	if idx := strings.Index(bucket, "/"); idx >= 0 {
+		bucket = bucket[:idx]
+	}
+
+	return bucket
 }

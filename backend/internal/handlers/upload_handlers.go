@@ -124,7 +124,7 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 		caption := c.PostForm("caption")
 		createPost := c.DefaultPostForm("create_post", "false") == "true"
 
-		// Upload to MinIO
+		// Upload to cloud storage
 		storageClient := storage.GetStorageClient()
 		url, err := storageClient.UploadFile(file, header, "user-photos")
 		if err != nil {
@@ -189,7 +189,7 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// UploadVideoHandler handles video uploads to MinIO
+// UploadVideoHandler handles video uploads to cloud storage
 // Example endpoint: POST /api/upload/video
 func UploadVideoHandler(c *gin.Context) {
 	// Get the file from the form
@@ -210,7 +210,7 @@ func UploadVideoHandler(c *gin.Context) {
 	// Get folder from query param (optional)
 	folder := c.DefaultQuery("folder", "videos")
 
-	// Upload to MinIO
+	// Upload to cloud storage
 	storageClient := storage.GetStorageClient()
 	url, err := storageClient.UploadFile(file, header, folder)
 	if err != nil {
@@ -245,7 +245,7 @@ func UploadProductImageHandler(c *gin.Context) {
 		return
 	}
 
-	// Upload to MinIO in products folder
+	// Upload to cloud storage in products folder
 	storageClient := storage.GetStorageClient()
 	url, err := storageClient.UploadFile(file, header, "products")
 	if err != nil {
@@ -320,7 +320,7 @@ func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Upload to MinIO in avatars folder
+		// Upload to cloud storage in avatars folder
 		storageClient := storage.GetStorageClient()
 		url, err := storageClient.UploadFile(file, header, "avatars")
 		if err != nil {
@@ -352,7 +352,7 @@ func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// DeleteAvatarHandler removes the current user's avatar from both database and MinIO.
+// DeleteAvatarHandler removes the current user's avatar from both database and cloud storage.
 // Example endpoint: DELETE /api/upload/avatar
 func DeleteAvatarHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -383,7 +383,7 @@ func DeleteAvatarHandler(db *sql.DB) gin.HandlerFunc {
 			if objectName != "" {
 				if err := storageClient.DeleteFile(objectName); err != nil {
 					// Keep deletion resilient: if file is already gone, profile image still gets cleared.
-					log.Printf("[DeleteAvatar] Failed deleting MinIO object %q for user %s: %v", objectName, userID, err)
+					log.Printf("[DeleteAvatar] Failed deleting storage object %q for user %s: %v", objectName, userID, err)
 				}
 			}
 		}
@@ -423,15 +423,25 @@ func extractObjectNameFromMediaURL(raw string) string {
 	}
 
 	pathParts := strings.Split(trimmedPath, "/")
-	if len(pathParts) <= 1 {
-		return ""
+
+	// Firebase URL format: /v0/b/<bucket>/o/<url-encoded-object>
+	if len(pathParts) >= 5 && pathParts[0] == "v0" && pathParts[1] == "b" && pathParts[3] == "o" {
+		decoded, err := url.QueryUnescape(strings.Join(pathParts[4:], "/"))
+		if err == nil {
+			return decoded
+		}
+		return strings.Join(pathParts[4:], "/")
 	}
 
-	// URLs are formatted as /<bucket>/<objectName>; object name is the remainder.
-	return strings.Join(pathParts[1:], "/")
+	if len(pathParts) > 1 {
+		// Public GCS URL format: /<bucket>/<objectName>
+		return strings.Join(pathParts[1:], "/")
+	}
+
+	return strings.TrimPrefix(raw, "/")
 }
 
-// DeleteFileHandler handles file deletion from MinIO
+// DeleteFileHandler handles file deletion from cloud storage
 // Example endpoint: DELETE /api/upload/:objectName
 func DeleteFileHandler(c *gin.Context) {
 	objectName := c.Param("objectName")

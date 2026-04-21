@@ -7,43 +7,42 @@ import (
 )
 
 var (
-	// GlobalMinIOClient is the global MinIO client instance
-	GlobalMinIOClient *MinIOClient
+	// GlobalStorageClient is the global Firebase Storage client instance
+	GlobalStorageClient *StorageClient
 )
 
-// InitializeStorage initializes the MinIO client with the given configuration
+// InitializeStorage initializes the Firebase Storage client with the given configuration
 func InitializeStorage(cfg *config.Config) error {
-	minioConfig := MinIOConfig{
-		Endpoint:       cfg.MinIO.Endpoint,
-		PublicEndpoint: cfg.MinIO.PublicEndpoint,
-		AccessKey:      cfg.MinIO.AccessKey,
-		SecretKey:      cfg.MinIO.SecretKey,
-		UseSSL:         cfg.MinIO.UseSSL,
-		Bucket:         cfg.MinIO.Bucket,
+	storageConfig := StorageConfig{
+		Bucket:          cfg.Storage.Bucket,
+		ProjectID:       cfg.Storage.ProjectID,
+		Location:        cfg.Storage.Location,
+		CredentialsFile: cfg.Storage.CredentialsFile,
+		PublicBaseURL:   cfg.Storage.PublicBaseURL,
 	}
 
-	client, err := NewMinIOClient(minioConfig)
+	client, err := NewStorageClient(storageConfig)
 	if err != nil {
-		return fmt.Errorf("failed to initialize MinIO client: %w", err)
+		return fmt.Errorf("failed to initialize storage client: %w", err)
 	}
 
-	GlobalMinIOClient = client
-	log.Printf("✓ MinIO storage initialized successfully (Bucket: %s, Endpoint: %s)", cfg.MinIO.Bucket, cfg.MinIO.Endpoint)
+	GlobalStorageClient = client
+	log.Printf("✓ Firebase Storage initialized successfully (Bucket: %s, Project: %s)", cfg.Storage.Bucket, cfg.Storage.ProjectID)
 
 	return nil
 }
 
-// GetStorageClient returns the global MinIO client
+// GetStorageClient returns the global storage client
 // Panics if storage is not initialized - this should never happen in production
 // as the server won't start without successful storage initialization
-func GetStorageClient() *MinIOClient {
-	if GlobalMinIOClient == nil {
+func GetStorageClient() *StorageClient {
+	if GlobalStorageClient == nil {
 		log.Fatal("FATAL: Storage client accessed before initialization. Server misconfigured.")
 	}
-	return GlobalMinIOClient
+	return GlobalStorageClient
 }
 
 // IsInitialized checks if storage client has been initialized
 func IsInitialized() bool {
-	return GlobalMinIOClient != nil
+	return GlobalStorageClient != nil
 }

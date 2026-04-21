@@ -40,11 +40,11 @@ func main() {
 		defer cache.Close()
 	}
 
-	// Initialize MinIO storage
+	// Initialize Firebase Storage
 	if err := storage.InitializeStorage(cfg); err != nil {
-		log.Fatalf("Failed to initialize MinIO storage: %v", err)
+		log.Fatalf("Failed to initialize storage: %v", err)
 	}
-	log.Println("✓ MinIO storage initialized successfully")
+	log.Println("✓ Storage initialized successfully")
 
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "release" {

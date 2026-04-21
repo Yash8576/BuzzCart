@@ -11,16 +11,15 @@ type Config struct {
 	Port         string
 	OpenAIAPIKey string
 	RedisURL     string
-	MinIO        MinIOConfig
+	Storage      StorageConfig
 }
 
-type MinIOConfig struct {
-	Endpoint       string
-	PublicEndpoint string
-	AccessKey      string
-	SecretKey      string
-	UseSSL         bool
-	Bucket         string
+type StorageConfig struct {
+	Bucket          string
+	ProjectID       string
+	Location        string
+	CredentialsFile string
+	PublicBaseURL   string
 }
 
 func Load() *Config {
@@ -30,13 +29,12 @@ func Load() *Config {
 		Port:         getEnv("PORT", "8000"),
 		OpenAIAPIKey: getEnv("OPENAI_API_KEY", ""),
 		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		MinIO: MinIOConfig{
-			Endpoint:       getEnv("MINIO_ENDPOINT", "localhost:9000"),
-			PublicEndpoint: getEnv("MINIO_PUBLIC_ENDPOINT", "localhost:9000"),
-			AccessKey:      getEnv("MINIO_ACCESS_KEY", "minioadmin"),
-			SecretKey:      getEnv("MINIO_SECRET_KEY", "minioadmin123"),
-			UseSSL:         getEnvBool("MINIO_USE_SSL", false),
-			Bucket:         getEnv("MINIO_BUCKET", "buzzcart-media"),
+		Storage: StorageConfig{
+			Bucket:          getEnv("FIREBASE_STORAGE_BUCKET", getEnv("MINIO_BUCKET", "buzzcart-media")),
+			ProjectID:       getEnv("FIREBASE_PROJECT_ID", getEnv("GOOGLE_CLOUD_PROJECT", "")),
+			Location:        getEnv("FIREBASE_STORAGE_LOCATION", "us-east4"),
+			CredentialsFile: getEnv("FIREBASE_STORAGE_CREDENTIALS_FILE", getEnv("GOOGLE_APPLICATION_CREDENTIALS", "")),
+			PublicBaseURL:   getEnv("FIREBASE_STORAGE_PUBLIC_BASE_URL", "https://firebasestorage.googleapis.com/v0/b"),
 		},
 	}
 }
