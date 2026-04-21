@@ -79,7 +79,10 @@ GoRouter createAppRouter(AuthProvider authProvider) {
       // Protected routes with persistent tab caching
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
-            MainLayout(navigationShell: navigationShell),
+            MainLayout(
+              navigationShell: navigationShell,
+              currentPath: state.uri.path,
+            ),
         branches: [
           StatefulShellBranch(
             routes: [

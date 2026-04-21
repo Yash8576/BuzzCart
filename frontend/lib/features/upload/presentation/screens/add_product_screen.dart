@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/config/app_config.dart';
 import '../../../../core/models/models.dart';
@@ -25,6 +26,7 @@ class AddProductScreen extends StatefulWidget {
 }
 
 class _AddProductScreenState extends State<AddProductScreen> {
+  static const Uuid _uuid = Uuid();
   final _formKey = GlobalKey<FormState>();
 
   late final ApiService _api;
@@ -72,6 +74,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   int _initialStockQuantity = 0;
   String _stockAdjustmentMode = 'increment';
   bool _isPrefilling = false;
+  late final String _storageProductId;
 
   bool get _isEditing => widget.editingProduct != null;
 
@@ -80,6 +83,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     super.initState();
     _api = context.read<ApiService>();
     _chatbot = ChatbotService(baseUrl: AppConfig.chatbotBaseUrl);
+    _storageProductId = widget.editingProduct?.id ?? _uuid.v4();
     _addManualSpecificationRow();
     _addBulletPointRow();
     _prefillFromEditingProduct();
@@ -558,8 +562,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
           url = item.remoteUrl;
         } else if (item.file != null) {
           final result = item.kind == _QueuedMediaKind.image
-              ? await _api.uploadProductImage(item.file!)
-              : await _api.uploadVideo(item.file!);
+              ? await _api.uploadProductImage(
+                  item.file!,
+                  productId: _storageProductId,
+                )
+              : await _api.uploadVideo(
+                  item.file!,
+                  folder: 'product-videos',
+                  productId: _storageProductId,
+                );
           url = result['url'] as String?;
         }
 
@@ -583,7 +594,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
             _specificationPdf!.path.startsWith('https://')) {
           specificationPdfUrl = _specificationPdf!.path;
         } else {
-          final result = await _api.uploadProductDocument(_specificationPdf!);
+          final result = await _api.uploadProductDocument(
+            _specificationPdf!,
+            productId: _storageProductId,
+          );
           specificationPdfUrl = result['url'] as String?;
         }
       }
@@ -727,6 +741,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         );
       } else {
         savedProduct = await _api.createProduct(
+          id: _storageProductId,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
           price: effectivePrice,
@@ -786,7 +801,16 @@ class _AddProductScreenState extends State<AddProductScreen> {
       if (_isEditing) {
         context.pop(true);
       } else {
-        context.go('/profile');
+        if (context.canPop()) {
+          context.pop();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              context.go('/profile');
+            }
+          });
+        } else {
+          context.go('/profile');
+        }
       }
     } catch (e) {
       if (!mounted) {

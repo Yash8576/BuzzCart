@@ -11,8 +11,13 @@ import '../../features/messages/providers/messages_provider.dart';
 
 class MainLayout extends StatefulWidget {
   final StatefulNavigationShell navigationShell;
+  final String currentPath;
 
-  const MainLayout({super.key, required this.navigationShell});
+  const MainLayout({
+    super.key,
+    required this.navigationShell,
+    required this.currentPath,
+  });
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -79,6 +84,12 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     );
   }
 
+  bool _isOnPath(String path) {
+    final currentPath = widget.currentPath;
+    return currentPath == path ||
+        (path != '/' && currentPath.startsWith('$path/'));
+  }
+
   void _navigateTo(String path) {
     if (!path.startsWith('/messages')) {
       final messagesProvider = context.read<MessagesProvider>();
@@ -97,8 +108,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       return;
     }
 
-    final location = GoRouterState.of(context).matchedLocation;
-    if (location == path) {
+    if (_isOnPath(path)) {
       return;
     }
 
@@ -146,8 +156,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   Widget _buildSidebar() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final user = context.watch<AuthProvider>().user;
-    final location = GoRouterState.of(context).matchedLocation;
-    final isHomePage = location == '/';
+    final isHomePage = widget.currentPath == '/';
 
     return Container(
       width: 256,
@@ -365,9 +374,9 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cart = context.watch<CartProvider>().cart;
     final unreadMessages = context.watch<MessagesProvider>().totalUnreadCount;
-    final location = GoRouterState.of(context).matchedLocation;
-    final isHomePage = location == '/';
-    final isProfilePage = location.startsWith('/profile');
+    final currentPath = widget.currentPath;
+    final isHomePage = currentPath == '/';
+    final isProfilePage = currentPath.startsWith('/profile');
 
     return SafeArea(
       bottom: false,
@@ -596,9 +605,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   }
 
   Widget _buildNavButton(_NavItem item, bool isSidebar) {
-    final location = GoRouterState.of(context).matchedLocation;
-    final isActive = location == item.path || 
-                     (location.startsWith(item.path) && item.path != '/');
+    final isActive = _isOnPath(item.path);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cartCount = context.watch<CartProvider>().cart.itemCount;
     final unreadMessages = context.watch<MessagesProvider>().totalUnreadCount;

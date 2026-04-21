@@ -149,6 +149,13 @@ func CreateProduct(db *sql.DB) gin.HandlerFunc {
 		defer tx.Rollback()
 
 		productID := uuid.New().String()
+		if req.ID != nil {
+			if trimmed := strings.TrimSpace(*req.ID); trimmed != "" {
+				if _, parseErr := uuid.Parse(trimmed); parseErr == nil {
+					productID = trimmed
+				}
+			}
+		}
 		createdAt := time.Now()
 		product, categoryName, err := createProductWithSchemaFallback(
 			ctx,

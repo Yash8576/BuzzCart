@@ -390,7 +390,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         }
       } else if (contentType == 'video') {
         // Upload video and create video record
-        final result = await _api.uploadVideo(file);
+        final result = await _api.uploadVideo(file, folder: 'videos');
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
           final title = caption.isEmpty ? 'Untitled Video' : caption;
@@ -415,7 +415,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         }
       } else if (contentType == 'reel') {
         // Upload video and create reel record
-        final result = await _api.uploadVideo(file);
+        final result = await _api.uploadVideo(file, folder: 'reels');
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
 

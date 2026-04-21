@@ -9,12 +9,61 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+var storagePathSanitizer = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func sanitizeStorageSegment(raw string, fallback string) string {
+	trimmed := strings.TrimSpace(raw)
+	trimmed = strings.ReplaceAll(trimmed, "\\", "/")
+	trimmed = strings.Trim(trimmed, "/")
+	trimmed = storagePathSanitizer.ReplaceAllString(trimmed, "-")
+	trimmed = strings.Trim(trimmed, "-")
+	if trimmed == "" {
+		return fallback
+	}
+	return trimmed
+}
+
+func productStorageKey(c *gin.Context) string {
+	raw := strings.TrimSpace(c.Query("product_id"))
+	if raw == "" {
+		raw = strings.TrimSpace(c.PostForm("product_id"))
+	}
+	return sanitizeStorageSegment(raw, "unassigned")
+}
+
+func buildUserScopedFolder(userID string, baseFolder string, productKey string) string {
+	safeUserID := sanitizeStorageSegment(userID, "anonymous")
+	safeBaseFolder := sanitizeStorageSegment(baseFolder, "uploads")
+
+	switch safeBaseFolder {
+	case "avatars":
+		return fmt.Sprintf("users/%s/avatar", safeUserID)
+	case "images", "photos", "user-photos":
+		return fmt.Sprintf("users/%s/photos", safeUserID)
+	case "videos":
+		return fmt.Sprintf("users/%s/videos", safeUserID)
+	case "reels":
+		return fmt.Sprintf("users/%s/reels", safeUserID)
+	case "review-images":
+		return fmt.Sprintf("users/%s/reviews/images", safeUserID)
+	case "product-images", "products":
+		return fmt.Sprintf("users/%s/products/%s/images", safeUserID, sanitizeStorageSegment(productKey, "unassigned"))
+	case "product-videos":
+		return fmt.Sprintf("users/%s/products/%s/videos", safeUserID, sanitizeStorageSegment(productKey, "unassigned"))
+	case "product-documents":
+		return fmt.Sprintf("users/%s/products/%s/documents", safeUserID, sanitizeStorageSegment(productKey, "unassigned"))
+	default:
+		return fmt.Sprintf("users/%s/%s", safeUserID, safeBaseFolder)
+	}
+}
 
 func UploadImageHandler(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -39,7 +88,11 @@ func UploadImageHandler(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		folder := c.DefaultQuery("folder", "images")
+		folder := buildUserScopedFolder(
+			userID,
+			c.DefaultQuery("folder", "images"),
+			productStorageKey(c),
+		)
 		storageClient := storage.GetStorageClient()
 		url, err := storageClient.UploadFile(file, header, folder)
 		if err != nil {
@@ -126,7 +179,11 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 
 		// Upload to cloud storage
 		storageClient := storage.GetStorageClient()
-		url, err := storageClient.UploadFile(file, header, "user-photos")
+		url, err := storageClient.UploadFile(
+			file,
+			header,
+			buildUserScopedFolder(userID, "user-photos", ""),
+		)
 		if err != nil {
 			log.Printf("[UploadUserPhoto] Storage upload failed for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
@@ -192,6 +249,12 @@ func UploadUserPhotoHandler(db *sql.DB) gin.HandlerFunc {
 // UploadVideoHandler handles video uploads to cloud storage
 // Example endpoint: POST /api/upload/video
 func UploadVideoHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	// Get the file from the form
 	file, header, err := c.Request.FormFile("video")
 	if err != nil {
@@ -208,7 +271,11 @@ func UploadVideoHandler(c *gin.Context) {
 	}
 
 	// Get folder from query param (optional)
-	folder := c.DefaultQuery("folder", "videos")
+	folder := buildUserScopedFolder(
+		userID,
+		c.DefaultQuery("folder", "videos"),
+		productStorageKey(c),
+	)
 
 	// Upload to cloud storage
 	storageClient := storage.GetStorageClient()
@@ -230,6 +297,12 @@ func UploadVideoHandler(c *gin.Context) {
 // UploadProductImageHandler handles product image uploads
 // Example endpoint: POST /api/upload/product-image
 func UploadProductImageHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	// Get the file from the form
 	file, header, err := c.Request.FormFile("image")
 	if err != nil {
@@ -247,7 +320,11 @@ func UploadProductImageHandler(c *gin.Context) {
 
 	// Upload to cloud storage in products folder
 	storageClient := storage.GetStorageClient()
-	url, err := storageClient.UploadFile(file, header, "products")
+	url, err := storageClient.UploadFile(
+		file,
+		header,
+		buildUserScopedFolder(userID, "products", productStorageKey(c)),
+	)
 	if err != nil {
 		log.Printf("[UploadProductImage] Storage upload failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload product image"})
@@ -265,6 +342,12 @@ func UploadProductImageHandler(c *gin.Context) {
 // UploadProductDocumentHandler handles product PDF uploads.
 // Example endpoint: POST /api/upload/product-document
 func UploadProductDocumentHandler(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	file, header, err := c.Request.FormFile("document")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
@@ -279,7 +362,11 @@ func UploadProductDocumentHandler(c *gin.Context) {
 	}
 
 	storageClient := storage.GetStorageClient()
-	url, err := storageClient.UploadFile(file, header, "product-documents")
+	url, err := storageClient.UploadFile(
+		file,
+		header,
+		buildUserScopedFolder(userID, "product-documents", productStorageKey(c)),
+	)
 	if err != nil {
 		log.Printf("[UploadProductDocument] Storage upload failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload product document"})
@@ -322,7 +409,11 @@ func UploadAvatarHandler(db *sql.DB) gin.HandlerFunc {
 
 		// Upload to cloud storage in avatars folder
 		storageClient := storage.GetStorageClient()
-		url, err := storageClient.UploadFile(file, header, "avatars")
+		url, err := storageClient.UploadFile(
+			file,
+			header,
+			buildUserScopedFolder(userID, "avatars", ""),
+		)
 		if err != nil {
 			log.Printf("[UploadAvatar] Storage upload failed for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload avatar"})

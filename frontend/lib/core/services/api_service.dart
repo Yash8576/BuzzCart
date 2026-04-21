@@ -1018,6 +1018,7 @@ class ApiService {
 
   // Product Creation API
   Future<ProductModel> createProduct({
+    String? id,
     required String title,
     required String description,
     required double price,
@@ -1032,6 +1033,7 @@ class ApiService {
   }) async {
     try {
       final response = await _dio.post('/products', data: {
+        if (id != null && id.isNotEmpty) 'id': id,
         'title': title,
         'description': description,
         'price': price,
@@ -1122,7 +1124,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadVideo(XFile file) async {
+  Future<Map<String, dynamic>> uploadVideo(
+    XFile file, {
+    String? folder,
+    String? productId,
+  }) async {
     try {
       final bytes = await file.readAsBytes();
       final fileName = file.name;
@@ -1130,14 +1136,24 @@ class ApiService {
         'video': MultipartFile.fromBytes(bytes, filename: fileName),
       });
 
-      final response = await _dio.post('/upload/video', data: formData);
+      final response = await _dio.post(
+        '/upload/video',
+        data: formData,
+        queryParameters: {
+          if (folder != null && folder.isNotEmpty) 'folder': folder,
+          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+        },
+      );
       return response.data as Map<String, dynamic>;
     } catch (e) {
       rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> uploadProductImage(XFile file) async {
+  Future<Map<String, dynamic>> uploadProductImage(
+    XFile file, {
+    String? productId,
+  }) async {
     try {
       final bytes = await file.readAsBytes();
       debugPrint(
@@ -1151,6 +1167,9 @@ class ApiService {
       final response = await _dio.post(
         '/upload/product-image',
         data: formData,
+        queryParameters: {
+          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+        },
         options: Options(
           sendTimeout: const Duration(minutes: 5),
           receiveTimeout: const Duration(minutes: 2),
@@ -1164,7 +1183,10 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> uploadProductDocument(XFile file) async {
+  Future<Map<String, dynamic>> uploadProductDocument(
+    XFile file, {
+    String? productId,
+  }) async {
     try {
       final bytes = await file.readAsBytes();
       debugPrint(
@@ -1181,6 +1203,9 @@ class ApiService {
       final response = await _dio.post(
         '/upload/product-document',
         data: formData,
+        queryParameters: {
+          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+        },
         options: Options(
           sendTimeout: const Duration(minutes: 5),
           receiveTimeout: const Duration(minutes: 2),

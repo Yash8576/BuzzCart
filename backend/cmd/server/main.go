@@ -196,8 +196,8 @@ func main() {
 		upload := api.Group("/upload")
 		{
 			upload.POST("/image", middleware.Auth(cfg.JWTSecret), handlers.UploadImageHandler(db))
-			upload.POST("/video", handlers.UploadVideoHandler)
-			upload.POST("/product-image", handlers.UploadProductImageHandler)
+			upload.POST("/video", middleware.Auth(cfg.JWTSecret), handlers.UploadVideoHandler)
+			upload.POST("/product-image", middleware.Auth(cfg.JWTSecret), handlers.UploadProductImageHandler)
 			upload.POST("/product-document", middleware.Auth(cfg.JWTSecret), handlers.UploadProductDocumentHandler)
 
 			upload.POST("/user-photo", middleware.Auth(cfg.JWTSecret), handlers.UploadUserPhotoHandler(db))
