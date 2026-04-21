@@ -2024,7 +2024,7 @@ class _ProfilePageState extends State<ProfilePage>
           ),
         );
       }
-      return const Center(child: Text('No products yet'));
+      return const Center(child: Text('No purchases yet'));
     }
     final list = ListView.separated(
       padding: const EdgeInsets.all(12),
