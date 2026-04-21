@@ -99,20 +99,26 @@ class _ReelsPageState extends State<ReelsPage> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      body: PageView.builder(
-        controller: _pageController,
-        scrollDirection: Axis.vertical,
-        onPageChanged: (index) => setState(() => _currentIndex = index),
-        itemCount: _reels.length,
-        itemBuilder: (context, index) {
-          final reel = _reels[index];
-          final isActive = index == _currentIndex;
-          return _ReelCard(
-            reel: reel,
-            isActive: isActive,
-            onAddToCart: _handleAddToCart,
-          );
-        },
+      body: RefreshIndicator(
+        onRefresh: _fetchReels,
+        child: PageView.builder(
+          controller: _pageController,
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: PageScrollPhysics(),
+          ),
+          scrollDirection: Axis.vertical,
+          onPageChanged: (index) => setState(() => _currentIndex = index),
+          itemCount: _reels.length,
+          itemBuilder: (context, index) {
+            final reel = _reels[index];
+            final isActive = index == _currentIndex;
+            return _ReelCard(
+              reel: reel,
+              isActive: isActive,
+              onAddToCart: _handleAddToCart,
+            );
+          },
+        ),
       ),
     );
   }

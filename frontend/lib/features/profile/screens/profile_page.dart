@@ -100,6 +100,10 @@ class _ProfilePageState extends State<ProfilePage>
     _fetchUserContent(forceRefresh: true);
   }
 
+  Future<void> _refreshProfileContent() async {
+    await _fetchUserContent(forceRefresh: true);
+  }
+
   Map<String, dynamic> _userToProfileJson(UserModel user) {
     final profileJson = user.toJson();
     profileJson['privacy_profile'] = user.privacyProfile.toLowerCase();
@@ -1398,8 +1402,11 @@ class _ProfilePageState extends State<ProfilePage>
     }
 
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
+      body: RefreshIndicator(
+        onRefresh: _refreshProfileContent,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
           if (isDesktop)
             SliverAppBar(
               pinned: true,
@@ -1650,7 +1657,8 @@ class _ProfilePageState extends State<ProfilePage>
               ],
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }

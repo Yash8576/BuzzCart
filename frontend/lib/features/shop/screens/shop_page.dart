@@ -1404,12 +1404,15 @@ class _ShopPageState extends State<ShopPage> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
                   ),
                 Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final columns =
-                          _calculateGridColumns(constraints.maxWidth - 24);
-                      return GridView.builder(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: RefreshIndicator(
+                    onRefresh: _fetchProducts,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns =
+                            _calculateGridColumns(constraints.maxWidth - 24);
+                        return GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: columns,
                           childAspectRatio: 0.64,
@@ -1591,8 +1594,9 @@ class _ShopPageState extends State<ShopPage> {
                             ),
                           );
                         },
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],
