@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"buzzcart/internal/database"
+	"buzzcart/internal/storage"
 	"context"
 	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -74,6 +76,76 @@ func deletePostsByMediaID(ctx context.Context, tx *sql.Tx, mediaID string) error
 	return nil
 }
 
+func addStorageObject(targets map[string]struct{}, raw string) {
+	objectName := extractObjectNameFromMediaURL(raw)
+	if strings.TrimSpace(objectName) == "" {
+		return
+	}
+	targets[objectName] = struct{}{}
+}
+
+func loadUserMediaCleanupTargets(ctx context.Context, tx *sql.Tx, mediaID, userID string, targets map[string]struct{}) (sql.NullString, error) {
+	var contentID sql.NullString
+	var mediaURL string
+	var thumbnailURL sql.NullString
+
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT media_url, thumbnail_url, content_id
+		 FROM user_media
+		 WHERE id = $1 AND user_id = $2`,
+		mediaID,
+		userID,
+	).Scan(&mediaURL, &thumbnailURL, &contentID)
+	if err != nil {
+		return sql.NullString{}, err
+	}
+
+	addStorageObject(targets, mediaURL)
+	if thumbnailURL.Valid {
+		addStorageObject(targets, thumbnailURL.String)
+	}
+
+	return contentID, nil
+}
+
+func loadContentCleanupTargets(ctx context.Context, tx *sql.Tx, contentID, userID string, targets map[string]struct{}) error {
+	var videoURL string
+	var thumbnailURL sql.NullString
+
+	err := tx.QueryRowContext(
+		ctx,
+		`SELECT video_url, thumbnail_url
+		 FROM content_items
+		 WHERE id = $1 AND creator_id = $2`,
+		contentID,
+		userID,
+	).Scan(&videoURL, &thumbnailURL)
+	if err != nil {
+		return err
+	}
+
+	addStorageObject(targets, videoURL)
+	if thumbnailURL.Valid {
+		addStorageObject(targets, thumbnailURL.String)
+	}
+
+	return nil
+}
+
+func deleteStorageObjects(targets map[string]struct{}) {
+	if len(targets) == 0 {
+		return
+	}
+
+	storageClient := storage.GetStorageClient()
+	for objectName := range targets {
+		if err := storageClient.DeleteFile(objectName); err != nil {
+			log.Printf("[StorageCleanup] Failed to delete object %q: %v", objectName, err)
+		}
+	}
+}
+
 func DeleteUserMedia(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
@@ -89,11 +161,13 @@ func DeleteUserMedia(db *sql.DB) gin.HandlerFunc {
 		var ownerID string
 		var mediaType string
 		var contentID sql.NullString
+		var mediaURL string
+		var thumbnailURL sql.NullString
 		err := db.QueryRowContext(
 			ctx,
-			"SELECT user_id, media_type, content_id FROM user_media WHERE id = $1",
+			"SELECT user_id, media_type, content_id, media_url, thumbnail_url FROM user_media WHERE id = $1",
 			mediaID,
-		).Scan(&ownerID, &mediaType, &contentID)
+		).Scan(&ownerID, &mediaType, &contentID, &mediaURL, &thumbnailURL)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Media not found"})
 			return
@@ -106,6 +180,12 @@ func DeleteUserMedia(db *sql.DB) gin.HandlerFunc {
 		if ownerID != userID {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized"})
 			return
+		}
+
+		storageTargets := map[string]struct{}{}
+		addStorageObject(storageTargets, mediaURL)
+		if thumbnailURL.Valid {
+			addStorageObject(storageTargets, thumbnailURL.String)
 		}
 
 		tx, err := db.BeginTx(ctx, nil)
@@ -122,6 +202,11 @@ func DeleteUserMedia(db *sql.DB) gin.HandlerFunc {
 		}
 
 		if contentID.Valid && contentID.String != "" {
+			if err := loadContentCleanupTargets(ctx, tx, contentID.String, userID, storageTargets); err != nil && err != sql.ErrNoRows {
+				log.Printf("[DeleteUserMedia] Failed to load linked content cleanup targets for %s: %v", contentID.String, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete media"})
+				return
+			}
 			if _, err := tx.ExecContext(
 				ctx,
 				"DELETE FROM content_items WHERE id = $1 AND creator_id = $2",
@@ -152,6 +237,8 @@ func DeleteUserMedia(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		deleteStorageObjects(storageTargets)
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "Media deleted",
 			"media_id":   mediaID,
@@ -173,7 +260,14 @@ func DeletePost(db *sql.DB) gin.HandlerFunc {
 		defer cancel()
 
 		var ownerID string
-		err := db.QueryRowContext(ctx, "SELECT user_id FROM posts WHERE id = $1", postID).Scan(&ownerID)
+		var mediaID sql.NullString
+		var mediaURL sql.NullString
+		var thumbnailURL sql.NullString
+		err := db.QueryRowContext(
+			ctx,
+			"SELECT user_id, media_id, media_url, thumbnail_url FROM posts WHERE id = $1",
+			postID,
+		).Scan(&ownerID, &mediaID, &mediaURL, &thumbnailURL)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
 			return
@@ -188,6 +282,14 @@ func DeletePost(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		storageTargets := map[string]struct{}{}
+		if mediaURL.Valid {
+			addStorageObject(storageTargets, mediaURL.String)
+		}
+		if thumbnailURL.Valid {
+			addStorageObject(storageTargets, thumbnailURL.String)
+		}
+
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
@@ -195,27 +297,61 @@ func DeletePost(db *sql.DB) gin.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		if _, err := tx.ExecContext(ctx, "DELETE FROM user_feeds WHERE post_id = $1", postID); err != nil {
-			log.Printf("[DeletePost] Failed to remove feed rows for post %s: %v", postID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
-			return
-		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM post_likes WHERE post_id = $1", postID); err != nil {
-			log.Printf("[DeletePost] Failed to remove likes for post %s: %v", postID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
-			return
-		}
+		if mediaID.Valid && mediaID.String != "" {
+			contentID, err := loadUserMediaCleanupTargets(ctx, tx, mediaID.String, userID, storageTargets)
+			if err != nil && err != sql.ErrNoRows {
+				log.Printf("[DeletePost] Failed to load media cleanup targets for post %s: %v", postID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
 
-		result, err := tx.ExecContext(ctx, "DELETE FROM posts WHERE id = $1 AND user_id = $2", postID, userID)
-		if err != nil {
-			log.Printf("[DeletePost] Failed to delete post %s: %v", postID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
-			return
-		}
-		rowsAffected, _ := result.RowsAffected()
-		if rowsAffected == 0 {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
-			return
+			if err := deletePostsByMediaID(ctx, tx, mediaID.String); err != nil {
+				log.Printf("[DeletePost] Failed to remove linked posts for media %s: %v", mediaID.String, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
+
+			if contentID.Valid && contentID.String != "" {
+				if err := loadContentCleanupTargets(ctx, tx, contentID.String, userID, storageTargets); err != nil && err != sql.ErrNoRows {
+					log.Printf("[DeletePost] Failed to load content cleanup targets for %s: %v", contentID.String, err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+					return
+				}
+				if _, err := tx.ExecContext(ctx, "DELETE FROM content_items WHERE id = $1 AND creator_id = $2", contentID.String, userID); err != nil {
+					log.Printf("[DeletePost] Failed to delete linked content %s: %v", contentID.String, err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+					return
+				}
+			}
+
+			if _, err := tx.ExecContext(ctx, "DELETE FROM user_media WHERE id = $1 AND user_id = $2", mediaID.String, userID); err != nil {
+				log.Printf("[DeletePost] Failed to delete linked media %s: %v", mediaID.String, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM user_feeds WHERE post_id = $1", postID); err != nil {
+				log.Printf("[DeletePost] Failed to remove feed rows for post %s: %v", postID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM post_likes WHERE post_id = $1", postID); err != nil {
+				log.Printf("[DeletePost] Failed to remove likes for post %s: %v", postID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
+
+			result, err := tx.ExecContext(ctx, "DELETE FROM posts WHERE id = $1 AND user_id = $2", postID, userID)
+			if err != nil {
+				log.Printf("[DeletePost] Failed to delete post %s: %v", postID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+				return
+			}
+			rowsAffected, _ := result.RowsAffected()
+			if rowsAffected == 0 {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+				return
+			}
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -223,6 +359,8 @@ func DeletePost(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
 			return
 		}
+
+		deleteStorageObjects(storageTargets)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Post deleted", "post_id": postID})
 	}
@@ -249,6 +387,7 @@ func deleteContentItemByType(db *sql.DB, contentType string) gin.HandlerFunc {
 		defer cancel()
 
 		var ownerID string
+		storageTargets := map[string]struct{}{}
 		err := db.QueryRowContext(
 			ctx,
 			"SELECT creator_id FROM content_items WHERE id = $1 AND content_type = $2",
@@ -275,6 +414,12 @@ func deleteContentItemByType(db *sql.DB, contentType string) gin.HandlerFunc {
 			return
 		}
 		defer tx.Rollback()
+
+		if err := loadContentCleanupTargets(ctx, tx, contentID, userID, storageTargets); err != nil && err != sql.ErrNoRows {
+			log.Printf("[Delete%s] Failed to load storage cleanup targets for %s: %v", contentType, contentID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
+			return
+		}
 
 		if _, err := tx.ExecContext(ctx, "DELETE FROM user_media WHERE content_id = $1 AND user_id = $2", contentID, userID); err != nil {
 			log.Printf("[Delete%s] Failed to remove gallery media for %s: %v", contentType, contentID, err)
@@ -305,6 +450,8 @@ func deleteContentItemByType(db *sql.DB, contentType string) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
 			return
 		}
+
+		deleteStorageObjects(storageTargets)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "Content deleted",
