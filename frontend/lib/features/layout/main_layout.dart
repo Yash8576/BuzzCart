@@ -6,6 +6,7 @@ import 'dart:async';
 import '../../core/theme/app_colors.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/cart_provider.dart';
+import '../../core/utils/url_helper.dart';
 import '../../features/messages/providers/messages_provider.dart';
 
 class MainLayout extends StatefulWidget {
@@ -306,13 +307,20 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                   CircleAvatar(
                     radius: 20,
                     backgroundColor: AppColors.electricBlue,
-                    child: Text(
-                      user?.name[0].toUpperCase() ?? 'U',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    backgroundImage: (user?.avatar?.trim().isNotEmpty ?? false)
+                        ? NetworkImage(
+                            UrlHelper.getPlatformUrl(user!.avatar!.trim()),
+                          )
+                        : null,
+                    child: (user?.avatar?.trim().isNotEmpty ?? false)
+                        ? null
+                        : Text(
+                            user?.name[0].toUpperCase() ?? 'U',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
