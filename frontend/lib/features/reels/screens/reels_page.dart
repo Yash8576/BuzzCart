@@ -241,10 +241,12 @@ class _ReelViewportState extends State<_ReelViewport> {
   VideoPlayerController? _controller;
   bool _initializing = false;
   bool _liked = false;
+  int _commentCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _commentCount = widget.reel.commentCount;
     if (widget.isActive) {
       _ensureController();
     }
@@ -253,6 +255,10 @@ class _ReelViewportState extends State<_ReelViewport> {
   @override
   void didUpdateWidget(covariant _ReelViewport oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.reel.id != widget.reel.id ||
+        oldWidget.reel.commentCount != widget.reel.commentCount) {
+      _commentCount = widget.reel.commentCount;
+    }
     if (widget.isActive && _controller == null) {
       _ensureController();
     } else if (widget.isActive && _controller != null) {
@@ -345,6 +351,20 @@ class _ReelViewportState extends State<_ReelViewport> {
         setState(() => _liked = false);
       }
     }
+  }
+
+  Future<void> _openComments() async {
+    final updatedCount = await showReelCommentsSheet(
+      context: context,
+      reel: widget.reel,
+      initialCount: _commentCount,
+    );
+    if (!mounted || updatedCount == null || updatedCount == _commentCount) {
+      return;
+    }
+    setState(() {
+      _commentCount = updatedCount;
+    });
   }
 
   @override
@@ -440,11 +460,8 @@ class _ReelViewportState extends State<_ReelViewport> {
               _ReelActionButton(
                 icon: Icons.chat_bubble_outline,
                 color: Colors.white,
-                count: widget.reel.commentCount,
-                onTap: () => showReelCommentsSheet(
-                  context: context,
-                  reel: widget.reel,
-                ),
+                count: _commentCount,
+                onTap: _openComments,
               ),
               const SizedBox(height: 18),
               _ReelActionButton(
@@ -614,22 +631,30 @@ class _ReelActionButton extends StatelessWidget {
   }
 }
 
-Future<void> showReelCommentsSheet({
+Future<int?> showReelCommentsSheet({
   required BuildContext context,
   required ReelModel reel,
+  required int initialCount,
 }) {
-  return showModalBottomSheet<void>(
+  return showModalBottomSheet<int>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _ReelCommentsSheet(reel: reel),
+    builder: (_) => _ReelCommentsSheet(
+      reel: reel,
+      initialCount: initialCount,
+    ),
   );
 }
 
 class _ReelCommentsSheet extends StatefulWidget {
-  const _ReelCommentsSheet({required this.reel});
+  const _ReelCommentsSheet({
+    required this.reel,
+    required this.initialCount,
+  });
 
   final ReelModel reel;
+  final int initialCount;
 
   @override
   State<_ReelCommentsSheet> createState() => _ReelCommentsSheetState();
@@ -642,12 +667,14 @@ class _ReelCommentsSheetState extends State<_ReelCommentsSheet> {
   bool _loading = true;
   bool _submitting = false;
   String? _error;
+  late int _commentCount;
 
   @override
   void initState() {
     super.initState();
     _api = context.read<ApiService>();
     _commentController = TextEditingController();
+    _commentCount = widget.initialCount;
     _loadComments();
   }
 
@@ -699,6 +726,7 @@ class _ReelCommentsSheetState extends State<_ReelCommentsSheet> {
       }
       setState(() {
         _comments = <ReelCommentModel>[comment, ..._comments];
+        _commentCount += 1;
         _commentController.clear();
       });
     } catch (error) {
@@ -755,7 +783,7 @@ class _ReelCommentsSheetState extends State<_ReelCommentsSheet> {
                       ),
                     ),
                     IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () => Navigator.of(context).pop(_commentCount),
                       icon: const Icon(Icons.close),
                     ),
                   ],

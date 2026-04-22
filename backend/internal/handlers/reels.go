@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,6 +35,60 @@ COALESCE(
 	) FILTER (WHERE p.id IS NOT NULL),
 	'[]'::jsonb
 ) AS products`
+
+var ensureContentCommentsSchemaOnce sync.Once
+
+func ensureContentCommentsSchema(db *sql.DB) error {
+	var ensureErr error
+	ensureContentCommentsSchemaOnce.Do(func() {
+		statements := []string{
+			`CREATE TABLE IF NOT EXISTS content_comments (
+				id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+				content_id UUID NOT NULL REFERENCES content_items(id) ON DELETE CASCADE,
+				user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+				comment_text TEXT NOT NULL,
+				created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_content_comments_content_created
+				ON content_comments(content_id, created_at DESC)`,
+			`CREATE INDEX IF NOT EXISTS idx_content_comments_user
+				ON content_comments(user_id)`,
+			`CREATE OR REPLACE FUNCTION sync_content_comment_count()
+			RETURNS TRIGGER AS $$
+			BEGIN
+				IF TG_OP = 'INSERT' THEN
+					UPDATE content_items
+					SET comment_count = comment_count + 1
+					WHERE id = NEW.content_id;
+					RETURN NEW;
+				ELSIF TG_OP = 'DELETE' THEN
+					UPDATE content_items
+					SET comment_count = GREATEST(comment_count - 1, 0)
+					WHERE id = OLD.content_id;
+					RETURN OLD;
+				END IF;
+
+				RETURN NULL;
+			END;
+			$$ LANGUAGE plpgsql`,
+			`DROP TRIGGER IF EXISTS trigger_sync_content_comment_count ON content_comments`,
+			`CREATE TRIGGER trigger_sync_content_comment_count
+				AFTER INSERT OR DELETE ON content_comments
+				FOR EACH ROW
+				EXECUTE FUNCTION sync_content_comment_count()`,
+		}
+
+		for _, statement := range statements {
+			if _, err := db.Exec(statement); err != nil {
+				ensureErr = err
+				return
+			}
+		}
+	})
+
+	return ensureErr
+}
 
 func validateReelDimensions(width int, height int) error {
 	if width <= 0 || height <= 0 {
@@ -71,6 +127,21 @@ func uniqueOrderedStrings(values []string) []string {
 	}
 
 	return result
+}
+
+func normalizedUUIDString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+
+	parsed, err := uuid.Parse(trimmed)
+	if err != nil {
+		return nil
+	}
+
+	normalized := parsed.String()
+	return &normalized
 }
 
 func fetchTaggedProducts(tx *sql.Tx, userID string, role models.UserRole, productIDs []string) ([]models.ProductSimple, error) {
@@ -140,38 +211,56 @@ func fetchTaggedProducts(tx *sql.Tx, userID string, role models.UserRole, produc
 }
 
 func canAccessReel(db *sql.DB, reelID string, userID string) (bool, error) {
-	var canAccess bool
+	viewerUUID := normalizedUUIDString(userID)
+	var creatorID string
+	var creatorStatus string
+	var privacyProfile string
+
 	err := db.QueryRow(
-		`SELECT EXISTS (
-			SELECT 1
-			FROM content_items ci
-			JOIN users u ON ci.creator_id = u.id
-			LEFT JOIN user_follows viewer_follows_creator
-				ON viewer_follows_creator.follower_id = NULLIF($2, '')::uuid
-				AND viewer_follows_creator.following_id = ci.creator_id
-			LEFT JOIN user_follows creator_follows_viewer
-				ON creator_follows_viewer.follower_id = ci.creator_id
-				AND creator_follows_viewer.following_id = NULLIF($2, '')::uuid
-			WHERE ci.id = $1
-			  AND ci.content_type = 'reel'
-			  AND COALESCE(u.status::text, 'active') = 'active'
-			  AND (
-				COALESCE(u.privacy_profile::text, 'public') = 'public'
-				OR (
-					$2 <> ''
-					AND ci.creator_id = NULLIF($2, '')::uuid
-				)
-				OR (
-					$2 <> ''
-					AND viewer_follows_creator.follower_id IS NOT NULL
-					AND creator_follows_viewer.follower_id IS NOT NULL
-				)
-			  )
-		)`,
+		`SELECT
+			ci.creator_id,
+			COALESCE(u.status::text, 'active'),
+			LOWER(COALESCE(u.privacy_profile::text, 'public'))
+		FROM content_items ci
+		JOIN users u ON ci.creator_id = u.id
+		WHERE ci.id = $1 AND ci.content_type = 'reel'`,
 		reelID,
-		userID,
-	).Scan(&canAccess)
-	return canAccess, err
+	).Scan(&creatorID, &creatorStatus, &privacyProfile)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		log.Printf("[canAccessReel] Failed to load reel %s for viewer %q: %v", reelID, userID, err)
+		return false, err
+	}
+
+	if creatorStatus != "active" {
+		return false, nil
+	}
+	if privacyProfile == "public" {
+		return true, nil
+	}
+	if viewerUUID == nil {
+		return false, nil
+	}
+	if creatorID == *viewerUUID {
+		return true, nil
+	}
+
+	var followsCreator bool
+	err = db.QueryRow(
+		`SELECT EXISTS(
+			SELECT 1 FROM user_follows
+			WHERE follower_id = $1 AND following_id = $2
+		)`,
+		*viewerUUID,
+		creatorID,
+	).Scan(&followsCreator)
+	if err != nil {
+		log.Printf("[canAccessReel] Failed to check follow relationship for reel %s viewer %q: %v", reelID, userID, err)
+		return false, err
+	}
+	return followsCreator, nil
 }
 
 func insertContentProducts(tx *sql.Tx, contentID string, productIDs []string) error {
@@ -493,12 +582,25 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 		reelID := c.Param("reel_id")
 		userID := c.GetString("user_id")
 
-		canAccess, err := canAccessReel(db, reelID, userID)
-		if err != nil {
+		if err := ensureContentCommentsSchema(db); err != nil {
+			log.Printf("[GetReelComments] Failed to ensure content_comments schema: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel comments"})
 			return
 		}
-		if !canAccess {
+		var reelExists bool
+		err := db.QueryRow(
+			`SELECT EXISTS(
+				SELECT 1 FROM content_items
+				WHERE id = $1 AND content_type = 'reel'
+			)`,
+			reelID,
+		).Scan(&reelExists)
+		if err != nil {
+			log.Printf("[GetReelComments] Reel existence check failed for reel %s: %v", reelID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel comments"})
+			return
+		}
+		if !reelExists {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
 			return
 		}
@@ -512,25 +614,17 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 				cc.created_at,
 				cc.updated_at,
 				COALESCE(u.name, ''),
-				u.avatar,
-				CASE
-					WHEN $2 <> '' AND EXISTS(
-						SELECT 1 FROM user_follows uf
-						WHERE uf.follower_id = $2 AND uf.following_id = cc.user_id
-					) THEN TRUE
-					ELSE FALSE
-				END AS is_following
+				u.avatar
 			FROM content_comments cc
-			JOIN content_items ci ON ci.id = cc.content_id AND ci.content_type = 'reel'
 			JOIN users u ON u.id = cc.user_id
 			WHERE cc.content_id = $1
 			ORDER BY
-				CASE WHEN cc.user_id = $2 THEN 0 ELSE 1 END,
-				is_following DESC,
+				CASE WHEN $2 <> '' AND cc.user_id::text = $2 THEN 0 ELSE 1 END,
 				cc.created_at DESC`,
-			reelID, userID,
+			reelID, strings.TrimSpace(userID),
 		)
 		if err != nil {
+			log.Printf("[GetReelComments] Query failed for reel %s viewer %q: %v", reelID, userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel comments"})
 			return
 		}
@@ -548,14 +642,20 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 				&comment.UpdatedAt,
 				&comment.Username,
 				&comment.UserAvatar,
-				&comment.IsFollowing,
 			); err != nil {
+				log.Printf("[GetReelComments] Scan failed for reel %s viewer %q: %v", reelID, userID, err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode reel comments"})
 				return
 			}
-			comment.IsCurrentUser = userID != "" && comment.UserID == userID
+			comment.IsFollowing = false
+			comment.IsCurrentUser = strings.TrimSpace(userID) != "" && comment.UserID == strings.TrimSpace(userID)
 			comment.UserAvatar = readableMediaURLPtr(comment.UserAvatar)
 			comments = append(comments, comment)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[GetReelComments] Rows iteration failed for reel %s viewer %q: %v", reelID, userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel comments"})
+			return
 		}
 
 		c.JSON(http.StatusOK, comments)
@@ -566,6 +666,18 @@ func CreateReelComment(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 		userID := c.GetString("user_id")
+		viewerUUID := normalizedUUIDString(userID)
+
+		if err := ensureContentCommentsSchema(db); err != nil {
+			log.Printf("[CreateReelComment] Failed to ensure content_comments schema: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create comment"})
+			return
+		}
+
+		if viewerUUID == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			return
+		}
 
 		var req models.ReelCommentCreate
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -579,13 +691,35 @@ func CreateReelComment(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		canAccess, err := canAccessReel(db, reelID, userID)
+		var reelExists bool
+		err := db.QueryRow(
+			`SELECT EXISTS(
+				SELECT 1 FROM content_items
+				WHERE id = $1 AND content_type = 'reel'
+			)`,
+			reelID,
+		).Scan(&reelExists)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate reel access"})
+			log.Printf("[CreateReelComment] Reel existence check failed for reel %s: %v", reelID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate reel"})
 			return
 		}
-		if !canAccess {
+		if !reelExists {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
+			return
+		}
+
+		var userExists bool
+		if err := db.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)`,
+			*viewerUUID,
+		).Scan(&userExists); err != nil {
+			log.Printf("[CreateReelComment] Failed to verify user %s: %v", *viewerUUID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate comment author"})
+			return
+		}
+		if !userExists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Comment author not found"})
 			return
 		}
 
@@ -595,8 +729,12 @@ func CreateReelComment(db *sql.DB) gin.HandlerFunc {
 		if _, err := db.Exec(
 			`INSERT INTO content_comments (id, content_id, user_id, comment_text, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			commentID, reelID, userID, commentText, createdAt, createdAt,
+			commentID, reelID, *viewerUUID, commentText, createdAt, createdAt,
 		); err != nil {
+			log.Printf(
+				"[CreateReelComment] Failed to create comment %s for reel %s by user %s: %v",
+				commentID, reelID, *viewerUUID, err,
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create comment"})
 			return
 		}
@@ -627,6 +765,7 @@ func CreateReelComment(db *sql.DB) gin.HandlerFunc {
 			&comment.UserAvatar,
 		)
 		if err != nil {
+			log.Printf("[CreateReelComment] Failed to fetch created comment %s for reel %s: %v", commentID, reelID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch created comment"})
 			return
 		}
