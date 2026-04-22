@@ -184,6 +184,14 @@ class ChatEngine:
         if structured_fact_response is not None:
             return structured_fact_response
 
+        section_bullet_response = self._answer_section_bullet_fact(
+            product_id=product_id,
+            query=cleaned_query,
+            product_name=product_name,
+        )
+        if section_bullet_response is not None:
+            return section_bullet_response
+
         direct_response = self._answer_directly_from_document(
             product_id=product_id,
             query=cleaned_query,
@@ -433,6 +441,79 @@ class ChatEngine:
             )
 
         return None
+
+    def _answer_section_bullet_fact(
+        self,
+        product_id: str,
+        query: str,
+        product_name: Optional[str] = None,
+    ) -> Optional[ProductChatResponse]:
+        if not (
+            self._asks_for_fact_value(query)
+            or self._expects_numeric_answer(query)
+            or self._expects_yes_no_answer(query)
+        ):
+            return None
+
+        chunks = self.vector_store.load_product_chunks(product_id)
+        if not chunks:
+            return None
+
+        entries: List[Dict[str, Any]] = []
+        for chunk in chunks:
+            for entry in self._extract_section_entries(chunk.text):
+                entries.append(
+                    {
+                        **entry,
+                        "context_text": chunk.text,
+                        "page": int(chunk.metadata["page"]),
+                        "chunk_id": int(chunk.metadata["chunk_id"]),
+                    }
+                )
+
+        if not entries:
+            return None
+
+        lowered_query = query.lower()
+        if "fan" in lowered_query:
+            fanless_entry = next(
+                (entry for entry in entries if "fanless" in entry["text"].lower()),
+                None,
+            )
+            if fanless_entry is not None:
+                clause_subject = self._product_subject_clause(product_name)
+                return ProductChatResponse(
+                    answer=f"No, {clause_subject} has a fanless design.",
+                    source=AnswerSource(
+                        page=int(fanless_entry["page"]),
+                        chunk_id=int(fanless_entry["chunk_id"]),
+                    ),
+                    confidence="high",
+                )
+
+        best_entry: Optional[Dict[str, Any]] = None
+        best_score = -1.0
+        for entry in entries:
+            score = self._section_entry_score(query, entry)
+            if score > best_score:
+                best_score = score
+                best_entry = entry
+
+        if best_entry is None or best_score < 0.52:
+            return None
+
+        answer = self._rewrite_section_entry(query, best_entry, product_name=product_name)
+        if not answer:
+            return None
+
+        return ProductChatResponse(
+            answer=answer,
+            source=AnswerSource(
+                page=int(best_entry["page"]),
+                chunk_id=int(best_entry["chunk_id"]),
+            ),
+            confidence="high",
+        )
 
     def _collect_evidence_candidates(
         self,
@@ -778,6 +859,7 @@ class ChatEngine:
         ]
 
     def _normalize_candidate_text(self, text: str) -> str:
+        text = text.replace("Ã", "×").replace("â€”", "—").replace("â€“", "–")
         return re.sub(r"\s+", " ", text).strip(" ,;:|-")
 
     def _best_matching_line(self, query: str, text: str) -> Optional[str]:
@@ -967,6 +1049,32 @@ class ChatEngine:
 
         return facts
 
+    def _extract_section_entries(self, text: str) -> List[Dict[str, str]]:
+        entries: List[Dict[str, str]] = []
+        current_section: Optional[str] = None
+
+        for raw_line in re.split(r"[\r\n]+", text):
+            normalized = self._normalize_candidate_text(raw_line)
+            if not normalized:
+                continue
+
+            cleaned = normalized.lstrip("•o- ").strip()
+            if not cleaned:
+                continue
+
+            if self._looks_like_section_heading(cleaned):
+                current_section = cleaned
+                continue
+
+            entries.append(
+                {
+                    "section": current_section or "",
+                    "text": cleaned,
+                }
+            )
+
+        return entries
+
     def _split_structured_fragment(self, fragment: str) -> List[tuple[str, str]]:
         pattern = re.compile(
             r"([A-Za-z][A-Za-z0-9_/&()+.\- ]{1,50}?):\s*(.+?)(?=(?:\s+[A-Za-z][A-Za-z0-9_/&()+.\- ]{1,50}:\s)|$)"
@@ -1064,6 +1172,83 @@ class ChatEngine:
             return 0.35
         return 0.0
 
+    def _looks_like_section_heading(self, text: str) -> bool:
+        lowered = text.lower()
+        if ":" in text:
+            return False
+        if self._contains_numeric_value(text):
+            return False
+        if any(
+            token in lowered
+            for token in (
+                "chip",
+                "cpu",
+                "gpu",
+                "wi-fi",
+                "wifi",
+                "bluetooth",
+                "thunderbolt",
+                "fanless",
+                "retina",
+                "ssd",
+                "battery",
+                "display",
+                "hours",
+            )
+        ):
+            return False
+        if lowered.startswith(("relevance to rag", "not directly relevant", "useful for")):
+            return False
+        words = text.split()
+        return 1 <= len(words) <= 5 and text[:1].isupper()
+
+    def _section_entry_score(self, query: str, entry: Dict[str, Any]) -> float:
+        text = entry["text"]
+        section = entry.get("section", "")
+        score = self._support_ratio(query, text)
+        score += self._support_ratio(query, section) * 0.40
+        score += self._topic_alignment_bonus(query, section, text)
+
+        lowered_query = query.lower()
+        lowered_text = text.lower()
+        lowered_section = section.lower()
+
+        if self._expects_numeric_answer(query) and self._contains_numeric_value(text):
+            score += 0.18
+        if "display" in lowered_query and "inch" in lowered_text:
+            score += 0.60
+        if "refresh" in lowered_query and "hz" in lowered_text:
+            score += 0.45
+        if "battery" in lowered_query and "hour" in lowered_text:
+            score += 0.45
+        if ("connectivity" in lowered_query or "wireless" in lowered_query) and lowered_section == "connectivity":
+            score += 0.55
+        if "thunderbolt" in lowered_query and "thunderbolt" in lowered_text:
+            score += 0.65
+        if ("chip" in lowered_query or "processor" in lowered_query) and "chip" in lowered_text:
+            score += 0.65
+        if "ram" in lowered_query and "gb" in lowered_text and lowered_section.startswith("memory"):
+            score += 0.26
+        if "fan" in lowered_query and "fanless" in lowered_text:
+            score += 0.65
+        if "good for" in lowered_query and "rag" in lowered_text:
+            score += 0.50
+
+        if lowered_text in {"display", "battery", "connectivity", "storage"}:
+            score -= 0.35
+        if lowered_text in {
+            "chip and performance",
+            "design and thermals",
+            "audio and sensors",
+            "software and ai",
+            "camera system",
+        }:
+            score -= 0.40
+        if lowered_text.startswith(("relevance to rag", "useful for", "not directly relevant")):
+            score -= 0.24
+
+        return score
+
     def _rewrite_structured_fact(
         self,
         query: str,
@@ -1157,6 +1342,54 @@ class ChatEngine:
             return f"{subject} supports {value_clean}."
 
         return f"{possessive_subject} {self._humanize_key(key)} is {value_clean}."
+
+    def _rewrite_section_entry(
+        self,
+        query: str,
+        entry: Dict[str, Any],
+        product_name: Optional[str] = None,
+    ) -> Optional[str]:
+        text = entry["text"]
+        section = str(entry.get("section", ""))
+        lowered_query = query.lower()
+        lowered_text = text.lower()
+        lowered_section = section.lower()
+        subject = self._product_subject(product_name)
+        possessive_subject = self._product_possessive(product_name)
+
+        if ("chip" in lowered_query or "processor" in lowered_query) and "chip" in lowered_text:
+            return f"{subject} uses the {text}."
+        if "ram" in lowered_query and lowered_section.startswith("memory"):
+            configured_match = re.search(r"configurable up to\s*(~?\d+\s*(?:GB|TB))", text, flags=re.IGNORECASE)
+            base_entry = text
+            if configured_match:
+                return f"{subject} comes with {configured_match.group(1)} maximum unified memory."
+            base_match = re.search(r"(?:base:?\s*)?(~?\d+\s*(?:GB|TB))", text, flags=re.IGNORECASE)
+            if base_match:
+                return f"{subject} comes with {base_match.group(1)} unified memory."
+            return f"{possessive_subject} memory is {base_entry}."
+        if "display" in lowered_query and "inch" in lowered_text:
+            return f"{subject} comes with {text}."
+        if "refresh" in lowered_query and "hz" in lowered_text:
+            return f"{possessive_subject} refresh rate is {text}."
+        if "battery" in lowered_query and "hour" in lowered_text:
+            return f"{possessive_subject} battery life is {text}."
+        if ("connectivity" in lowered_query or "wireless" in lowered_query) and lowered_section == "connectivity":
+            bullet_values = [
+                item["text"]
+                for item in self._extract_section_entries(entry.get("context_text", text))
+                if item.get("section", "").lower() == "connectivity"
+                and any(token in item["text"].lower() for token in ("wi-fi", "bluetooth", "thunderbolt", "usb"))
+            ]
+            if bullet_values:
+                return f"{subject} supports {', '.join(bullet_values[:-1])}, and {bullet_values[-1]}." if len(bullet_values) > 1 else f"{subject} supports {bullet_values[0]}."
+        if "thunderbolt" in lowered_query and "thunderbolt" in lowered_text:
+            return f"{subject} has {text}."
+        if "fan" in lowered_query and "fanless" in lowered_text:
+            return f"No, {self._product_subject_clause(product_name)} has a fanless design."
+        if "good for" in lowered_query or ("embeddings" in lowered_query and "index" in lowered_query):
+            return f"Yes, {self._product_subject_clause(product_name)} is {text[:1].lower() + text[1:] if text else text}."
+        return self._ensure_terminal_period(text)
 
     def _port_count_answer(self, key: str, value: str) -> Optional[str]:
         key_lower = key.lower()

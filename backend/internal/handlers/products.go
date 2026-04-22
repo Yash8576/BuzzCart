@@ -339,19 +339,6 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		product, err = getProductByID(db, productID)
-		if err != nil {
-			log.Printf("[DeleteProduct] primary product load failed for cleanup (product_id=%s): %v", productID, err)
-			product, err = getProductByIDLegacy(db, productID)
-			if err != nil {
-				log.Printf("[DeleteProduct] legacy product load failed for cleanup (product_id=%s): %v", productID, err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
-				return
-			}
-		}
-
-		storageTargets := collectProductStorageTargets(product)
-
 		ctx, cancel := database.NewContext()
 		defer cancel()
 
@@ -362,24 +349,19 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		if _, err := tx.ExecContext(ctx, "DELETE FROM review_helpful_votes WHERE review_id IN (SELECT id FROM product_ratings WHERE product_id = $1)", productID); err != nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM cart_items WHERE product_id = $1", productID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
 			return
 		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM product_ratings WHERE product_id = $1", productID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
-			return
-		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM product_analytics WHERE product_id = $1", productID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
-			return
-		}
-		if _, err := tx.ExecContext(ctx, "DELETE FROM product_images WHERE product_id = $1", productID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
-			return
-		}
-
-		result, err := tx.ExecContext(ctx, "DELETE FROM products WHERE id = $1", productID)
+		result, err := tx.ExecContext(
+			ctx,
+			`UPDATE products
+			 SET is_active = FALSE,
+			     stock_quantity = 0,
+			     updated_at = CURRENT_TIMESTAMP
+			 WHERE id = $1`,
+			productID,
+		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete product"})
 			return
@@ -395,10 +377,7 @@ func DeleteProduct(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		deleteStorageObjects(storageTargets)
-		deleteProductDocumentIndex(productID)
-
-		c.JSON(http.StatusOK, gin.H{"message": "Product deleted"})
+		c.JSON(http.StatusOK, gin.H{"message": "Product archived"})
 	}
 }
 
