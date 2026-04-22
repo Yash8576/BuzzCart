@@ -349,6 +349,35 @@ func canAccessReel(db *sql.DB, reelID string, userID string) (bool, error) {
 	return followsCreator, nil
 }
 
+func resolveReelContentID(db *sql.DB, reelID string) (string, error) {
+	var contentID string
+	err := db.QueryRow(
+		`SELECT ci.id
+		FROM content_items ci
+		WHERE ci.id = $1 AND ci.content_type = 'reel'`,
+		reelID,
+	).Scan(&contentID)
+	if err == nil {
+		return contentID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+
+	err = db.QueryRow(
+		`SELECT um.content_id
+		FROM user_media um
+		WHERE um.id = $1
+		  AND um.media_type = 'reel'
+		  AND um.content_id IS NOT NULL`,
+		reelID,
+	).Scan(&contentID)
+	if err != nil {
+		return "", err
+	}
+	return contentID, nil
+}
+
 func insertContentProducts(tx *sql.Tx, contentID string, productIDs []string) error {
 	for index, productID := range productIDs {
 		if _, err := tx.Exec(
@@ -632,8 +661,17 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 		userID := c.GetString("user_id")
+		resolvedReelID, err := resolveReelContentID(db, reelID)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel"})
+			return
+		}
 
-		canAccess, err := canAccessReel(db, reelID, userID)
+		canAccess, err := canAccessReel(db, resolvedReelID, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reel"})
 			return
@@ -643,10 +681,10 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		cacheKey := reelDetailCacheKey(reelID, userID)
+		cacheKey := reelDetailCacheKey(resolvedReelID, userID)
 		var cachedReel models.Reel
 		if readCachedJSON(cacheKey, &cachedReel) {
-			_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)
+			_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", resolvedReelID)
 			c.JSON(http.StatusOK, cachedReel)
 			return
 		}
@@ -658,7 +696,7 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 				WHERE ci.id = $1
 				  AND ci.content_type = 'reel'
 			`),
-			reelID,
+			resolvedReelID,
 		).Scan(
 			&reel.ID,
 			&reel.URL,
@@ -688,7 +726,7 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 		resolveReelMediaURLs(&reel)
 		writeCachedJSON(cacheKey, reel, reelDetailCacheTTL)
 
-		_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)
+		_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", resolvedReelID)
 
 		c.JSON(http.StatusOK, reel)
 	}

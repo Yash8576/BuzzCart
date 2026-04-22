@@ -13,7 +13,12 @@ import '../../../core/utils/url_helper.dart';
 import '../../layout/main_layout.dart';
 
 class ReelsPage extends StatefulWidget {
-  const ReelsPage({super.key});
+  const ReelsPage({
+    super.key,
+    this.initialReelId,
+  });
+
+  final String? initialReelId;
 
   @override
   State<ReelsPage> createState() => _ReelsPageState();
@@ -84,14 +89,18 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
   Future<void> _fetchReels() async {
     try {
       setState(() => _loading = true);
+      final requestedReelId = _requestedReelId();
       final reels = await _api.getReels();
-      final requestedReelId = _requestedReelIdFromRoute();
-      final targetIndex = _indexForReelId(reels, requestedReelId);
+      final hydratedReels = await _hydrateRequestedReel(
+        reels,
+        requestedReelId,
+      );
+      final targetIndex = _indexForReelId(hydratedReels, requestedReelId);
       if (!mounted) {
         return;
       }
       setState(() {
-        _reels = reels;
+        _reels = hydratedReels;
         _currentIndex = targetIndex;
         _loading = false;
       });
@@ -131,14 +140,6 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
     });
   }
 
-  String? _requestedReelIdFromRoute() {
-    final requested = GoRouterState.of(context).uri.queryParameters['id'];
-    if (requested == null || requested.trim().isEmpty) {
-      return null;
-    }
-    return requested.trim();
-  }
-
   int _indexForReelId(List<ReelModel> reels, String? reelId) {
     if (reelId == null) {
       return 0;
@@ -147,8 +148,25 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
     return index >= 0 ? index : 0;
   }
 
+  Future<List<ReelModel>> _hydrateRequestedReel(
+    List<ReelModel> reels,
+    String? requestedReelId,
+  ) async {
+    if (requestedReelId == null ||
+        reels.any((reel) => reel.id == requestedReelId)) {
+      return reels;
+    }
+
+    try {
+      final requestedReel = await _api.getReel(requestedReelId);
+      return <ReelModel>[requestedReel, ...reels];
+    } catch (_) {
+      return reels;
+    }
+  }
+
   void _syncRequestedReel() {
-    final requestedReelId = _requestedReelIdFromRoute();
+    final requestedReelId = _requestedReelId();
     if (_lastRequestedReelId == requestedReelId || _reels.isEmpty) {
       return;
     }
@@ -168,6 +186,14 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
         _currentIndex = targetIndex;
       });
     });
+  }
+
+  String? _requestedReelId() {
+    final requested = widget.initialReelId;
+    if (requested == null || requested.trim().isEmpty) {
+      return null;
+    }
+    return requested.trim();
   }
 
   @override

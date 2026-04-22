@@ -255,7 +255,9 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             routes: [
               GoRoute(
                 path: '/reels',
-                builder: (context, state) => const ReelsPage(),
+                builder: (context, state) => ReelsPage(
+                  initialReelId: state.uri.queryParameters['id'],
+                ),
               ),
             ],
           ),

@@ -771,6 +771,15 @@ class ApiService {
     }
   }
 
+  Future<ReelModel> getReel(String reelId) async {
+    try {
+      final response = await _dio.get('/reels/$reelId');
+      return ReelModel.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<Map<String, dynamic>> createReel({
     required String url,
     required String thumbnail,

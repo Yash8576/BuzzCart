@@ -626,7 +626,7 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 		}
 		// Query from user_media table
 		query := `
-			SELECT um.id, um.media_type, um.media_url, um.thumbnail_url, um.caption, 
+			SELECT um.id, um.content_id, um.media_type, um.media_url, um.thumbnail_url, um.caption, 
 			       COALESCE(um.view_count, 0), COALESCE(um.like_count, 0), COALESCE(um.comment_count, 0), um.created_at
 			FROM user_media um
 			WHERE um.user_id = $1
@@ -654,6 +654,7 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 
 		type MediaItem struct {
 			ID           string  `json:"id"`
+			ContentID    *string `json:"content_id"`
 			MediaType    string  `json:"media_type"`
 			MediaURL     string  `json:"media_url"`
 			ThumbnailURL *string `json:"thumbnail_url"`
@@ -669,7 +670,7 @@ func GetUserMedia(db *sql.DB) gin.HandlerFunc {
 			var item MediaItem
 			var createdAt time.Time
 			err := rows.Scan(
-				&item.ID, &item.MediaType, &item.MediaURL, &item.ThumbnailURL,
+				&item.ID, &item.ContentID, &item.MediaType, &item.MediaURL, &item.ThumbnailURL,
 				&item.Caption, &item.ViewCount, &item.LikeCount, &item.CommentCount,
 				&createdAt,
 			)

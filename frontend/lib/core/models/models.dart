@@ -945,6 +945,7 @@ class FeedResponse {
 
 class MediaItem {
   final String id;
+  final String? contentId;
   final String mediaType;
   final String mediaUrl;
   final String? thumbnailUrl;
@@ -956,6 +957,7 @@ class MediaItem {
 
   MediaItem({
     required this.id,
+    this.contentId,
     required this.mediaType,
     required this.mediaUrl,
     this.thumbnailUrl,
@@ -969,6 +971,7 @@ class MediaItem {
   factory MediaItem.fromJson(Map<String, dynamic> json) {
     return MediaItem(
       id: json['id'] as String,
+      contentId: json['content_id'] as String?,
       mediaType: json['media_type'] as String,
       mediaUrl: json['media_url'] as String,
       thumbnailUrl: json['thumbnail_url'] as String?,
@@ -983,6 +986,7 @@ class MediaItem {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'content_id': contentId,
       'media_type': mediaType,
       'media_url': mediaUrl,
       'thumbnail_url': thumbnailUrl,

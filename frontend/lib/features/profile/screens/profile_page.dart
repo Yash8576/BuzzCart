@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -163,6 +164,18 @@ class _ProfilePageState extends State<ProfilePage>
       return thumbnail;
     }
     return null;
+  }
+
+  int _responsiveGridCount(
+    double maxWidth, {
+    required double targetTileWidth,
+    required int minCount,
+  }) {
+    final availableWidth = maxWidth.isFinite ? maxWidth : 0;
+    if (availableWidth <= 0) {
+      return minCount;
+    }
+    return math.max(minCount, (availableWidth / targetTileWidth).floor());
   }
 
   void _warmVisibleProfileImages() {
@@ -1826,83 +1839,91 @@ class _ProfilePageState extends State<ProfilePage>
       );
     }
     debugPrint('Rendering ${_photos.length} photos');
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1,
-        crossAxisSpacing: 2,
-        mainAxisSpacing: 2,
-      ),
-      itemCount: _photos.length,
-      itemBuilder: (context, index) {
-        final photo = _photos[index];
-        final deletingKey = 'media:${photo.id}';
-        debugPrint('Building photo $index: ${photo.mediaUrl}');
-        return InkWell(
-          onTap: _isDeleting(deletingKey)
-              ? null
-              : () {
-                  // Show full screen photo
-                  showDialog(
-                    context: context,
-                    builder: (context) => Dialog(
-                      backgroundColor: Colors.transparent,
-                      child: Stack(
-                        children: [
-                          Center(
-                            child: _buildCachedImage(
-                              photo.mediaUrl,
-                              fit: BoxFit.contain,
-                              errorWidget: const Center(
-                                child: Icon(Icons.broken_image,
-                                    size: 64, color: Colors.white),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = _responsiveGridCount(
+          constraints.maxWidth,
+          targetTileWidth: 130,
+          minCount: 3,
+        );
+        return GridView.builder(
+          padding: const EdgeInsets.all(8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 1,
+            crossAxisSpacing: 2,
+            mainAxisSpacing: 2,
+          ),
+          itemCount: _photos.length,
+          itemBuilder: (context, index) {
+            final photo = _photos[index];
+            final deletingKey = 'media:${photo.id}';
+            debugPrint('Building photo $index: ${photo.mediaUrl}');
+            return InkWell(
+              onTap: _isDeleting(deletingKey)
+                  ? null
+                  : () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => Dialog(
+                          backgroundColor: Colors.transparent,
+                          child: Stack(
+                            children: [
+                              Center(
+                                child: _buildCachedImage(
+                                  photo.mediaUrl,
+                                  fit: BoxFit.contain,
+                                  errorWidget: const Center(
+                                    child: Icon(Icons.broken_image,
+                                        size: 64, color: Colors.white),
+                                  ),
+                                ),
                               ),
-                            ),
+                              Positioned(
+                                top: 40,
+                                right: 20,
+                                child: IconButton(
+                                  icon: const Icon(Icons.close,
+                                      color: Colors.white, size: 30),
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                              ),
+                            ],
                           ),
-                          Positioned(
-                            top: 40,
-                            right: 20,
-                            child: IconButton(
-                              icon: const Icon(Icons.close,
-                                  color: Colors.white, size: 30),
-                              onPressed: () => Navigator.pop(context),
-                            ),
-                          ),
-                        ],
+                        ),
+                      );
+                    },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Opacity(
+                    opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                    child: _buildCachedImage(
+                      photo.mediaUrl,
+                      fit: BoxFit.cover,
+                      errorWidget: Container(
+                        color: Colors.grey[300],
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.broken_image, color: Colors.grey, size: 32),
+                            SizedBox(height: 4),
+                            Text('Error',
+                                style: TextStyle(fontSize: 10, color: Colors.grey)),
+                          ],
+                        ),
                       ),
                     ),
-                  );
-                },
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Opacity(
-                opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: _buildCachedImage(
-                  photo.mediaUrl,
-                  fit: BoxFit.cover,
-                  errorWidget: Container(
-                    color: Colors.grey[300],
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.broken_image, color: Colors.grey, size: 32),
-                        SizedBox(height: 4),
-                        Text('Error',
-                            style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                    ),
                   ),
-                ),
+                  if (isOwnProfile)
+                    _buildDeleteOverlay(
+                      onDelete: () => _deleteMediaItem(photo),
+                      isDeleting: _isDeleting(deletingKey),
+                    ),
+                ],
               ),
-              if (isOwnProfile)
-                _buildDeleteOverlay(
-                  onDelete: () => _deleteMediaItem(photo),
-                  isDeleting: _isDeleting(deletingKey),
-                ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -2009,64 +2030,73 @@ class _ProfilePageState extends State<ProfilePage>
     if (_reels.isEmpty) {
       return const Center(child: Text('No reels yet'));
     }
-    return GridView.builder(
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 9 / 16,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-      ),
-      itemCount: _reels.length,
-      itemBuilder: (context, index) {
-        final reel = _reels[index];
-        final deletingKey = 'media:${reel.id}';
-        return InkWell(
-          onTap: _isDeleting(deletingKey)
-              ? null
-              : () => context.push('/reels?id=${reel.id}'),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Opacity(
-                opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: (_preferredReelThumbnail(reel) != null)
-                    ? _buildCachedImage(
-                        _preferredReelThumbnail(reel)!,
-                        fit: BoxFit.cover,
-                        errorWidget: Container(
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.video_camera_back, size: 36),
-                        ),
-                      )
-                    : Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.grey.shade800,
-                              Colors.grey.shade900,
-                            ],
-                          ),
-                        ),
-                        child: const Center(
-                          child: Icon(Icons.video_camera_back,
-                              size: 36, color: Colors.white70),
-                        ),
-                      ),
-              ),
-              const Center(
-                child:
-                    Icon(Icons.play_circle_fill, color: Colors.white, size: 36),
-              ),
-              if (isOwnProfile)
-                _buildDeleteOverlay(
-                  onDelete: () => _deleteMediaItem(reel),
-                  isDeleting: _isDeleting(deletingKey),
-                ),
-            ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = _responsiveGridCount(
+          constraints.maxWidth,
+          targetTileWidth: 120,
+          minCount: 3,
+        );
+        return GridView.builder(
+          padding: const EdgeInsets.all(8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 9 / 16,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
           ),
+          itemCount: _reels.length,
+          itemBuilder: (context, index) {
+            final reel = _reels[index];
+            final deletingKey = 'media:${reel.id}';
+            return InkWell(
+              onTap: _isDeleting(deletingKey)
+                  ? null
+                  : () => context.go('/reels?id=${reel.contentId ?? reel.id}'),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Opacity(
+                    opacity: _isDeleting(deletingKey) ? 0.45 : 1,
+                    child: (_preferredReelThumbnail(reel) != null)
+                        ? _buildCachedImage(
+                            _preferredReelThumbnail(reel)!,
+                            fit: BoxFit.cover,
+                            errorWidget: Container(
+                              color: Colors.grey[300],
+                              child: const Icon(Icons.video_camera_back, size: 36),
+                            ),
+                          )
+                        : Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.grey.shade800,
+                                  Colors.grey.shade900,
+                                ],
+                              ),
+                            ),
+                            child: const Center(
+                              child: Icon(Icons.video_camera_back,
+                                  size: 36, color: Colors.white70),
+                            ),
+                          ),
+                  ),
+                  const Center(
+                    child: Icon(Icons.play_circle_fill,
+                        color: Colors.white, size: 36),
+                  ),
+                  if (isOwnProfile)
+                    _buildDeleteOverlay(
+                      onDelete: () => _deleteMediaItem(reel),
+                      isDeleting: _isDeleting(deletingKey),
+                    ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
