@@ -23,9 +23,23 @@ import '../../features/upload/presentation/screens/add_product_screen.dart';
 import '../../features/upload/presentation/screens/upload_content_screen.dart';
 import '../../features/orders/screens/manage_order_page.dart';
 
+final GlobalKey<NavigatorState> _rootNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'rootNavigator');
+final GlobalKey<NavigatorState> _homeBranchNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'homeBranchNavigator');
+final GlobalKey<NavigatorState> _videosBranchNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'videosBranchNavigator');
+final GlobalKey<NavigatorState> _reelsBranchNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'reelsBranchNavigator');
+final GlobalKey<NavigatorState> _shopBranchNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'shopBranchNavigator');
+final GlobalKey<NavigatorState> _profileBranchNavigatorKey =
+    GlobalKey<NavigatorState>(debugLabel: 'profileBranchNavigator');
+
 // Create a router that refreshes when AuthProvider changes
 GoRouter createAppRouter(AuthProvider authProvider) {
   return GoRouter(
+    navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
     refreshListenable: authProvider,
     redirect: (context, state) {
@@ -85,6 +99,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             ),
         branches: [
           StatefulShellBranch(
+            navigatorKey: _homeBranchNavigatorKey,
             routes: [
               GoRoute(
                 path: '/',
@@ -218,6 +233,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: _videosBranchNavigatorKey,
             routes: [
               GoRoute(
                 path: '/videos',
@@ -235,6 +251,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: _reelsBranchNavigatorKey,
             routes: [
               GoRoute(
                 path: '/reels',
@@ -243,6 +260,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: _shopBranchNavigatorKey,
             routes: [
               GoRoute(
                 path: '/shop',
@@ -265,6 +283,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
             ],
           ),
           StatefulShellBranch(
+            navigatorKey: _profileBranchNavigatorKey,
             routes: [
               GoRoute(
                 path: '/profile',

@@ -1059,7 +1059,60 @@ class _ProfilePageState extends State<ProfilePage>
         return;
       }
 
-      if (Platform.isWindows) {
+      if (kIsWeb) {
+        final uploadBytes = await sourceImage.readAsBytes();
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _isAvatarUpdating = true;
+          _localAvatarPreviewBytes = uploadBytes;
+          _localAvatarPreviewPath = null;
+        });
+
+        await authProvider.setPendingAvatarPreviewPath(null);
+        final uploadResult = await _api.uploadAvatar(
+          XFile.fromData(
+            uploadBytes,
+            name: sourceImage.name.isNotEmpty
+                ? sourceImage.name
+                : 'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            mimeType: 'image/${_safeImageExtension(sourceImage.name)}',
+          ),
+        );
+        if (!mounted) {
+          return;
+        }
+
+        debugPrint('[ProfileAvatar] uploadAvatar response: $uploadResult');
+
+        final avatarUrl = uploadResult['avatar_url']?.toString();
+        if (avatarUrl == null || avatarUrl.trim().isEmpty) {
+          throw Exception('Avatar upload succeeded but no URL was returned');
+        }
+
+        authProvider.updateAvatarUrl(avatarUrl);
+        if (!mounted) {
+          return;
+        }
+        await authProvider.setPendingAvatarPreviewPath(null);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _avatarVersion = DateTime.now().millisecondsSinceEpoch;
+          _localAvatarPreviewBytes = null;
+          _localAvatarPreviewPath = null;
+          _profileUser = _userToProfileJson(authProvider.user!);
+        });
+        _storeCurrentProfileCache();
+
+        _showAvatarSnackBar('Profile photo updated successfully');
+        return;
+      }
+
+      if (!kIsWeb && Platform.isWindows) {
         setState(() {
           _isAvatarUpdating = true;
           _localAvatarPreviewPath = localImagePath;
