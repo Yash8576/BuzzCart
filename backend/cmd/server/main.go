@@ -174,8 +174,10 @@ func main() {
 		reels := api.Group("/reels")
 		{
 			reels.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreateReel(db))
-			reels.GET("", handlers.GetReels(db))
-			reels.GET("/:reel_id", handlers.GetReel(db))
+			reels.GET("", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetReels(db))
+			reels.GET("/:reel_id", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetReel(db))
+			reels.GET("/:reel_id/comments", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetReelComments(db))
+			reels.POST("/:reel_id/comments", middleware.Auth(cfg.JWTSecret), handlers.CreateReelComment(db))
 			reels.DELETE("/:reel_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteReel(db))
 			reels.POST("/:reel_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikeReel(db))
 		}

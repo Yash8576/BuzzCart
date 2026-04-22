@@ -49,7 +49,7 @@ class UserModel {
     this.canViewConnections = true,
     required this.createdAt,
   });
-  
+
   bool get isSeller => accountType == 'SELLER' || role == 'seller';
   bool get isPrivate => privacyProfile.toUpperCase() == 'PRIVATE';
   bool get isCustomVisibility => visibilityMode.toLowerCase() == 'custom';
@@ -90,8 +90,10 @@ class UserModel {
       status: json['status'] as String? ?? 'active',
       isVerified: json['is_verified'] as bool? ?? false,
       phoneNumber: json['phone_number'] as String?,
-      privacyProfile: (json['privacy_profile'] as String? ?? 'PUBLIC').toUpperCase(),
-      visibilityMode: (json['visibility_mode'] as String? ?? 'public').toLowerCase(),
+      privacyProfile:
+          (json['privacy_profile'] as String? ?? 'PUBLIC').toUpperCase(),
+      visibilityMode:
+          (json['visibility_mode'] as String? ?? 'public').toLowerCase(),
       visibilityPreferences: preferences,
       isFollowing: json['is_following'] as bool? ?? false,
       isFollowedBy: json['is_followed_by'] as bool? ?? false,
@@ -139,7 +141,8 @@ class UserModel {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       privacyProfile: privacyProfile ?? this.privacyProfile,
       visibilityMode: visibilityMode ?? this.visibilityMode,
-      visibilityPreferences: visibilityPreferences ?? this.visibilityPreferences,
+      visibilityPreferences:
+          visibilityPreferences ?? this.visibilityPreferences,
       isFollowing: isFollowing ?? this.isFollowing,
       isFollowedBy: isFollowedBy ?? this.isFollowedBy,
       isConnection: isConnection ?? this.isConnection,
@@ -295,7 +298,8 @@ class ProductModel {
   String? get countryOfOrigin => _metadataString('country_of_origin');
   String? get specificationPdfUrl => _metadataString('specification_pdf_url');
   List<String> get mediaVideos => _metadataStringList('media_videos');
-  List<Map<String, dynamic>> get mediaQueue => _metadataMediaQueue('media_queue');
+  List<Map<String, dynamic>> get mediaQueue =>
+      _metadataMediaQueue('media_queue');
   List<String> get bulletPoints => _metadataStringList('bullet_points');
   List<String> get searchTerms => _metadataStringList('search_terms');
 
@@ -326,7 +330,10 @@ class ProductModel {
     final width = raw['width']?.toString().trim();
     final height = raw['height']?.toString().trim();
     final unit = raw['unit']?.toString().trim();
-    final parts = [length, width, height].whereType<String>().where((value) => value.isNotEmpty).toList();
+    final parts = [length, width, height]
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
     if (parts.isEmpty) {
       return null;
     }
@@ -339,7 +346,9 @@ class ProductModel {
     specs.addAll(manualSpecifications);
 
     void addSpec(String label, String? value) {
-      if (value != null && value.trim().isNotEmpty && !specs.containsKey(label)) {
+      if (value != null &&
+          value.trim().isNotEmpty &&
+          !specs.containsKey(label)) {
         specs[label] = value.trim();
       }
     }
@@ -561,6 +570,9 @@ class ReelModel {
   final String caption;
   final int views;
   final int likes;
+  final int commentCount;
+  final int width;
+  final int height;
   final String creatorId;
   final String creatorName;
   final String? creatorAvatar;
@@ -574,6 +586,9 @@ class ReelModel {
     required this.caption,
     this.views = 0,
     this.likes = 0,
+    this.commentCount = 0,
+    this.width = 0,
+    this.height = 0,
     required this.creatorId,
     required this.creatorName,
     this.creatorAvatar,
@@ -589,14 +604,84 @@ class ReelModel {
       caption: json['caption'] as String? ?? '',
       views: json['views'] as int? ?? 0,
       likes: json['likes'] as int? ?? 0,
+      commentCount: json['comment_count'] as int? ?? 0,
+      width: json['width'] as int? ?? 0,
+      height: json['height'] as int? ?? 0,
       creatorId: json['creator_id'] as String,
       creatorName: json['creator_name'] as String,
       creatorAvatar: json['creator_avatar'] as String?,
       products: (json['products'] as List?)
-              ?.map((p) => ProductModel.fromJson(p as Map<String, dynamic>))
+              ?.map((p) => ProductModel.fromJson(_reelTaggedProductJson(
+                    p as Map<String, dynamic>,
+                  )))
               .toList() ??
           [],
       createdAt: json['created_at'] as String,
+    );
+  }
+
+  static Map<String, dynamic> _reelTaggedProductJson(
+      Map<String, dynamic> json) {
+    final image = (json['image'] as String?)?.trim();
+    return <String, dynamic>{
+      'id': json['id'] as String,
+      'title': json['title'] as String? ?? '',
+      'description': '',
+      'price': (json['price'] as num?)?.toDouble() ?? 0,
+      'images': [
+        if (image != null && image.isNotEmpty) image,
+      ],
+      'category': '',
+      'tags': const <String>[],
+      'seller_id': '',
+      'seller_name': '',
+      'rating': 0,
+      'reviews_count': 0,
+      'views': 0,
+      'buys': 0,
+      'metadata': const <String, dynamic>{},
+      'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+    };
+  }
+}
+
+class ReelCommentModel {
+  final String id;
+  final String reelId;
+  final String userId;
+  final String commentText;
+  final String createdAt;
+  final String updatedAt;
+  final String username;
+  final String? userAvatar;
+  final bool isFollowing;
+  final bool isCurrentUser;
+
+  ReelCommentModel({
+    required this.id,
+    required this.reelId,
+    required this.userId,
+    required this.commentText,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.username,
+    this.userAvatar,
+    this.isFollowing = false,
+    this.isCurrentUser = false,
+  });
+
+  factory ReelCommentModel.fromJson(Map<String, dynamic> json) {
+    return ReelCommentModel(
+      id: json['id'] as String,
+      reelId: json['reel_id'] as String,
+      userId: json['user_id'] as String,
+      commentText: json['comment_text'] as String? ?? '',
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String? ?? json['created_at'] as String,
+      username: json['username'] as String? ?? 'Unknown',
+      userAvatar: json['user_avatar'] as String?,
+      isFollowing: json['is_following'] as bool? ?? false,
+      isCurrentUser: json['is_current_user'] as bool? ?? false,
     );
   }
 }
@@ -620,8 +705,7 @@ class CartItemModel {
             'description': '',
             'price': (json['price'] as num?)?.toDouble() ?? 0,
             if (json['compare_at_price'] != null)
-              'compare_at_price':
-                  (json['compare_at_price'] as num).toDouble(),
+              'compare_at_price': (json['compare_at_price'] as num).toDouble(),
             'stock_quantity': json['stock_quantity'] as int? ?? 0,
             'images': [
               if ((json['image'] as String?) != null &&
@@ -637,7 +721,8 @@ class CartItemModel {
             'views': 0,
             'buys': 0,
             'metadata': const <String, dynamic>{},
-            'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+            'created_at':
+                DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
           };
 
     return CartItemModel(
@@ -743,12 +828,12 @@ class PostModel {
   final int viewCount;
   final String createdAt;
   final String updatedAt;
-  
+
   // Author info (populated from join)
   final String authorName;
   final String? authorAvatar;
   final bool authorVerified;
-  
+
   // User interaction state
   final bool isLiked;
   final bool isFollowing;
@@ -1080,13 +1165,16 @@ class ChatMessageModel {
       product: json['product'] is Map<String, dynamic>
           ? ProductModel(
               id: (json['product'] as Map<String, dynamic>)['id'] as String,
-              title: (json['product'] as Map<String, dynamic>)['title'] as String,
+              title:
+                  (json['product'] as Map<String, dynamic>)['title'] as String,
               description: '',
-              price: ((json['product'] as Map<String, dynamic>)['price'] as num?)
-                      ?.toDouble() ??
-                  0,
+              price:
+                  ((json['product'] as Map<String, dynamic>)['price'] as num?)
+                          ?.toDouble() ??
+                      0,
               images: [
-                if (((json['product'] as Map<String, dynamic>)['image'] as String?)
+                if (((json['product'] as Map<String, dynamic>)['image']
+                            as String?)
                         ?.isNotEmpty ??
                     false)
                   (json['product'] as Map<String, dynamic>)['image'] as String,
@@ -1173,7 +1261,8 @@ class ConversationThreadModel {
         json['participant'] as Map<String, dynamic>,
       ),
       messages: (json['messages'] as List? ?? [])
-          .map((item) => ChatMessageModel.fromJson(item as Map<String, dynamic>))
+          .map(
+              (item) => ChatMessageModel.fromJson(item as Map<String, dynamic>))
           .toList(),
     );
   }

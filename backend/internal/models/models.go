@@ -247,6 +247,9 @@ type Reel struct {
 	Caption       string          `json:"caption" db:"caption"`
 	Views         int             `json:"views" db:"views"`
 	Likes         int             `json:"likes" db:"likes"`
+	CommentCount  int             `json:"comment_count" db:"comment_count"`
+	Width         int             `json:"width" db:"width"`
+	Height        int             `json:"height" db:"height"`
 	CreatorID     string          `json:"creator_id" db:"creator_id"`
 	CreatorName   string          `json:"creator_name" db:"creator_name"`
 	CreatorAvatar *string         `json:"creator_avatar,omitempty" db:"creator_avatar"`
@@ -259,6 +262,25 @@ type ReelCreate struct {
 	Thumbnail  string   `json:"thumbnail" binding:"required"`
 	Caption    string   `json:"caption"`
 	ProductIDs []string `json:"product_ids"`
+	Width      int      `json:"width" binding:"required,gt=0"`
+	Height     int      `json:"height" binding:"required,gt=0"`
+}
+
+type ReelComment struct {
+	ID            string    `json:"id" db:"id"`
+	ReelID        string    `json:"reel_id" db:"reel_id"`
+	UserID        string    `json:"user_id" db:"user_id"`
+	CommentText   string    `json:"comment_text" db:"comment_text"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
+	Username      string    `json:"username,omitempty" db:"username"`
+	UserAvatar    *string   `json:"user_avatar,omitempty" db:"user_avatar"`
+	IsFollowing   bool      `json:"is_following" db:"-"`
+	IsCurrentUser bool      `json:"is_current_user" db:"-"`
+}
+
+type ReelCommentCreate struct {
+	CommentText string `json:"comment_text" binding:"required,min=1,max=2000"`
 }
 
 type ProductSimple struct {

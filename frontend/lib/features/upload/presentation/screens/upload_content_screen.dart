@@ -8,8 +8,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:video_player/video_player.dart';
 import '../../../../core/providers/app_refresh_provider.dart';
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/upload_content_provider.dart';
+import '../../../../core/models/models.dart';
 import '../../../../core/services/api_service.dart';
 import '../../../../core/utils/aspect_ratio_helper.dart';
 
@@ -25,6 +28,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
   final TextEditingController _captionController = TextEditingController();
   final ApiService _api = ApiService();
   bool _isUploading = false;
+  bool _isLoadingTagOptions = false;
+  List<ProductModel> _eligibleTaggedProducts = const <ProductModel>[];
 
   @override
   void initState() {
@@ -76,6 +81,23 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
               : const Duration(minutes: 10),
         );
         if (video != null && mounted) {
+          if (contentType == 'reel') {
+            final dimensions = await _getVideoDimensions(video);
+            if (!mounted) {
+              return;
+            }
+            if (dimensions == null || !_isValidReelAspectRatio(dimensions)) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Reels must be vertical 9:16 videos.',
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+              return;
+            }
+          }
           provider.addFile(video);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -257,6 +279,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         if (mounted) {
           if (kIsWeb) {
             final croppedBytes = await croppedFile.readAsBytes();
+            if (!mounted) {
+              return;
+            }
             provider.addFile(
               XFile.fromData(
                 croppedBytes,
@@ -414,6 +439,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           }
         }
       } else if (contentType == 'reel') {
+        final dimensions = await _getVideoDimensions(file);
+        if (dimensions == null || !_isValidReelAspectRatio(dimensions)) {
+          throw Exception('Reels must be vertical 9:16 videos');
+        }
+
         // Upload video and create reel record
         final result = await _api.uploadVideo(file, folder: 'reels');
         if (result['url'] != null) {
@@ -423,7 +453,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           await _api.createReel(
             url: videoUrl,
             thumbnail: videoUrl, // Using same URL for thumbnail for now
+            width: dimensions.width.round(),
+            height: dimensions.height.round(),
             caption: caption,
+            productIds:
+                provider.taggedProducts.map((product) => product.id).toList(),
           );
 
           if (mounted) {
@@ -695,6 +729,78 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                     ),
                   ),
 
+                if (provider.selectedMediaType == 'reel') ...[
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.sell_outlined),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Tagged Products',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _isLoadingTagOptions
+                                    ? null
+                                    : () => _showTaggedProductsPicker(provider),
+                                child: Text(
+                                  provider.taggedProducts.isEmpty
+                                      ? 'Add'
+                                      : 'Edit',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _taggingHint(context),
+                            style: const TextStyle(
+                                fontSize: 12, color: Colors.grey),
+                          ),
+                          if (_isLoadingTagOptions) ...[
+                            const SizedBox(height: 12),
+                            const LinearProgressIndicator(),
+                          ],
+                          if (provider.taggedProducts.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: provider.taggedProducts
+                                  .map(
+                                    (product) => Chip(
+                                      label: Text(product.title),
+                                      onDeleted: () {
+                                        final nextProducts =
+                                            List<ProductModel>.from(
+                                                provider.taggedProducts)
+                                              ..removeWhere((item) =>
+                                                  item.id == product.id);
+                                        provider
+                                            .setTaggedProducts(nextProducts);
+                                      },
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
                 // Video Format Info
                 if (provider.selectedMediaType == 'video')
                   Card(
@@ -953,6 +1059,163 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         fit: BoxFit.cover,
       );
     }
+  }
+
+  String _taggingHint(BuildContext context) {
+    final user = context.read<AuthProvider>().user;
+    if (user?.isSeller == true) {
+      return 'Sellers can tag products from their own listings.';
+    }
+    return 'Consumers can tag products from their purchases.';
+  }
+
+  Future<void> _showTaggedProductsPicker(UploadContentProvider provider) async {
+    final options = await _loadEligibleTaggedProducts();
+    if (!mounted) {
+      return;
+    }
+
+    final selectedIds =
+        provider.taggedProducts.map((product) => product.id).toSet();
+    final workingSelection = <String>{...selectedIds};
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Tag Products',
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _taggingHint(context),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    if (options.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Text('No eligible products found yet.'),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: options.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final product = options[index];
+                            final isSelected =
+                                workingSelection.contains(product.id);
+                            return CheckboxListTile(
+                              value: isSelected,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              title: Text(product.title),
+                              subtitle:
+                                  Text('\$${product.price.toStringAsFixed(2)}'),
+                              onChanged: (value) {
+                                setSheetState(() {
+                                  if (value == true) {
+                                    workingSelection.add(product.id);
+                                  } else {
+                                    workingSelection.remove(product.id);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          provider.setTaggedProducts(
+                            options
+                                .where((product) =>
+                                    workingSelection.contains(product.id))
+                                .toList(),
+                          );
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text('Save Tagged Products'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<ProductModel>> _loadEligibleTaggedProducts() async {
+    if (_eligibleTaggedProducts.isNotEmpty) {
+      return _eligibleTaggedProducts;
+    }
+
+    final user = context.read<AuthProvider>().user;
+    if (user == null) {
+      return const <ProductModel>[];
+    }
+
+    setState(() => _isLoadingTagOptions = true);
+    try {
+      final products = user.isSeller
+          ? await _api.getSellerProducts(user.id)
+          : await _api.getUserPurchases(user.id);
+      _eligibleTaggedProducts = products;
+      return products;
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingTagOptions = false);
+      }
+    }
+  }
+
+  Future<Size?> _getVideoDimensions(XFile file) async {
+    VideoPlayerController? controller;
+    try {
+      controller = kIsWeb
+          ? VideoPlayerController.networkUrl(Uri.parse(file.path))
+          : VideoPlayerController.file(File(file.path));
+      await controller.initialize();
+      return controller.value.size;
+    } catch (_) {
+      return null;
+    } finally {
+      await controller?.dispose();
+    }
+  }
+
+  bool _isValidReelAspectRatio(Size size) {
+    if (size.width <= 0 || size.height <= 0) {
+      return false;
+    }
+    if (size.height <= size.width) {
+      return false;
+    }
+
+    const targetRatio = 9 / 16;
+    final actualRatio = size.width / size.height;
+    return (actualRatio - targetRatio).abs() <= 0.03;
   }
 }
 

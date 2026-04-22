@@ -1,10 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:timeago/timeago.dart' as timeago;
+import 'package:video_player/video_player.dart';
+
+import '../../../core/models/models.dart';
 import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/services/api_service.dart';
-import '../../../core/providers/cart_provider.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../layout/main_layout.dart';
 
 class ReelsPage extends StatefulWidget {
   const ReelsPage({super.key});
@@ -13,18 +19,21 @@ class ReelsPage extends StatefulWidget {
   State<ReelsPage> createState() => _ReelsPageState();
 }
 
-class _ReelsPageState extends State<ReelsPage> {
+class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
   final ApiService _api = ApiService();
   final PageController _pageController = PageController();
-  List<dynamic> _reels = [];
+  List<ReelModel> _reels = <ReelModel>[];
   bool _loading = true;
   int _currentIndex = 0;
+  bool _isAppActive = true;
+  bool _areReelsMuted = true;
   AppRefreshProvider? _appRefreshProvider;
   int _lastContentVersion = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchReels();
   }
 
@@ -43,8 +52,20 @@ class _ReelsPageState extends State<ReelsPage> {
   @override
   void dispose() {
     _appRefreshProvider?.removeListener(_handleContentRefresh);
+    WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isAppActive = state == AppLifecycleState.resumed;
+    if (_isAppActive == isAppActive || !mounted) {
+      return;
+    }
+    setState(() {
+      _isAppActive = isAppActive;
+    });
   }
 
   void _handleContentRefresh() {
@@ -54,46 +75,102 @@ class _ReelsPageState extends State<ReelsPage> {
     }
 
     _lastContentVersion = provider.contentVersion;
-
-    if (!mounted) {
-      return;
+    if (mounted) {
+      _fetchReels();
     }
-    _fetchReels();
   }
 
   Future<void> _fetchReels() async {
     try {
       setState(() => _loading = true);
-      final data = await _api.getReels();
+      final reels = await _api.getReels();
+      if (!mounted) {
+        return;
+      }
       setState(() {
-        _reels = data;
+        _reels = reels;
+        _currentIndex = 0;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
       setState(() => _loading = false);
     }
   }
 
-  Future<void> _handleAddToCart(String productId) async {
-    final added = await context.read<CartProvider>().addToCart(productId);
-    if (!mounted) {
+  Future<void> _goToReel(int index) async {
+    if (!_pageController.hasClients || index < 0 || index >= _reels.length) {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(added ? 'Added to cart!' : 'Failed to add to cart'),
-        duration: const Duration(seconds: 1),
-      ),
+    await _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
     );
+  }
+
+  void _handleMuteChanged(bool isMuted) {
+    if (_areReelsMuted == isMuted || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _areReelsMuted = isMuted;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final activeScope = ActiveBranchScope.maybeOf(context);
+    final isReelsBranchActive = (activeScope?.currentIndex ?? 0) == 2 &&
+        (activeScope?.currentPath ?? '') == '/reels';
+    final showDesktopNavArrows =
+        kIsWeb || defaultTargetPlatform == TargetPlatform.windows;
+
     if (_loading) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
+      );
+    }
+
+    if (_reels.isEmpty) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: RefreshIndicator(
+          onRefresh: _fetchReels,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: const [
+              SizedBox(height: 180),
+              Icon(Icons.movie_outlined, size: 64, color: Colors.white54),
+              SizedBox(height: 16),
+              Center(
+                child: Text(
+                  'No reels yet',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'Pull down to refresh when new reels are published.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -103,19 +180,27 @@ class _ReelsPageState extends State<ReelsPage> {
         onRefresh: _fetchReels,
         child: PageView.builder(
           controller: _pageController,
+          scrollDirection: Axis.vertical,
           physics: const AlwaysScrollableScrollPhysics(
             parent: PageScrollPhysics(),
           ),
-          scrollDirection: Axis.vertical,
-          onPageChanged: (index) => setState(() => _currentIndex = index),
           itemCount: _reels.length,
+          onPageChanged: (index) => setState(() => _currentIndex = index),
           itemBuilder: (context, index) {
             final reel = _reels[index];
-            final isActive = index == _currentIndex;
-            return _ReelCard(
+            return _ReelViewport(
+              key: ValueKey(reel.id),
               reel: reel,
-              isActive: isActive,
-              onAddToCart: _handleAddToCart,
+              isActive:
+                  index == _currentIndex && isReelsBranchActive && _isAppActive,
+              isMuted: _areReelsMuted,
+              onMuteChanged: _handleMuteChanged,
+              showNavigationArrows: showDesktopNavArrows,
+              canGoPrevious: index > 0,
+              canGoNext: index < _reels.length - 1,
+              onPrevious: index > 0 ? () => _goToReel(index - 1) : null,
+              onNext:
+                  index < _reels.length - 1 ? () => _goToReel(index + 1) : null,
             );
           },
         ),
@@ -124,204 +209,376 @@ class _ReelsPageState extends State<ReelsPage> {
   }
 }
 
-class _ReelCard extends StatefulWidget {
-  final Map<String, dynamic> reel;
-  final bool isActive;
-  final Function(String) onAddToCart;
-
-  const _ReelCard({
+class _ReelViewport extends StatefulWidget {
+  const _ReelViewport({
+    super.key,
     required this.reel,
     required this.isActive,
-    required this.onAddToCart,
+    required this.isMuted,
+    required this.onMuteChanged,
+    required this.showNavigationArrows,
+    this.canGoPrevious = false,
+    this.canGoNext = false,
+    this.onPrevious,
+    this.onNext,
   });
 
+  final ReelModel reel;
+  final bool isActive;
+  final bool isMuted;
+  final ValueChanged<bool> onMuteChanged;
+  final bool showNavigationArrows;
+  final bool canGoPrevious;
+  final bool canGoNext;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+
   @override
-  State<_ReelCard> createState() => _ReelCardState();
+  State<_ReelViewport> createState() => _ReelViewportState();
 }
 
-class _ReelCardState extends State<_ReelCard> {
-  bool _muted = true;
+class _ReelViewportState extends State<_ReelViewport> {
+  VideoPlayerController? _controller;
+  bool _initializing = false;
   bool _liked = false;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) {
+      _ensureController();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReelViewport oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && _controller == null) {
+      _ensureController();
+    } else if (widget.isActive && _controller != null) {
+      _controller!.setVolume(widget.isMuted ? 0 : 1);
+      _controller!.play();
+    } else if (!widget.isActive && _controller != null) {
+      _disposeController();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeController();
+    super.dispose();
+  }
+
+  void _disposeController() {
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _ensureController() async {
+    if (_controller != null || _initializing) {
+      return;
+    }
+    _initializing = true;
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(UrlHelper.getPlatformUrl(widget.reel.url)),
+    );
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.setVolume(widget.isMuted ? 0 : 1);
+      if (widget.isActive) {
+        await controller.play();
+      }
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+      });
+    } catch (_) {
+      await controller.dispose();
+    } finally {
+      _initializing = false;
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    final nextMuted = !widget.isMuted;
+    await controller.setVolume(nextMuted ? 0 : 1);
+    if (mounted) {
+      widget.onMuteChanged(nextMuted);
+    }
+  }
+
+  Future<void> _togglePlayback() async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    if (controller.value.isPlaying) {
+      await controller.pause();
+    } else {
+      await controller.play();
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _likeReel() async {
+    if (_liked) {
+      return;
+    }
+    setState(() => _liked = true);
+    try {
+      await context.read<ApiService>().likeReel(widget.reel.id);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _liked = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final products = widget.reel['products'] as List? ?? [];
+    final controller = _controller;
+    final isReady = controller != null && controller.value.isInitialized;
+    final products = widget.reel.products;
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Video placeholder
-        Image.network(
-          UrlHelper.getPlatformUrl(widget.reel['thumbnail']),
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(
+        GestureDetector(
+          onTap: _togglePlayback,
+          child: Container(
             color: Colors.black,
-            child: const Center(
-              child: Icon(Icons.play_circle_outline,
-                  size: 80, color: Colors.white),
+            child: isReady
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      final videoSize = controller.value.size;
+                      final aspectRatio = videoSize.height > 0
+                          ? videoSize.width / videoSize.height
+                          : 9 / 16;
+
+                      return Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxHeight * aspectRatio,
+                            maxHeight: constraints.maxHeight,
+                          ),
+                          child: RepaintBoundary(
+                            child: AspectRatio(
+                              aspectRatio: aspectRatio,
+                              child: VideoPlayer(controller),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  )
+                : Image.network(
+                    UrlHelper.getPlatformUrl(widget.reel.thumbnail),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(
+                        Icons.play_circle_outline,
+                        color: Colors.white70,
+                        size: 80,
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.15),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.65),
+                ],
+                stops: const [0, 0.35, 1],
+              ),
             ),
           ),
         ),
-
-        // Gradient overlay
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.transparent,
-                Colors.black.withAlpha(179),
-              ],
-            ),
+        if (!isReady)
+          const Center(
+            child: CircularProgressIndicator(color: Colors.white),
           ),
-        ),
-
-        // Right side actions
         Positioned(
-          right: 12,
-          bottom: 100,
+          right: 14,
+          bottom: 104,
           child: Column(
             children: [
-              _ActionButton(
-                icon: _liked ? Icons.favorite : Icons.favorite_outline,
-                color: _liked ? Colors.red : Colors.white,
-                count: (widget.reel['likes'] ?? 0) + (_liked ? 1 : 0),
-                onTap: () => setState(() => _liked = !_liked),
+              if (widget.showNavigationArrows) ...[
+                _ReelActionButton(
+                  icon: Icons.keyboard_arrow_up_rounded,
+                  color: widget.canGoPrevious ? Colors.white : Colors.white38,
+                  onTap: widget.canGoPrevious ? widget.onPrevious : null,
+                ),
+                const SizedBox(height: 18),
+              ],
+              _ReelActionButton(
+                icon: _liked ? Icons.favorite : Icons.favorite_border,
+                color: _liked ? AppColors.vibrantPink : Colors.white,
+                count: widget.reel.likes + (_liked ? 1 : 0),
+                onTap: _likeReel,
               ),
-              const SizedBox(height: 16),
-              _ActionButton(
-                icon: Icons.comment,
+              const SizedBox(height: 18),
+              _ReelActionButton(
+                icon: Icons.chat_bubble_outline,
                 color: Colors.white,
-                count: widget.reel['comments'] ?? 0,
-                onTap: () {},
+                count: widget.reel.commentCount,
+                onTap: () => showReelCommentsSheet(
+                  context: context,
+                  reel: widget.reel,
+                ),
               ),
-              const SizedBox(height: 16),
-              _ActionButton(
-                icon: Icons.share,
+              const SizedBox(height: 18),
+              _ReelActionButton(
+                icon: Icons.sell_outlined,
+                color: products.isEmpty ? Colors.white38 : Colors.white,
+                count: products.length,
+                onTap: products.isEmpty
+                    ? null
+                    : () => showTaggedProductsSheet(
+                          context: context,
+                          reel: widget.reel,
+                        ),
+              ),
+              const SizedBox(height: 18),
+              _ReelActionButton(
+                icon: widget.isMuted ? Icons.volume_off : Icons.volume_up,
                 color: Colors.white,
-                onTap: () {},
+                onTap: _toggleMute,
               ),
-              const SizedBox(height: 16),
-              _ActionButton(
-                icon: _muted ? Icons.volume_off : Icons.volume_up,
-                color: Colors.white,
-                onTap: () => setState(() => _muted = !_muted),
-              ),
+              if (widget.showNavigationArrows) ...[
+                const SizedBox(height: 18),
+                _ReelActionButton(
+                  icon: Icons.keyboard_arrow_down_rounded,
+                  color: widget.canGoNext ? Colors.white : Colors.white38,
+                  onTap: widget.canGoNext ? widget.onNext : null,
+                ),
+              ],
             ],
           ),
         ),
-
-        // Bottom info
         Positioned(
           left: 16,
-          right: 80,
+          right: 84,
           bottom: 24,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundImage: widget.reel['creator_avatar'] != null
-                        ? NetworkImage(UrlHelper.getPlatformUrl(
-                            widget.reel['creator_avatar']))
-                        : null,
-                    child: widget.reel['creator_avatar'] == null
-                        ? Text(widget.reel['creator_name']?[0] ?? 'U')
-                        : null,
+              InkWell(
+                onTap: () => context.push('/profile/${widget.reel.creatorId}'),
+                borderRadius: BorderRadius.circular(16),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 2,
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    widget.reel['creator_name'] ?? '',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundImage:
+                            (widget.reel.creatorAvatar ?? '').isNotEmpty
+                                ? NetworkImage(
+                                    UrlHelper.getPlatformUrl(
+                                        widget.reel.creatorAvatar!),
+                                  )
+                                : null,
+                        child: (widget.reel.creatorAvatar ?? '').isEmpty
+                            ? Text(
+                                widget.reel.creatorName.trim().isEmpty
+                                    ? 'U'
+                                    : widget.reel.creatorName
+                                        .trim()[0]
+                                        .toUpperCase(),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.reel.creatorName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (widget.reel.caption.trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  widget.reel.caption,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+              if (products.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: () => showTaggedProductsSheet(
+                    context: context,
+                    reel: widget.reel,
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.white.withValues(alpha: 0.14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                widget.reel['caption'] ?? '',
-                style: const TextStyle(color: Colors.white),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (products.isNotEmpty) ..._buildProductTags(products),
+                  icon: const Icon(Icons.shopping_bag_outlined, size: 18),
+                  label: Text('View tagged products (${products.length})'),
+                ),
+              ],
             ],
           ),
         ),
       ],
     );
   }
-
-  List<Widget> _buildProductTags(List<dynamic> products) {
-    return [
-      const SizedBox(height: 12),
-      SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: products.map<Widget>((product) {
-            return InkWell(
-              onTap: () => context.push('/shop/${product['id']}'),
-              child: Container(
-                margin: const EdgeInsets.only(right: 8),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withAlpha(51),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.network(
-                        UrlHelper.getPlatformUrl(product['images']?[0]),
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 32,
-                          height: 32,
-                          color: Colors.grey[300],
-                          child: const Icon(Icons.image, size: 16),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '\$${(product['price'] ?? 0).toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    ];
-  }
 }
 
-class _ActionButton extends StatelessWidget {
+class _ReelActionButton extends StatelessWidget {
+  const _ReelActionButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.count,
+  });
+
   final IconData icon;
   final Color color;
   final int? count;
-  final VoidCallback onTap;
-
-  const _ActionButton({
-    required this.icon,
-    required this.color,
-    this.count,
-    required this.onTap,
-  });
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -329,26 +586,530 @@ class _ActionButton extends StatelessWidget {
       children: [
         InkWell(
           onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(12),
+          borderRadius: BorderRadius.circular(999),
+          child: Ink(
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
-              color: Colors.white.withAlpha(51),
+              color: Colors.black.withValues(alpha: 0.28),
               shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
             ),
-            child: Icon(icon, color: color, size: 28),
+            child: Icon(icon, color: color, size: 26),
           ),
         ),
-        if (count != null && count! > 0) const SizedBox(height: 4),
-        if (count != null && count! > 0)
+        if (count != null) ...[
+          const SizedBox(height: 6),
           Text(
-            count! > 999 ? '${(count! / 1000).toStringAsFixed(1)}K' : '$count',
-            style: const TextStyle(
-              color: Colors.white,
+            '$count',
+            style: TextStyle(
+              color: onTap == null ? Colors.white38 : Colors.white,
+              fontWeight: FontWeight.w700,
               fontSize: 12,
-              fontWeight: FontWeight.w600,
             ),
           ),
+        ],
       ],
+    );
+  }
+}
+
+Future<void> showReelCommentsSheet({
+  required BuildContext context,
+  required ReelModel reel,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ReelCommentsSheet(reel: reel),
+  );
+}
+
+class _ReelCommentsSheet extends StatefulWidget {
+  const _ReelCommentsSheet({required this.reel});
+
+  final ReelModel reel;
+
+  @override
+  State<_ReelCommentsSheet> createState() => _ReelCommentsSheetState();
+}
+
+class _ReelCommentsSheetState extends State<_ReelCommentsSheet> {
+  late final ApiService _api;
+  late final TextEditingController _commentController;
+  List<ReelCommentModel> _comments = <ReelCommentModel>[];
+  bool _loading = true;
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = context.read<ApiService>();
+    _commentController = TextEditingController();
+    _loadComments();
+  }
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadComments() async {
+    try {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+      final comments = await _api.getReelComments(widget.reel.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _comments = comments;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _error = '$error';
+      });
+    }
+  }
+
+  Future<void> _submitComment() async {
+    final text = _commentController.text.trim();
+    if (text.isEmpty || _submitting) {
+      return;
+    }
+
+    setState(() => _submitting = true);
+    try {
+      final comment = await _api.createReelComment(
+        reelId: widget.reel.id,
+        commentText: text,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _comments = <ReelCommentModel>[comment, ..._comments];
+        _commentController.clear();
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+
+    return FractionallySizedBox(
+      heightFactor: 0.9,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: theme.dividerColor,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.chat_bubble_outline, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Comments',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: theme.dividerColor),
+              Expanded(child: _buildBody()),
+              AnimatedPadding(
+                duration: const Duration(milliseconds: 180),
+                padding: EdgeInsets.only(bottom: viewInsets),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    border: Border(top: BorderSide(color: theme.dividerColor)),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _commentController,
+                              minLines: 1,
+                              maxLines: 4,
+                              decoration: InputDecoration(
+                                hintText: 'Write a comment',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filled(
+                            onPressed: _submitting ? null : _submitComment,
+                            icon: _submitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.send_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(child: Text(_error!));
+    }
+    if (_comments.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadComments,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 140),
+            Icon(Icons.mode_comment_outlined, size: 48, color: Colors.grey),
+            SizedBox(height: 12),
+            Center(
+              child: Text(
+                'No comments yet',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadComments,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        itemCount: _comments.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 14),
+        itemBuilder: (context, index) =>
+            _ReelCommentTile(comment: _comments[index]),
+      ),
+    );
+  }
+}
+
+class _ReelCommentTile extends StatelessWidget {
+  const _ReelCommentTile({required this.comment});
+
+  final ReelCommentModel comment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .surfaceContainerHighest
+            .withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundImage: (comment.userAvatar ?? '').trim().isNotEmpty
+                ? NetworkImage(UrlHelper.getPlatformUrl(comment.userAvatar!))
+                : null,
+            child: (comment.userAvatar ?? '').trim().isEmpty
+                ? Text(
+                    comment.username.trim().isEmpty
+                        ? 'U'
+                        : comment.username.trim()[0].toUpperCase(),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        comment.isCurrentUser
+                            ? '${comment.username} (You)'
+                            : comment.username,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    Text(
+                      timeago.format(DateTime.parse(comment.createdAt)),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).hintColor,
+                      ),
+                    ),
+                  ],
+                ),
+                if (comment.isFollowing) ...[
+                  const SizedBox(height: 6),
+                  const _MiniBadge(label: 'Connection'),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  comment.commentText,
+                  style: const TextStyle(height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> showTaggedProductsSheet({
+  required BuildContext context,
+  required ReelModel reel,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _TaggedProductsSheet(reel: reel),
+  );
+}
+
+class _TaggedProductsSheet extends StatelessWidget {
+  const _TaggedProductsSheet({required this.reel});
+
+  final ReelModel reel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return FractionallySizedBox(
+      heightFactor: 0.82,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 44,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: theme.dividerColor,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.shopping_bag_outlined, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Tagged Products',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: theme.dividerColor),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  itemCount: reel.products.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) => _TaggedProductCard(
+                    product: reel.products[index],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TaggedProductCard extends StatelessWidget {
+  const _TaggedProductCard({required this.product});
+
+  final ProductModel product;
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = product.images.isNotEmpty
+        ? UrlHelper.getPlatformUrl(product.images.first)
+        : '';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.push('/shop/${product.id}'),
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context)
+                .colorScheme
+                .surfaceContainerHighest
+                .withValues(alpha: 0.26),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: imageUrl.isEmpty
+                    ? Container(
+                        width: 72,
+                        height: 72,
+                        color: Colors.black12,
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.shopping_bag_outlined),
+                      )
+                    : Image.network(
+                        imageUrl,
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '\$${product.price.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        color: AppColors.electricBlue,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.open_in_new, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniBadge extends StatelessWidget {
+  const _MiniBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.electricBlue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.electricBlue,
+        ),
+      ),
     );
   }
 }

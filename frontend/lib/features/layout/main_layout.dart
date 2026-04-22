@@ -26,7 +26,7 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
   bool _hasInitializedCart = false;
-  
+
   final List<_NavItem> _navItems = [
     _NavItem(path: '/', icon: Icons.home, label: 'Home'),
     _NavItem(path: '/videos', icon: Icons.play_circle, label: 'Videos'),
@@ -52,7 +52,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
     });
     _initializeCart();
   }
-  
+
   void _initializeCart() {
     if (!_hasInitializedCart) {
       _hasInitializedCart = true;
@@ -126,28 +126,32 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= 1024;
 
-        return Scaffold(
-          body: Row(
-            children: [
-              // Desktop sidebar
-              if (isDesktop) _buildSidebar(),
+        return ActiveBranchScope(
+          currentIndex: widget.navigationShell.currentIndex,
+          currentPath: widget.currentPath,
+          child: Scaffold(
+            body: Row(
+              children: [
+                // Desktop sidebar
+                if (isDesktop) _buildSidebar(),
 
-              // Main content
-              Expanded(
-                child: Column(
-                  children: [
-                    // Mobile header
-                    if (!isDesktop) _buildMobileHeader(),
+                // Main content
+                Expanded(
+                  child: Column(
+                    children: [
+                      // Mobile header
+                      if (!isDesktop) _buildMobileHeader(),
 
-                    // Page content
-                    Expanded(child: widget.navigationShell),
-                  ],
+                      // Page content
+                      Expanded(child: widget.navigationShell),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
+            // Mobile bottom navigation
+            bottomNavigationBar: isDesktop ? null : _buildBottomNav(),
           ),
-          // Mobile bottom navigation
-          bottomNavigationBar: isDesktop ? null : _buildBottomNav(),
         );
       },
     );
@@ -237,13 +241,19 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                         children: [
                           Text(
                             'Buzz',
-                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
                           ),
                           Text(
                             'Cart',
-                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.electricBlue,
                                 ),
@@ -261,13 +271,19 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                       children: [
                         Text(
                           'Buzz',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineMedium
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                         ),
                         Text(
                           'Cart',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineMedium
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.electricBlue,
                               ),
@@ -339,9 +355,10 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                       children: [
                         Text(
                           user?.name ?? 'User',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w500,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                  ),
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
@@ -391,184 +408,198 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
             ),
           ),
         ),
-      child: Row(
-        children: [
-          isHomePage
-              ? PopupMenuButton<String>(
-                  offset: const Offset(0, 40),
-                  onSelected: (value) {
-                    if (value == 'content') {
-                      _navigateTo('/upload-content');
-                    } else if (value == 'product') {
-                      _navigateTo('/add-product');
-                    }
-                  },
-                  itemBuilder: (context) {
-                    final user = context.read<AuthProvider>().user;
-                    final isSeller = user?.isSeller ?? false;
-                    if (isSeller) {
-                      return [
-                        const PopupMenuItem(
-                          value: 'content',
-                          child: Row(
-                            children: [
-                              Icon(Icons.add_photo_alternate, size: 18),
-                              SizedBox(width: 8),
-                              Text('Add Content'),
-                            ],
+        child: Row(
+          children: [
+            isHomePage
+                ? PopupMenuButton<String>(
+                    offset: const Offset(0, 40),
+                    onSelected: (value) {
+                      if (value == 'content') {
+                        _navigateTo('/upload-content');
+                      } else if (value == 'product') {
+                        _navigateTo('/add-product');
+                      }
+                    },
+                    itemBuilder: (context) {
+                      final user = context.read<AuthProvider>().user;
+                      final isSeller = user?.isSeller ?? false;
+                      if (isSeller) {
+                        return [
+                          const PopupMenuItem(
+                            value: 'content',
+                            child: Row(
+                              children: [
+                                Icon(Icons.add_photo_alternate, size: 18),
+                                SizedBox(width: 8),
+                                Text('Add Content'),
+                              ],
+                            ),
                           ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'product',
-                          child: Row(
-                            children: [
-                              Icon(Icons.inventory_2, size: 18),
-                              SizedBox(width: 8),
-                              Text('Add Product'),
-                            ],
+                          const PopupMenuItem(
+                            value: 'product',
+                            child: Row(
+                              children: [
+                                Icon(Icons.inventory_2, size: 18),
+                                SizedBox(width: 8),
+                                Text('Add Product'),
+                              ],
+                            ),
                           ),
-                        ),
-                      ];
-                    } else {
-                      return [
-                        const PopupMenuItem(
-                          value: 'content',
-                          child: Row(
-                            children: [
-                              Icon(Icons.add_photo_alternate, size: 18),
-                              SizedBox(width: 8),
-                              Text('Add Content'),
-                            ],
+                        ];
+                      } else {
+                        return [
+                          const PopupMenuItem(
+                            value: 'content',
+                            child: Row(
+                              children: [
+                                Icon(Icons.add_photo_alternate, size: 18),
+                                SizedBox(width: 8),
+                                Text('Add Content'),
+                              ],
+                            ),
                           ),
-                        ),
-                      ];
-                    }
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        ];
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Buzz',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          Text(
+                            'Cart',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.electricBlue,
+                                ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.keyboard_arrow_down, size: 18),
+                        ],
+                      ),
+                    ),
+                  )
+                : Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     child: Row(
                       children: [
                         Text(
                           'Buzz',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                               ),
                         ),
                         Text(
                           'Cart',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineSmall
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.electricBlue,
                               ),
                         ),
-                        const SizedBox(width: 4),
-                        const Icon(Icons.keyboard_arrow_down, size: 18),
                       ],
                     ),
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Row(
-                    children: [
-                      Text(
-                        'Buzz',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      Text(
-                        'Cart',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.electricBlue,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-          const Spacer(),
-          if (isProfilePage)
+            const Spacer(),
+            if (isProfilePage)
+              IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () => _navigateTo('/settings'),
+              ),
             IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => _navigateTo('/settings'),
+              icon: const Icon(Icons.search),
+              onPressed: () => _navigateTo('/search'),
             ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => _navigateTo('/search'),
-          ),
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.shopping_cart),
-                onPressed: () => _navigateTo('/cart'),
-              ),
-              if (cart.itemCount > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: AppColors.electricBlue,
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 16,
-                      minHeight: 16,
-                    ),
-                    child: Text(
-                      '${cart.itemCount}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.shopping_cart),
+                  onPressed: () => _navigateTo('/cart'),
+                ),
+                if (cart.itemCount > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: AppColors.electricBlue,
+                        shape: BoxShape.circle,
                       ),
-                      textAlign: TextAlign.center,
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        '${cart.itemCount}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
+              ],
+            ),
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.message_outlined),
+                  onPressed: () => _navigateTo('/messages'),
                 ),
-            ],
-          ),
-          Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.message_outlined),
-                onPressed: () => _navigateTo('/messages'),
-              ),
-              if (unreadMessages > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    decoration: const BoxDecoration(
-                      color: AppColors.electricBlue,
-                      borderRadius: BorderRadius.all(Radius.circular(10)),
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 16,
-                      minHeight: 16,
-                    ),
-                    child: Text(
-                      unreadMessages > 99 ? '99+' : '$unreadMessages',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
+                if (unreadMessages > 0)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
                       ),
-                      textAlign: TextAlign.center,
+                      decoration: const BoxDecoration(
+                        color: AppColors.electricBlue,
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        unreadMessages > 99 ? '99+' : '$unreadMessages',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
-                ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -703,4 +734,37 @@ class _NavItem {
   final String label;
 
   _NavItem({required this.path, required this.icon, required this.label});
+}
+
+class ActiveBranchScope extends InheritedWidget {
+  const ActiveBranchScope({
+    super.key,
+    required this.currentIndex,
+    required this.currentPath,
+    required super.child,
+  });
+
+  final int currentIndex;
+  final String currentPath;
+
+  static ActiveBranchScope? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<ActiveBranchScope>();
+  }
+
+  static int of(BuildContext context) {
+    final scope = maybeOf(context);
+    return scope?.currentIndex ?? 0;
+  }
+
+  static String currentPathOf(BuildContext context) {
+    final scope =
+        context.dependOnInheritedWidgetOfExactType<ActiveBranchScope>();
+    return scope?.currentPath ?? '/';
+  }
+
+  @override
+  bool updateShouldNotify(ActiveBranchScope oldWidget) {
+    return oldWidget.currentIndex != currentIndex ||
+        oldWidget.currentPath != currentPath;
+  }
 }

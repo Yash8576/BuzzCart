@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/models/models.dart';
 import '../../../core/providers/app_refresh_provider.dart';
@@ -12,6 +14,7 @@ import '../../../core/providers/cart_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../layout/main_layout.dart';
 import '../../products/widgets/product_card_social_preview.dart';
 
 class HomePage extends StatefulWidget {
@@ -24,15 +27,18 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   static const double _pageMaxWidth = 760;
   static const double _mediaCardMaxWidth = 560;
-  static const double _reelCardMaxWidth = 420;
   static const double _productRailCardWidth = 188;
   static const double _productRailHeight = 308;
-  static const double _listCacheExtent = 2200;
+  static const double _desktopListCacheExtent = 2200;
+  static const double _mobileListCacheExtent = 640;
 
   List<_HomeSection> _sections = [];
   bool _isLoading = true;
   String? _error;
   final Map<int, ScrollController> _productRailControllers = {};
+  final ScrollController _feedScrollController = ScrollController();
+  final GlobalKey _feedViewportKey = GlobalKey();
+  final Map<int, GlobalKey> _inlineReelSectionKeys = {};
   final Set<int> _canScrollRailLeft = {};
   final Set<int> _canScrollRailRight = {};
   final Map<String, int> _pendingCartQuantities = {};
@@ -40,10 +46,14 @@ class _HomePageState extends State<HomePage> {
   AppRefreshProvider? _appRefreshProvider;
   int _lastContentVersion = 0;
   int _lastProductVersion = 0;
+  int? _activeInlineReelSectionIndex;
+  bool _areInlineReelsMuted = true;
+  bool _inlineReelVisibilityCheckScheduled = false;
 
   @override
   void initState() {
     super.initState();
+    _feedScrollController.addListener(_handleFeedScroll);
     _fetchFeed();
   }
 
@@ -63,10 +73,28 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _appRefreshProvider?.removeListener(_handleAppRefresh);
+    _feedScrollController
+      ..removeListener(_handleFeedScroll)
+      ..dispose();
     for (final controller in _productRailControllers.values) {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  void _handleFeedScroll() {
+    if (_inlineReelVisibilityCheckScheduled) {
+      return;
+    }
+
+    _inlineReelVisibilityCheckScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _inlineReelVisibilityCheckScheduled = false;
+      if (!mounted) {
+        return;
+      }
+      _updateActiveInlineReel();
+    });
   }
 
   void _handleAppRefresh() {
@@ -173,6 +201,106 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  bool _sectionContainsInlineReel(_HomeSection section) {
+    if (section.type == _HomeSectionType.reel) {
+      return true;
+    }
+    if (section.type == _HomeSectionType.post) {
+      final post = section.data as PostModel;
+      return post.mediaType == 'reel';
+    }
+    return false;
+  }
+
+  void _pruneInlineReelKeys(List<_HomeSection> sections) {
+    final activeIndexes = <int>{};
+    for (var index = 0; index < sections.length; index++) {
+      if (_sectionContainsInlineReel(sections[index])) {
+        activeIndexes.add(index);
+      }
+    }
+
+    final staleIndexes = _inlineReelSectionKeys.keys
+        .where((index) => !activeIndexes.contains(index))
+        .toList();
+
+    for (final index in staleIndexes) {
+      _inlineReelSectionKeys.remove(index);
+    }
+
+    if (_activeInlineReelSectionIndex != null &&
+        !activeIndexes.contains(_activeInlineReelSectionIndex)) {
+      _activeInlineReelSectionIndex = null;
+    }
+  }
+
+  GlobalKey _getInlineReelSectionKey(int sectionIndex) {
+    return _inlineReelSectionKeys.putIfAbsent(sectionIndex, GlobalKey.new);
+  }
+
+  void _scheduleInlineReelVisibilityCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _updateActiveInlineReel();
+    });
+  }
+
+  void _updateActiveInlineReel() {
+    final viewportContext = _feedViewportKey.currentContext;
+    if (viewportContext == null || !mounted) {
+      return;
+    }
+
+    final viewportBox = viewportContext.findRenderObject() as RenderBox?;
+    if (viewportBox == null || !viewportBox.hasSize) {
+      return;
+    }
+
+    final viewportOrigin = viewportBox.localToGlobal(Offset.zero);
+    final viewportTop = viewportOrigin.dy;
+    final viewportBottom = viewportTop + viewportBox.size.height;
+
+    double bestVisibleHeight = 0;
+    int? bestIndex;
+
+    for (final entry in _inlineReelSectionKeys.entries) {
+      final sectionContext = entry.value.currentContext;
+      if (sectionContext == null) {
+        continue;
+      }
+
+      final sectionBox = sectionContext.findRenderObject() as RenderBox?;
+      if (sectionBox == null || !sectionBox.hasSize) {
+        continue;
+      }
+
+      final sectionOrigin = sectionBox.localToGlobal(Offset.zero);
+      final sectionTop = sectionOrigin.dy;
+      final sectionBottom = sectionTop + sectionBox.size.height;
+      final visibleHeight = math.min(sectionBottom, viewportBottom) -
+          math.max(sectionTop, viewportTop);
+
+      if (visibleHeight > bestVisibleHeight) {
+        bestVisibleHeight = visibleHeight;
+        bestIndex = entry.key;
+      }
+    }
+
+    if (bestVisibleHeight < 160) {
+      bestIndex = null;
+    }
+
+    if (_activeInlineReelSectionIndex == bestIndex) {
+      return;
+    }
+
+    setState(() {
+      _activeInlineReelSectionIndex = bestIndex;
+    });
+  }
+
   Future<void> _fetchFeed() async {
     ProductCardSocialPreview.clearCache();
 
@@ -243,12 +371,14 @@ class _HomePageState extends State<HomePage> {
         videos: videos,
       );
       _pruneProductRailControllers(sections);
+      _pruneInlineReelKeys(sections);
 
       if (!mounted) return;
       setState(() {
         _sections = sections;
         _isLoading = false;
       });
+      _scheduleInlineReelVisibilityCheck();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -396,19 +526,6 @@ class _HomePageState extends State<HomePage> {
     return 0;
   }
 
-  int _remainingStockForProduct(
-    ProductModel product,
-    List<CartItemModel> cartItems,
-  ) {
-    if (product.stockQuantity <= 0) {
-      return 0;
-    }
-
-    final inCart = _cartQuantityForProduct(product.id, cartItems);
-    final remaining = product.stockQuantity - inCart;
-    return remaining > 0 ? remaining : 0;
-  }
-
   void _showCartToast(
     String message, {
     required Color backgroundColor,
@@ -520,7 +637,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     final cartProvider = context.read<CartProvider>();
-    final maxQuantity = product.stockQuantity > 0 ? product.stockQuantity : null;
+    final maxQuantity =
+        product.stockQuantity > 0 ? product.stockQuantity : null;
     final cartItems = cartProvider.cart.items;
     final previousQuantity = _effectiveCartQuantity(product, cartItems);
 
@@ -532,7 +650,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     setState(() {
-      _pendingCartQuantities[product.id] = targetQuantity > 0 ? targetQuantity : 0;
+      _pendingCartQuantities[product.id] =
+          targetQuantity > 0 ? targetQuantity : 0;
       _updatingCartProductIds.add(product.id);
     });
 
@@ -583,7 +702,9 @@ class _HomePageState extends State<HomePage> {
         borderRadius: BorderRadius.circular(999),
         elevation: 2,
         child: InkWell(
-          onTap: canAddToCart && !isUpdating ? () => _handleAddToCart(product) : null,
+          onTap: canAddToCart && !isUpdating
+              ? () => _handleAddToCart(product)
+              : null,
           borderRadius: BorderRadius.circular(999),
           child: Padding(
             padding: const EdgeInsets.all(8),
@@ -716,16 +837,26 @@ class _HomePageState extends State<HomePage> {
       builder: (context, constraints) {
         final isCompact = constraints.maxWidth < 600;
         final pagePadding = isCompact ? 12.0 : 20.0;
+        final activeScope = ActiveBranchScope.maybeOf(context);
+        final isHomeTabActive = (activeScope?.currentIndex ?? 0) == 0 &&
+            (activeScope?.currentPath ?? '/') == '/';
+        final cacheExtent = defaultTargetPlatform == TargetPlatform.android
+            ? _mobileListCacheExtent
+            : _desktopListCacheExtent;
 
         return RefreshIndicator(
           onRefresh: _fetchFeed,
           child: ListView.builder(
+            key: _feedViewportKey,
+            controller: _feedScrollController,
             padding:
                 EdgeInsets.symmetric(vertical: 16, horizontal: pagePadding),
-            cacheExtent: _listCacheExtent,
+            cacheExtent: cacheExtent,
             itemCount: _sections.length,
             itemBuilder: (context, index) {
               final section = _sections[index];
+              final isInlineReelActive =
+                  isHomeTabActive && _activeInlineReelSectionIndex == index;
               switch (section.type) {
                 case _HomeSectionType.productRail:
                   return _buildProductRail(
@@ -735,14 +866,24 @@ class _HomePageState extends State<HomePage> {
                     cartItems,
                   );
                 case _HomeSectionType.post:
-                  return _buildPostCard(
-                    section.data as PostModel,
-                    constraints.maxWidth,
+                  return KeyedSubtree(
+                    key: _sectionContainsInlineReel(section)
+                        ? _getInlineReelSectionKey(index)
+                        : null,
+                    child: _buildPostCard(
+                      section.data as PostModel,
+                      constraints.maxWidth,
+                      isInlineReelActive,
+                    ),
                   );
                 case _HomeSectionType.reel:
-                  return _buildReelCard(
-                    section.data as ReelModel,
-                    constraints.maxWidth,
+                  return KeyedSubtree(
+                    key: _getInlineReelSectionKey(index),
+                    child: _buildReelCard(
+                      section.data as ReelModel,
+                      constraints.maxWidth,
+                      isInlineReelActive,
+                    ),
                   );
                 case _HomeSectionType.video:
                   return _buildVideoCard(
@@ -921,7 +1062,9 @@ class _HomePageState extends State<HomePage> {
                 child: ListView.separated(
                   controller: controller,
                   scrollDirection: Axis.horizontal,
-                  cacheExtent: _listCacheExtent,
+                  cacheExtent: defaultTargetPlatform == TargetPlatform.android
+                      ? _mobileListCacheExtent
+                      : _desktopListCacheExtent,
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   itemCount: products.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 12),
@@ -1115,14 +1258,17 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildPostCard(PostModel post, double viewportWidth) {
+  Widget _buildPostCard(
+    PostModel post,
+    double viewportWidth,
+    bool isInlineReelActive,
+  ) {
     return _buildMediaCard(
-      maxWidth:
-          post.mediaType == 'reel' ? _reelCardMaxWidth : _mediaCardMaxWidth,
+      maxWidth: _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: null,
       onHeaderTap: () => context.push('/profile/${post.userId}'),
-      media: _buildPostMedia(post),
+      media: _buildPostMedia(post, isInlineReelActive),
       creatorName: post.authorName,
       creatorAvatar: post.authorAvatar,
       createdAt: post.createdAt,
@@ -1148,16 +1294,22 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildReelCard(ReelModel reel, double viewportWidth) {
+  Widget _buildReelCard(
+    ReelModel reel,
+    double viewportWidth,
+    bool isInlineReelActive,
+  ) {
     return _buildMediaCard(
-      maxWidth: _reelCardMaxWidth,
+      maxWidth: _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
       onTap: () => context.push('/reels?id=${reel.id}'),
       onHeaderTap: () => context.push('/profile/${reel.creatorId}'),
-      media: _buildFramedMedia(
-        imageUrl: reel.thumbnail,
-        aspectRatio: 9 / 14,
-        playIcon: true,
+      media: _InlineReelMedia(
+        videoUrl: reel.url,
+        thumbnailUrl: reel.thumbnail,
+        isActive: isInlineReelActive,
+        isMuted: _areInlineReelsMuted,
+        onMuteChanged: _handleInlineReelMuteChanged,
       ),
       creatorName: reel.creatorName,
       creatorAvatar: reel.creatorAvatar,
@@ -1166,17 +1318,23 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildPostMedia(PostModel post) {
-    final aspectRatio = switch (post.mediaType) {
-      'reel' => 9 / 14,
-      'video' => 16 / 9,
-      _ => 4 / 5,
-    };
+  Widget _buildPostMedia(PostModel post, bool isInlineReelActive) {
+    if (post.mediaType == 'reel') {
+      return _InlineReelMedia(
+        videoUrl: post.mediaUrl,
+        thumbnailUrl: post.thumbnailUrl ?? post.mediaUrl,
+        isActive: isInlineReelActive,
+        isMuted: _areInlineReelsMuted,
+        onMuteChanged: _handleInlineReelMuteChanged,
+      );
+    }
+
+    final aspectRatio = post.mediaType == 'video' ? 16 / 9 : 4 / 5;
 
     return _buildFramedMedia(
       imageUrl: post.thumbnailUrl ?? post.mediaUrl,
       aspectRatio: aspectRatio,
-      playIcon: post.mediaType == 'video' || post.mediaType == 'reel',
+      playIcon: post.mediaType == 'video',
     );
   }
 
@@ -1371,6 +1529,235 @@ class _HomePageState extends State<HomePage> {
       placeholderFadeInDuration: Duration.zero,
       useOldImageOnUrlChange: true,
       errorWidget: (_, __, ___) => errorWidget ?? const SizedBox.shrink(),
+    );
+  }
+
+  void _handleInlineReelMuteChanged(bool isMuted) {
+    if (_areInlineReelsMuted == isMuted || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _areInlineReelsMuted = isMuted;
+    });
+  }
+}
+
+class _InlineReelMedia extends StatefulWidget {
+  const _InlineReelMedia({
+    required this.videoUrl,
+    required this.thumbnailUrl,
+    required this.isActive,
+    required this.isMuted,
+    required this.onMuteChanged,
+  });
+
+  final String videoUrl;
+  final String thumbnailUrl;
+  final bool isActive;
+  final bool isMuted;
+  final ValueChanged<bool> onMuteChanged;
+
+  @override
+  State<_InlineReelMedia> createState() => _InlineReelMediaState();
+}
+
+class _InlineReelMediaState extends State<_InlineReelMedia>
+    with WidgetsBindingObserver {
+  VideoPlayerController? _controller;
+  bool _initializing = false;
+  bool _isAppActive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    if (widget.isActive) {
+      _ensureController();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineReelMedia oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && _isAppActive) {
+      if (_controller == null) {
+        _ensureController();
+      } else {
+        _controller!.setVolume(widget.isMuted ? 0 : 1);
+        _controller!.play();
+      }
+    } else {
+      _disposeController();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final isAppActive = state == AppLifecycleState.resumed;
+    _isAppActive = isAppActive;
+    if (!isAppActive) {
+      _disposeController();
+      return;
+    }
+    if (widget.isActive && _controller != null) {
+      _controller!.setVolume(widget.isMuted ? 0 : 1);
+      _controller!.play();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _disposeController();
+    super.dispose();
+  }
+
+  void _disposeController() {
+    final controller = _controller;
+    _controller = null;
+    if (controller != null) {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _ensureController() async {
+    if (_controller != null || _initializing) {
+      return;
+    }
+
+    _initializing = true;
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(UrlHelper.getPlatformUrl(widget.videoUrl)),
+    );
+
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      await controller.setVolume(widget.isMuted ? 0 : 1);
+      if (widget.isActive && _isAppActive) {
+        await controller.play();
+      }
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+      });
+    } catch (_) {
+      await controller.dispose();
+    } finally {
+      _initializing = false;
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+
+    final nextMuted = !widget.isMuted;
+    await controller.setVolume(nextMuted ? 0 : 1);
+    if (!mounted) {
+      return;
+    }
+    widget.onMuteChanged(nextMuted);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    final isReady = controller != null && controller.value.isInitialized;
+
+    return AspectRatio(
+      aspectRatio: 9 / 14,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (isReady)
+            RepaintBoundary(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: controller.value.size.width,
+                  height: controller.value.size.height,
+                  child: VideoPlayer(controller),
+                ),
+              ),
+            )
+          else
+            _InlineReelThumbnail(thumbnailUrl: widget.thumbnailUrl),
+          IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.06),
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.26),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (!isReady)
+            const Center(
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            ),
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: InkWell(
+                onTap: isReady ? _toggleMute : null,
+                customBorder: const CircleBorder(),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    widget.isMuted
+                        ? Icons.volume_off_rounded
+                        : Icons.volume_up_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineReelThumbnail extends StatelessWidget {
+  const _InlineReelThumbnail({required this.thumbnailUrl});
+
+  final String thumbnailUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final resolvedUrl = UrlHelper.getPlatformUrl(thumbnailUrl);
+
+    return CachedNetworkImage(
+      imageUrl: resolvedUrl,
+      cacheKey: resolvedUrl,
+      fit: BoxFit.cover,
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
+      useOldImageOnUrlChange: true,
+      errorWidget: (_, __, ___) => Container(
+        color: Colors.grey[200],
+        child: const Icon(Icons.play_circle_outline, size: 40),
+      ),
     );
   }
 }

@@ -624,8 +624,7 @@ class ApiService {
     final cacheKey = _reviewPreviewCacheKey(productId);
 
     if (!forceRefresh) {
-      final cached =
-          peekCachedProductReviewPreview(productId, limit: limit);
+      final cached = peekCachedProductReviewPreview(productId, limit: limit);
       if (cached != null) {
         return cached;
       }
@@ -699,9 +698,8 @@ class ApiService {
       reviews: List<ReviewPreviewModel>.unmodifiable(
         shouldKeepExistingLarger ? existing.reviews : preview.reviews,
       ),
-      reviewCount: shouldKeepExistingLarger
-          ? existing.reviewCount
-          : preview.reviewCount,
+      reviewCount:
+          shouldKeepExistingLarger ? existing.reviewCount : preview.reviewCount,
       fetchedAt: DateTime.now(),
       isComplete:
           isComplete || (shouldKeepExistingLarger && existing.isComplete),
@@ -776,6 +774,8 @@ class ApiService {
   Future<Map<String, dynamic>> createReel({
     required String url,
     required String thumbnail,
+    required int width,
+    required int height,
     String? caption,
     List<String>? productIds,
   }) async {
@@ -783,6 +783,8 @@ class ApiService {
       final response = await _dio.post('/reels', data: {
         'url': url,
         'thumbnail': thumbnail,
+        'width': width,
+        'height': height,
         if (caption != null && caption.isNotEmpty) 'caption': caption,
         if (productIds != null && productIds.isNotEmpty)
           'product_ids': productIds,
@@ -796,6 +798,40 @@ class ApiService {
   Future<void> deleteReel(String id) async {
     try {
       await _dio.delete('/reels/$id');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> likeReel(String reelId) async {
+    try {
+      await _dio.post('/reels/$reelId/like');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<ReelCommentModel>> getReelComments(String reelId) async {
+    try {
+      final response = await _dio.get('/reels/$reelId/comments');
+      return (response.data as List? ?? [])
+          .map(
+              (item) => ReelCommentModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ReelCommentModel> createReelComment({
+    required String reelId,
+    required String commentText,
+  }) async {
+    try {
+      final response = await _dio.post('/reels/$reelId/comments', data: {
+        'comment_text': commentText,
+      });
+      return ReelCommentModel.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       rethrow;
     }
@@ -1141,7 +1177,8 @@ class ApiService {
         data: formData,
         queryParameters: {
           if (folder != null && folder.isNotEmpty) 'folder': folder,
-          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+          if (productId != null && productId.isNotEmpty)
+            'product_id': productId,
         },
       );
       return response.data as Map<String, dynamic>;
@@ -1168,7 +1205,8 @@ class ApiService {
         '/upload/product-image',
         data: formData,
         queryParameters: {
-          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+          if (productId != null && productId.isNotEmpty)
+            'product_id': productId,
         },
         options: Options(
           sendTimeout: const Duration(minutes: 5),
@@ -1204,7 +1242,8 @@ class ApiService {
         '/upload/product-document',
         data: formData,
         queryParameters: {
-          if (productId != null && productId.isNotEmpty) 'product_id': productId,
+          if (productId != null && productId.isNotEmpty)
+            'product_id': productId,
         },
         options: Options(
           sendTimeout: const Duration(minutes: 5),

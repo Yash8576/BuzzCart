@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 
+import '../models/models.dart';
+
 class UploadContentProvider extends ChangeNotifier {
   String _selectedMediaType = 'photo';
   final List<XFile> _selectedFiles = [];
+  final List<ProductModel> _taggedProducts = [];
   String _caption = '';
   bool _hasUnsavedWork = false;
   VoidCallback? _onUploadSuccess;
@@ -11,6 +14,7 @@ class UploadContentProvider extends ChangeNotifier {
 
   String get selectedMediaType => _selectedMediaType;
   List<XFile> get selectedFiles => List.unmodifiable(_selectedFiles);
+  List<ProductModel> get taggedProducts => List.unmodifiable(_taggedProducts);
   String get caption => _caption;
   bool get hasUnsavedWork => _hasUnsavedWork;
   String get photoAspectRatio => _photoAspectRatio;
@@ -26,6 +30,9 @@ class UploadContentProvider extends ChangeNotifier {
 
   void setMediaType(String type) {
     _selectedMediaType = type;
+    if (type != 'reel') {
+      _taggedProducts.clear();
+    }
     _hasUnsavedWork = true;
     notifyListeners();
   }
@@ -56,9 +63,20 @@ class UploadContentProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setTaggedProducts(List<ProductModel> products) {
+    _taggedProducts
+      ..clear()
+      ..addAll(products);
+    _hasUnsavedWork = _caption.isNotEmpty ||
+        _selectedFiles.isNotEmpty ||
+        _taggedProducts.isNotEmpty;
+    notifyListeners();
+  }
+
   void clearAll() {
     _selectedMediaType = 'photo';
     _selectedFiles.clear();
+    _taggedProducts.clear();
     _caption = '';
     _photoAspectRatio = 'square';
     _hasUnsavedWork = false;
