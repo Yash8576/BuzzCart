@@ -125,6 +125,16 @@ QUERY_TOPIC_REPHRASES = {
     "camera": "what camera does the product have",
     "ports": "what ports and connectivity options does the product have",
 }
+QUERY_TOPIC_KEY_ALIASES = {
+    "memory": {"memory", "ram", "unified memory"},
+    "storage": {"storage", "storage options", "storage option", "ssd", "capacity"},
+    "display": {"display", "screen", "size", "display size", "display type", "resolution", "refresh rate"},
+    "battery": {"battery", "battery life", "battery life video", "charging", "charging port", "fast charging", "wireless"},
+    "processor": {"processor", "chip", "chipset", "cpu", "gpu", "neural engine"},
+    "weight": {"weight", "dimensions", "height", "width", "depth"},
+    "camera": {"camera", "main", "ultra wide", "telephoto", "front camera", "lidar", "optical zoom"},
+    "ports": {"ports", "charging port", "usb c", "usb-c", "connectivity", "satellite connectivity", "bluetooth", "wi-fi", "wifi"},
+}
 
 
 class ChatEngine:
@@ -165,6 +175,14 @@ class ChatEngine:
                 product_id=product_id,
                 document_url=document_url,
             )
+
+        structured_fact_response = self._answer_structured_document_fact(
+            product_id=product_id,
+            query=cleaned_query,
+            product_name=product_name,
+        )
+        if structured_fact_response is not None:
+            return structured_fact_response
 
         direct_response = self._answer_directly_from_document(
             product_id=product_id,
@@ -328,6 +346,93 @@ class ChatEngine:
             ),
             confidence="high",
         )
+
+    def _answer_structured_document_fact(
+        self,
+        product_id: str,
+        query: str,
+        product_name: Optional[str] = None,
+    ) -> Optional[ProductChatResponse]:
+        if not (
+            self._asks_for_fact_value(query)
+            or self._expects_numeric_answer(query)
+            or self._expects_yes_no_answer(query)
+        ):
+            return None
+
+        raw_chunks = self.vector_store.load_product_chunks(product_id)
+        if not raw_chunks:
+            return None
+
+        storage_match = self._storage_options_response(query, raw_chunks, product_name)
+        if storage_match is not None:
+            return storage_match
+
+        best_fact: Optional[Dict[str, Any]] = None
+        best_score = -1.0
+        for chunk in raw_chunks:
+            for fact in self._extract_structured_facts(chunk.text):
+                score = self._structured_fact_score(query, fact)
+                if score > best_score:
+                    best_score = score
+                    best_fact = {
+                        "fact": fact,
+                        "page": int(chunk.metadata["page"]),
+                        "chunk_id": int(chunk.metadata["chunk_id"]),
+                    }
+
+        if best_fact is None or best_score < 0.55:
+            return None
+
+        answer = self._rewrite_structured_fact(
+            query,
+            best_fact["fact"]["key"],
+            best_fact["fact"]["value"],
+            product_name=product_name,
+        )
+        if not answer:
+            return None
+
+        return ProductChatResponse(
+            answer=answer,
+            source=AnswerSource(
+                page=best_fact["page"],
+                chunk_id=best_fact["chunk_id"],
+            ),
+            confidence="high",
+        )
+
+    def _storage_options_response(
+        self,
+        query: str,
+        chunks: List[SearchMatch],
+        product_name: Optional[str] = None,
+    ) -> Optional[ProductChatResponse]:
+        lowered_query = query.lower()
+        if "storage" not in lowered_query:
+            return None
+
+        for chunk in chunks:
+            options = self._extract_storage_options(chunk.text)
+            if not options:
+                continue
+
+            subject = self._product_subject(product_name)
+            answer = (
+                f"{subject} is available in {options[0]} storage."
+                if len(options) == 1
+                else f"{subject} is available in {', '.join(options[:-1])}, and {options[-1]} storage."
+            )
+            return ProductChatResponse(
+                answer=answer,
+                source=AnswerSource(
+                    page=int(chunk.metadata["page"]),
+                    chunk_id=int(chunk.metadata["chunk_id"]),
+                ),
+                confidence="high",
+            )
+
+        return None
 
     def _collect_evidence_candidates(
         self,
@@ -728,7 +833,7 @@ class ChatEngine:
     def _asks_for_fact_value(self, query: str) -> bool:
         lowered_query = query.lower().strip()
         return lowered_query.startswith(
-            ("what is ", "what's ", "tell me ", "give me ", "show me ")
+            ("what ", "what's ", "which ", "tell me ", "give me ", "show me ")
         ) or len(self._meaningful_terms(lowered_query)) <= 3
 
     def _contains_numeric_value(self, text: str) -> bool:
@@ -864,7 +969,7 @@ class ChatEngine:
 
     def _split_structured_fragment(self, fragment: str) -> List[tuple[str, str]]:
         pattern = re.compile(
-            r"([A-Za-z][A-Za-z0-9/&()+.\- ]{1,50}?):\s*(.+?)(?=(?:\s+[A-Z][A-Za-z0-9/&()+.\- ]{1,50}:\s)|$)"
+            r"([A-Za-z][A-Za-z0-9_/&()+.\- ]{1,50}?):\s*(.+?)(?=(?:\s+[A-Za-z][A-Za-z0-9_/&()+.\- ]{1,50}:\s)|$)"
         )
         matches = [
             (match.group(1).strip(), match.group(2).strip())
@@ -878,7 +983,11 @@ class ChatEngine:
 
     def _normalize_spec_key(self, key: str) -> str:
         normalized = self._normalize_candidate_text(key)
+        normalized = normalized.replace("_", " ")
         normalized = re.sub(r"\s+", " ", normalized)
+        normalized = re.sub(r"\bwi\s*fi\b", "Wi-Fi", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\be\s*sim\b", "eSIM", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\busd\b", "USD", normalized, flags=re.IGNORECASE)
         return normalized.strip(" :")
 
     def _best_matching_structured_fact(
@@ -905,6 +1014,8 @@ class ChatEngine:
         value_support = self._support_ratio(query, fact["value"])
         score += key_support * 0.45
         score += value_support * 0.15
+        score += self._topic_alignment_bonus(query, fact["key"], fact["value"])
+        score -= self._structured_fact_penalty(query, fact["key"])
 
         if self._expects_numeric_answer(query) and self._contains_numeric_value(fact["value"]):
             score += 0.18
@@ -921,6 +1032,37 @@ class ChatEngine:
             score += 0.05
 
         return score
+
+    def _topic_alignment_bonus(self, query: str, key: str, value: str) -> float:
+        query_topics = self._query_topics(query.lower())
+        if not query_topics:
+            return 0.0
+
+        key_lower = key.lower()
+        value_lower = value.lower()
+        bonus = 0.0
+        for topic in query_topics:
+            aliases = QUERY_TOPIC_KEY_ALIASES.get(topic, set())
+            if any(alias in key_lower for alias in aliases):
+                bonus += 0.45
+            elif any(alias in value_lower for alias in aliases):
+                bonus += 0.14
+        return bonus
+
+    def _structured_fact_penalty(self, query: str, key: str) -> float:
+        key_lower = key.lower()
+        query_topics = self._query_topics(query.lower())
+        if not query_topics:
+            return 0.0
+
+        generic_metadata_keys = {"brand", "model", "category", "release date", "os"}
+        if key_lower in generic_metadata_keys and not any(
+            alias in key_lower
+            for topic in query_topics
+            for alias in QUERY_TOPIC_KEY_ALIASES.get(topic, set())
+        ):
+            return 0.35
+        return 0.0
 
     def _rewrite_structured_fact(
         self,
@@ -968,16 +1110,49 @@ class ChatEngine:
 
         if key_lower in {"display size", "screen size"}:
             return f"{subject} comes with a {value_clean} display."
+        if key_lower == "size" and "display" in lowered_query:
+            return f"{subject} comes with a {value_clean} display."
         if key_lower in {"display type", "screen type"}:
             return f"{subject} has a {value_clean} display."
         if key_lower == "true tone":
             return f"{subject} supports True Tone display." if self._is_positive_value(value_clean) else None
         if key_lower == "resolution":
             return f"{possessive_subject} resolution is {value_clean}."
+        if key_lower == "refresh rate":
+            return f"{possessive_subject} refresh rate is {value_clean}."
         if key_lower == "brightness":
             return f"{possessive_subject} brightness is {value_clean}."
         if key_lower in {"weight", "product weight"}:
             return f"{subject} weighs {value_clean}."
+        if key_lower in {"chipset", "processor", "chip"}:
+            return f"{subject} uses the {value_clean} chipset."
+        if key_lower == "cpu":
+            return f"{possessive_subject} CPU is {value_clean}."
+        if key_lower == "gpu":
+            return f"{possessive_subject} GPU is {value_clean}."
+        if key_lower in {"ram", "memory", "unified memory"}:
+            return f"{subject} has {value_clean} of RAM."
+        if key_lower in {"storage options", "storage option", "storage"}:
+            options = self._extract_storage_options(value_clean)
+            if options:
+                if len(options) == 1:
+                    return f"{subject} is available in {options[0]} storage."
+                return f"{subject} is available in {', '.join(options[:-1])}, and {options[-1]} storage."
+            return f"{possessive_subject} storage options are {value_clean}."
+        if key_lower == "starting price USD".lower():
+            return f"{possessive_subject} starting price is {self._normalize_price_value(value_clean)}."
+        if key_lower == "charging port":
+            return f"{possessive_subject} charging port is {value_clean}."
+        if key_lower == "battery life video":
+            return f"{possessive_subject} battery life for video is {value_clean}."
+        if key_lower == "water resistance":
+            return f"{possessive_subject} water resistance rating is {value_clean}."
+        if key_lower == "release date":
+            return f"{possessive_subject} release date is {value_clean}."
+        if key_lower == "os":
+            return f"{subject} runs {value_clean}."
+        if key_lower == "colors":
+            return f"{subject} comes in {value_clean}."
         if key_lower in {"color support", "wide color"}:
             return f"{subject} supports {value_clean}."
 
@@ -1041,6 +1216,39 @@ class ChatEngine:
             11: "eleven",
             12: "twelve",
         }.get(count, str(count))
+
+    def _extract_storage_options(self, value: str) -> List[str]:
+        scoped_value = value
+        storage_match = re.search(
+            r"storage_options\s*:?\s*(.+)",
+            value,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if storage_match is None:
+            storage_match = re.search(
+                r"storage(?:[_\s]+options?)?\s*:?\s*(.+)",
+                value,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+        if storage_match:
+            scoped_value = storage_match.group(1)
+
+        options = re.findall(r"\b\d+(?:\.\d+)?\s*(?:GB|TB)\b", scoped_value, flags=re.IGNORECASE)
+        normalized: List[str] = []
+        seen = set()
+        for option in options:
+            cleaned = option.upper().replace(" ", "")
+            if cleaned in seen:
+                continue
+            seen.add(cleaned)
+            normalized.append(cleaned)
+        return normalized
+
+    def _normalize_price_value(self, value: str) -> str:
+        cleaned = self._normalize_candidate_text(value)
+        if re.fullmatch(r"\d+(?:\.\d+)?", cleaned):
+            return f"${cleaned}"
+        return cleaned
 
     def _normalized_measurement(self, value: str) -> str:
         normalized = self._normalize_candidate_text(value)
