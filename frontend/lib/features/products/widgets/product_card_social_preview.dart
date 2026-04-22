@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../../core/models/models.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/utils/url_helper.dart';
 
@@ -19,14 +20,28 @@ class ProductCardSocialPreview extends StatelessWidget {
   static final Map<String, Future<_ProductCardSocialPreviewData>> _cache =
       <String, Future<_ProductCardSocialPreviewData>>{};
 
-  Future<_ProductCardSocialPreviewData> _loadPreview(BuildContext context) {
+  static void clearCache({String? productId}) {
+    if (productId == null || productId.trim().isEmpty) {
+      _cache.clear();
+      return;
+    }
+
+    final prefix = '${productId.trim()}::';
+    _cache.removeWhere((key, _) => key.startsWith(prefix));
+  }
+
+  Future<_ProductCardSocialPreviewData> _loadPreview(
+    BuildContext context,
+    int productVersion,
+  ) {
     if (productId.trim().isEmpty) {
       return Future<_ProductCardSocialPreviewData>.value(
         const _ProductCardSocialPreviewData(),
       );
     }
 
-    return _cache.putIfAbsent(productId, () async {
+    final cacheKey = '${productId.trim()}::$productVersion';
+    return _cache.putIfAbsent(cacheKey, () async {
       final api = context.read<ApiService>();
       final buyers = List<ProductBuyerModel>.from(
         await api.getProductBuyers(productId),
@@ -58,8 +73,11 @@ class ProductCardSocialPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final productVersion =
+        context.select<AppRefreshProvider, int>((provider) => provider.productVersion);
+
     return FutureBuilder<_ProductCardSocialPreviewData>(
-      future: _loadPreview(context),
+      future: _loadPreview(context, productVersion),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const SizedBox(height: 14);

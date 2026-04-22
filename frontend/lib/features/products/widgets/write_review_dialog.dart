@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:provider/provider.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/api_service.dart';
 
@@ -135,6 +136,9 @@ class _WriteReviewDialogState extends State<WriteReviewDialog> {
       );
       _api.invalidateProductReviewCache(widget.productId);
       unawaited(_api.warmProductReviewsRanked(widget.productId));
+      if (mounted) {
+        context.read<AppRefreshProvider>().notifyProductPublished();
+      }
 
       if (mounted) {
         Navigator.of(context).pop(true); // Return true to indicate success

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/providers/cart_provider.dart';
 import '../../../core/services/api_service.dart';
@@ -73,6 +74,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
       );
 
       await cartProvider.fetchCart();
+      if (!mounted) {
+        return;
+      }
+      context.read<AppRefreshProvider>().notifyProductPublished();
       if (!mounted) {
         return;
       }

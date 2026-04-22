@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../../core/models/models.dart';
+import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -294,6 +295,9 @@ class _ProductReviewsSheetState extends State<_ProductReviewsSheet> {
 
       _didChangeReviews = true;
       _api.invalidateProductReviewCache(widget.product.id);
+      if (mounted) {
+        context.read<AppRefreshProvider>().notifyProductPublished();
+      }
 
       if (!mounted) {
         return;

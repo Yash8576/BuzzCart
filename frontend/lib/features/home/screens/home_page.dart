@@ -174,6 +174,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _fetchFeed() async {
+    ProductCardSocialPreview.clearCache();
+
     setState(() {
       _isLoading = true;
       _error = null;

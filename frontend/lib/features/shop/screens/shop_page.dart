@@ -145,6 +145,7 @@ class _ShopPageState extends State<ShopPage> {
 
   Future<void> _fetchProducts() async {
     try {
+      ProductCardSocialPreview.clearCache();
       setState(() => _loading = true);
       final currentUserId = context.read<AuthProvider>().user?.id;
       final data = await _api.getProducts();
