@@ -23,7 +23,8 @@ class MessagesPage extends StatefulWidget {
   State<MessagesPage> createState() => _MessagesPageState();
 }
 
-class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver {
+class _MessagesPageState extends State<MessagesPage>
+    with WidgetsBindingObserver {
   final TextEditingController _messageController = TextEditingController();
   Timer? _typingTimer;
   String? _initializedForUserId;
@@ -61,6 +62,22 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
         return;
       }
       context.read<MessagesProvider>().initialize(intent: widget.intent);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant MessagesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.intent == widget.intent || widget.intent == null) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      context.read<MessagesProvider>().applyIntent(widget.intent!);
     });
   }
 
@@ -263,10 +280,9 @@ class _MessagesPageState extends State<MessagesPage> with WidgetsBindingObserver
                   Expanded(
                     child: Text(
                       title,
-                      style:
-                          Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
@@ -375,7 +391,8 @@ class _ConversationList extends StatelessWidget {
                               color: AppColors.successGreen,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: Theme.of(context).scaffoldBackgroundColor,
+                                color:
+                                    Theme.of(context).scaffoldBackgroundColor,
                                 width: 2,
                               ),
                             ),
@@ -393,14 +410,16 @@ class _ConversationList extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: provider.selectedConversationId == conversation.id &&
-                              provider.isOtherUserTyping
-                          ? AppColors.electricBlue
-                          : null,
-                      fontStyle: provider.selectedConversationId == conversation.id &&
-                              provider.isOtherUserTyping
-                          ? FontStyle.italic
-                          : FontStyle.normal,
+                      color:
+                          provider.selectedConversationId == conversation.id &&
+                                  provider.isOtherUserTyping
+                              ? AppColors.electricBlue
+                              : null,
+                      fontStyle:
+                          provider.selectedConversationId == conversation.id &&
+                                  provider.isOtherUserTyping
+                              ? FontStyle.italic
+                              : FontStyle.normal,
                     ),
                   ),
                   trailing: Column(
@@ -641,9 +660,8 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bubbleColor = isMe
-        ? AppColors.electricBlue
-        : Theme.of(context).cardColor;
+    final bubbleColor =
+        isMe ? AppColors.electricBlue : Theme.of(context).cardColor;
     final foreground = isMe ? Colors.white : null;
 
     return Align(
@@ -657,9 +675,8 @@ class _MessageBubble extends StatelessWidget {
           decoration: BoxDecoration(
             color: bubbleColor,
             borderRadius: BorderRadius.circular(22),
-            border: isMe
-                ? null
-                : Border.all(color: Theme.of(context).dividerColor),
+            border:
+                isMe ? null : Border.all(color: Theme.of(context).dividerColor),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -715,7 +732,8 @@ class _ProductShareCard extends StatelessWidget {
         ? UrlHelper.getPlatformUrl(product.images.first)
         : '';
     final currentUserId = context.read<AuthProvider>().user?.id;
-    final isOwnProduct = currentUserId != null && currentUserId == product.sellerId;
+    final isOwnProduct =
+        currentUserId != null && currentUserId == product.sellerId;
 
     void openProduct() {
       final route = isOwnProduct

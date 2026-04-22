@@ -37,7 +37,8 @@ class MessagesProvider extends ChangeNotifier {
   bool _isLoadingThread = false;
   bool _isSending = false;
 
-  MessagesProvider({required ApiService apiService}) : _apiService = apiService {
+  MessagesProvider({required ApiService apiService})
+      : _apiService = apiService {
     _socketService = MessagesSocketService(apiService);
     _presencePruneTimer = Timer.periodic(
       const Duration(seconds: 3),
@@ -47,10 +48,9 @@ class MessagesProvider extends ChangeNotifier {
 
   List<ConversationModel> get conversations => _conversations;
   List<MessageConnectionModel> get connections => _connections;
-  List<ChatMessageModel> get selectedMessages =>
-      _selectedConversationId == null
-          ? const []
-          : (_messagesByConversation[_selectedConversationId] ?? const []);
+  List<ChatMessageModel> get selectedMessages => _selectedConversationId == null
+      ? const []
+      : (_messagesByConversation[_selectedConversationId] ?? const []);
   String? get selectedConversationId => _selectedConversationId;
   MessageParticipantModel? get selectedParticipant => _selectedParticipant;
   MessageComposerDraft? get draft => _draft;
@@ -58,7 +58,7 @@ class MessagesProvider extends ChangeNotifier {
   bool get isLoadingConnections => _isLoadingConnections;
   bool get isLoadingThread => _isLoadingThread;
   bool get isSending => _isSending;
-    int get totalUnreadCount =>
+  int get totalUnreadCount =>
       _conversations.fold<int>(0, (sum, item) => sum + item.unreadCount);
 
   bool get hasSelectedConversation =>
@@ -70,7 +70,8 @@ class MessagesProvider extends ChangeNotifier {
     if (participant == null || conversationId == null) {
       return false;
     }
-    return _typingUsersByConversation[conversationId]?.contains(participant.id) ??
+    return _typingUsersByConversation[conversationId]
+            ?.contains(participant.id) ??
         false;
   }
 
@@ -206,6 +207,17 @@ class MessagesProvider extends ChangeNotifier {
     }
 
     if (intent.participant != null) {
+      final existingConversationId = _findConversationIdForParticipant(
+        intent.participant!.id,
+      );
+      if (existingConversationId != null) {
+        await openConversationById(
+          existingConversationId,
+          fallbackParticipant: intent.participant,
+        );
+        return;
+      }
+
       await startDraftConversation(intent.participant!);
       return;
     }
@@ -257,8 +269,7 @@ class MessagesProvider extends ChangeNotifier {
         ConversationModel(
           id: thread.conversationId,
           participant: thread.participant,
-          lastMessage:
-              thread.messages.isNotEmpty ? thread.messages.last : null,
+          lastMessage: thread.messages.isNotEmpty ? thread.messages.last : null,
           unreadCount: 0,
           updatedAt: thread.messages.isNotEmpty
               ? thread.messages.last.createdAt
@@ -273,7 +284,8 @@ class MessagesProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> startDraftConversation(MessageParticipantModel participant) async {
+  Future<void> startDraftConversation(
+      MessageParticipantModel participant) async {
     if (_selectedConversationId != null) {
       _deactivateConversationPresence(
         _selectedConversationId!,
@@ -469,20 +481,20 @@ class MessagesProvider extends ChangeNotifier {
           id: message.conversationId,
           participant: _selectedParticipant!,
           lastMessage: message,
-          unreadCount:
-              message.senderId == _currentUser?.id || _selectedConversationId == message.conversationId
-                  ? 0
-                  : 1,
+          unreadCount: message.senderId == _currentUser?.id ||
+                  _selectedConversationId == message.conversationId
+              ? 0
+              : 1,
           updatedAt: message.createdAt,
         ),
       );
       return;
     }
 
-    final unreadCount =
-        message.senderId == _currentUser?.id || _selectedConversationId == message.conversationId
-            ? 0
-            : existing.unreadCount + 1;
+    final unreadCount = message.senderId == _currentUser?.id ||
+            _selectedConversationId == message.conversationId
+        ? 0
+        : existing.unreadCount + 1;
 
     _upsertConversation(
       existing.copyWith(
@@ -500,6 +512,26 @@ class MessagesProvider extends ChangeNotifier {
     ];
   }
 
+  String? _findConversationIdForParticipant(String participantId) {
+    final existingConversation =
+        _conversations.cast<ConversationModel?>().firstWhere(
+              (conversation) => conversation?.participant.id == participantId,
+              orElse: () => null,
+            );
+    if (existingConversation != null) {
+      return existingConversation.id;
+    }
+
+    final existingConnection =
+        _connections.cast<MessageConnectionModel?>().firstWhere(
+              (connection) =>
+                  connection?.id == participantId &&
+                  (connection?.conversationId?.isNotEmpty ?? false),
+              orElse: () => null,
+            );
+    return existingConnection?.conversationId;
+  }
+
   void _refreshTypingExpiry(String conversationId, String userId) {
     final timers = _typingExpiryTimersByConversation.putIfAbsent(
       conversationId,
@@ -514,7 +546,8 @@ class MessagesProvider extends ChangeNotifier {
         _typingUsersByConversation.remove(conversationId);
       }
 
-      final conversationTimers = _typingExpiryTimersByConversation[conversationId];
+      final conversationTimers =
+          _typingExpiryTimersByConversation[conversationId];
       conversationTimers?.remove(userId);
       if (conversationTimers != null && conversationTimers.isEmpty) {
         _typingExpiryTimersByConversation.remove(conversationId);
@@ -606,7 +639,8 @@ class MessagesProvider extends ChangeNotifier {
 
   void _resumeConversationPresence(String conversationId) {
     _connectSocket(conversationId: conversationId).then((_) {
-      if (!_isMessagesScreenVisible || _selectedConversationId != conversationId) {
+      if (!_isMessagesScreenVisible ||
+          _selectedConversationId != conversationId) {
         return;
       }
       _socketService.openConversation(conversationId);
