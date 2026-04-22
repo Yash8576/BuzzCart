@@ -13,7 +13,7 @@ docker compose -f docker/docker-compose.yml down
 echo.
 
 echo Building and starting all services...
-docker compose -f docker/docker-compose.yml up -d --build postgres redis minio backend
+docker compose -f docker/docker-compose.yml up -d --build cloudsql-proxy redis backend frontend chatbot
 echo.
 
 echo Waiting for services to be healthy...
@@ -31,14 +31,13 @@ echo.
 echo ========================================
 echo Service URLs:
 echo ========================================
-echo PostgreSQL:  localhost:5433
-echo   Database:  like2share_db
-echo   Username:  like2share_user
-echo   Password:  like2share_dev_password
+echo Cloud SQL Proxy:  localhost:5434
+echo   Target DB:      buzzcart-daeb6-database
 echo.
 echo Redis:       localhost:6379
-echo MinIO:       localhost:9000 (console: localhost:9001)
 echo Backend:     localhost:8080
+echo Frontend:    localhost:80
+echo Chatbot:     localhost:8001
 echo ========================================
 echo.
 echo Rebuild complete!

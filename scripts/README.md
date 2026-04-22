@@ -7,7 +7,7 @@ This folder contains scripts to easily manage Docker services for the Like2Share
 ### Windows Scripts (.bat)
 
 #### 1. start-all-services.bat
-**Purpose:** Start all Docker services (PostgreSQL, Redis, MinIO, Backend)
+**Purpose:** Start all Docker services (Cloud SQL Proxy, Redis, Backend, Frontend, Chatbot)
 
 **Usage:**
 ```batch
@@ -17,7 +17,7 @@ start-all-services.bat
 
 **What it does:**
 - Stops any existing containers
-- Starts PostgreSQL, Redis, MinIO, and Backend services
+- Starts Cloud SQL Proxy, Redis, Backend, Frontend, and Chatbot services
 - Shows service status and connection URLs
 
 **When to use:** Daily development startup
@@ -80,11 +80,11 @@ After running `start-all-services.bat` or `rebuild-and-start.bat`, the following
 
 | Service    | URL/Port            | Credentials                                    |
 |------------|---------------------|------------------------------------------------|
-| PostgreSQL | `localhost:5433`    | User: `like2share_user`<br>Password: `like2share_dev_password`<br>Database: `like2share_db` |
+| Cloud SQL Proxy | `localhost:5434` | Connects Docker services to `buzzcart-daeb6-database` |
 | Redis      | `localhost:6379`    | No authentication                              |
-| MinIO      | `localhost:9000`    | Access: `minioadmin`<br>Secret: `minioadmin123`|
-| MinIO UI   | `localhost:9001`    | Same credentials as MinIO                      |
 | Backend    | `localhost:8080`    | REST API                                       |
+| Frontend   | `localhost:80`      | Web app                                        |
+| Chatbot    | `localhost:8001`    | Chatbot API                                    |
 
 ---
 
@@ -104,10 +104,10 @@ start-all-services.bat
 2. Open pgAdmin 4
 3. Create new server connection:
    - Host: `localhost`
-   - Port: `5433`
-   - Database: `like2share_db`
-   - Username: `like2share_user`
-   - Password: `like2share_dev_password`
+   - Port: `5434`
+   - Database: `buzzcart-daeb6-database`
+   - Username: `buzzcart_app`
+   - Password: your Cloud SQL app password
 
 ### Viewing Logs
 ```batch
@@ -116,7 +116,7 @@ docker compose -f docker/docker-compose.yml logs -f
 
 # View specific service logs
 docker compose -f docker/docker-compose.yml logs -f backend
-docker compose -f docker/docker-compose.yml logs -f postgres
+docker compose -f docker/docker-compose.yml logs -f cloudsql-proxy
 ```
 
 ### Troubleshooting
@@ -136,8 +136,8 @@ docker compose -f docker/docker-compose.yml up -d --build
 
 **Issue:** Port already in use
 ```batch
-# Check what's using ports 5433, 6379, 8080, 9000
-netstat -ano | findstr ":5433"
+# Check what's using ports 5434, 6379, 8080, 8001
+netstat -ano | findstr ":5434"
 netstat -ano | findstr ":8080"
 
 # Kill process if needed
@@ -158,6 +158,7 @@ rebuild-and-start.bat
 - All scripts should be run from the `scripts` directory
 - Scripts use relative paths, so they work from any project location
 - Data persists across container restarts in Docker volumes
+- Cloud SQL access is handled by the `cloudsql-proxy` service in Docker Compose
 - Use `rebuild-and-start.bat` after pulling code updates
 - Frontend should connect to `http://localhost:8080/api`
 
