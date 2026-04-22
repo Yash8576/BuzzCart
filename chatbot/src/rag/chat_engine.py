@@ -166,6 +166,14 @@ class ChatEngine:
                 document_url=document_url,
             )
 
+        direct_response = self._answer_directly_from_document(
+            product_id=product_id,
+            query=cleaned_query,
+            product_name=product_name,
+        )
+        if direct_response is not None:
+            return direct_response
+
         retrieved = self.vector_store.similarity_search(
             product_id=product_id,
             query=retrieval_query,
@@ -210,6 +218,115 @@ class ChatEngine:
                 chunk_id=int(primary["chunk_id"]),
             ),
             confidence=self._confidence_label(selected_evidence),
+        )
+
+    def _answer_directly_from_document(
+        self,
+        product_id: str,
+        query: str,
+        product_name: Optional[str] = None,
+    ) -> Optional[ProductChatResponse]:
+        if not (
+            self._asks_for_fact_value(query)
+            or self._expects_numeric_answer(query)
+            or self._expects_yes_no_answer(query)
+        ):
+            return None
+
+        raw_chunks = self.vector_store.load_product_chunks(product_id)
+        if not raw_chunks:
+            return None
+
+        direct_candidates: List[Dict[str, Any]] = []
+        seen = set()
+        query_terms = set(self._meaningful_terms(query))
+        topics = self._query_topics(query.lower())
+
+        for chunk in raw_chunks:
+            for text in self._extract_candidate_spans(query, chunk.text):
+                normalized = self._normalize_candidate_text(text)
+                if len(normalized) < 6:
+                    continue
+                lowered = normalized.lower()
+                if lowered in seen:
+                    continue
+                seen.add(lowered)
+
+                support = self._support_ratio(query, normalized)
+                if support < 0.18 and not self._contains_numeric_value(normalized):
+                    continue
+
+                exact_phrase_bonus = 0.0
+                lowered_query = query.lower()
+                if lowered_query in lowered:
+                    exact_phrase_bonus += 0.20
+                if any(term in lowered for term in query_terms):
+                    exact_phrase_bonus += 0.06
+                if query_terms and query_terms.issubset(set(self._meaningful_terms(normalized))):
+                    exact_phrase_bonus += 0.15
+                if topics and any(topic in lowered for topic in topics):
+                    exact_phrase_bonus += 0.12
+                if self._expects_numeric_answer(query) and self._contains_numeric_value(normalized):
+                    exact_phrase_bonus += 0.14
+                if ":" in normalized and len(normalized) <= 160:
+                    exact_phrase_bonus += 0.08
+                if len(normalized) <= 140:
+                    exact_phrase_bonus += 0.06
+
+                direct_candidates.append(
+                    {
+                        "text": normalized,
+                        "page": int(chunk.metadata["page"]),
+                        "chunk_id": int(chunk.metadata["chunk_id"]),
+                        "context_text": chunk.text,
+                        "section_title": chunk.metadata.get("section_title"),
+                        "support": support,
+                        "base_score": 0.0,
+                        "dense_score": 0.0,
+                        "lexical_score": exact_phrase_bonus,
+                        "numeric_bonus": 0.0,
+                        "noise_penalty": self._noise_penalty(normalized, chunk.text),
+                        "direct_answer_bonus": exact_phrase_bonus + self._direct_answer_bonus(query, normalized),
+                    }
+                )
+
+        if not direct_candidates:
+            return None
+
+        direct_candidates.sort(
+            key=lambda item: (
+                item["support"] + item["direct_answer_bonus"] + item["lexical_score"],
+                -len(item["text"]),
+            ),
+            reverse=True,
+        )
+        reranked = self.vector_store.rerank_sentences(
+            query,
+            direct_candidates[: settings.DIRECT_SEARCH_TOP_K],
+        )
+        selected = self._select_supporting_evidence(query, reranked)
+        if not selected:
+            return None
+
+        primary = selected[0]
+        if float(primary.get("selection_score", 0.0)) < settings.DIRECT_MATCH_MIN_SCORE:
+            return None
+
+        answer = self._deterministic_rewrite(
+            query,
+            selected,
+            product_name=product_name,
+        )
+        if answer == FALLBACK_ANSWER:
+            return None
+
+        return ProductChatResponse(
+            answer=answer,
+            source=AnswerSource(
+                page=int(primary["page"]),
+                chunk_id=int(primary["chunk_id"]),
+            ),
+            confidence="high",
         )
 
     def _collect_evidence_candidates(

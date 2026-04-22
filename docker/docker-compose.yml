@@ -64,6 +64,10 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - like2share_network
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -83,11 +87,17 @@ services:
       - like2share_network
     volumes:
       - ollama_data:/root/.ollama
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
 
   chatbot:
     build:
       context: ../chatbot
       dockerfile: Dockerfile
+      args:
+        TORCH_WHEEL_CHANNEL: ${TORCH_WHEEL_CHANNEL:-cu128}
     container_name: like2share_chatbot
     restart: unless-stopped
     ports:
@@ -99,6 +109,9 @@ services:
       EMBEDDING_MODEL_NAME: BAAI/bge-m3
       RERANKER_MODEL_NAME: BAAI/bge-reranker-v2-m3
       MODEL_DEVICE: ${MODEL_DEVICE:-auto}
+      MODEL_DEVICE_INDEX: ${MODEL_DEVICE_INDEX:-0}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      RERANK_BATCH_SIZE: ${RERANK_BATCH_SIZE:-24}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
       VECTOR_STORE_DIR: /app/data/vector_store
@@ -111,9 +124,13 @@ services:
       LEXICAL_SEARCH_LIMIT: 24
       NEIGHBOR_WINDOW: 1
       MAX_EVIDENCE_BLOCKS: 3
+      DIRECT_SEARCH_TOP_K: 14
+      DIRECT_MATCH_MIN_SCORE: 0.58
       DOCUMENT_URL_REWRITE_FROM: '["localhost","127.0.0.1","10.0.2.2"]'
       DOCUMENT_URL_REWRITE_TO: firebasestorage.googleapis.com
       DEBUG: "true"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     depends_on:
       ollama:
         condition: service_healthy
@@ -125,6 +142,7 @@ services:
       - chatbot_documents:/app/data/documents
       - chatbot_vector_store:/app/data/vector_store
       - chatbot_model_cache:/app/models/cache
+    gpus: all
 
 volumes:
   redis_data:

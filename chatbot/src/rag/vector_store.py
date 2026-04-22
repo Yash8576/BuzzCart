@@ -45,10 +45,21 @@ class VectorStoreManager:
         self.vector_store_dir.mkdir(parents=True, exist_ok=True)
         self.model_cache_dir.mkdir(parents=True, exist_ok=True)
         self.model_device = self._resolve_model_device()
+        self._configure_torch_runtime()
 
         logger.info("Using model device: %s", self.model_device)
         if self.model_device.startswith("cuda") and torch.cuda.is_available():
-            logger.info("CUDA device: %s", torch.cuda.get_device_name(0))
+            device_index = self._device_index_from_name(self.model_device)
+            logger.info("CUDA device: %s", torch.cuda.get_device_name(device_index))
+            try:
+                free_memory, total_memory = torch.cuda.mem_get_info(device_index)
+                logger.info(
+                    "CUDA memory free %.2f GB / %.2f GB",
+                    free_memory / (1024 ** 3),
+                    total_memory / (1024 ** 3),
+                )
+            except Exception:
+                logger.debug("Could not read CUDA memory info", exc_info=True)
 
         logger.info("Loading embedding model: %s", settings.EMBEDDING_MODEL_NAME)
         self.embedding_model = SentenceTransformer(
@@ -136,6 +147,7 @@ class VectorStoreManager:
 
         embeddings = self.embedding_model.encode(
             texts,
+            batch_size=settings.EMBEDDING_BATCH_SIZE,
             normalize_embeddings=True,
             show_progress_bar=False,
             convert_to_numpy=True,
@@ -184,6 +196,7 @@ class VectorStoreManager:
         index = faiss.read_index(str(index_path))
         query_vector = self.embedding_model.encode(
             [query],
+            batch_size=1,
             normalize_embeddings=True,
             show_progress_bar=False,
             convert_to_numpy=True,
@@ -309,7 +322,11 @@ class VectorStoreManager:
         if not self.reranker or not matches:
             return matches[: settings.RERANK_TOP_K]
 
-        scores = self.reranker.predict([(query, match.text) for match in matches])
+        scores = self.reranker.predict(
+            [(query, match.text) for match in matches],
+            batch_size=settings.RERANK_BATCH_SIZE,
+            show_progress_bar=False,
+        )
         reranked = [
             SearchMatch(
                 text=match.text,
@@ -331,7 +348,11 @@ class VectorStoreManager:
         if not self.reranker or not candidates:
             return candidates[: settings.SENTENCE_TOP_K]
 
-        scores = self.reranker.predict([(query, candidate["text"]) for candidate in candidates])
+        scores = self.reranker.predict(
+            [(query, candidate["text"]) for candidate in candidates],
+            batch_size=settings.RERANK_BATCH_SIZE,
+            show_progress_bar=False,
+        )
         ranked: List[Dict[str, Any]] = []
         for candidate, score in zip(candidates, scores):
             enriched = dict(candidate)
@@ -563,8 +584,52 @@ class VectorStoreManager:
         if configured and configured != "auto":
             return configured
         if torch.cuda.is_available():
-            return "cuda"
+            preferred_index = self._pick_best_cuda_device()
+            return f"cuda:{preferred_index}"
         return "cpu"
+
+    def _configure_torch_runtime(self) -> None:
+        if settings.ENABLE_TF32:
+            try:
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                logger.debug("float32 matmul precision setting unavailable", exc_info=True)
+
+        if torch.cuda.is_available():
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = settings.ENABLE_TF32
+                torch.backends.cudnn.allow_tf32 = settings.ENABLE_TF32
+                torch.backends.cudnn.benchmark = True
+            except Exception:
+                logger.debug("CUDA backend optimization settings unavailable", exc_info=True)
+
+    def _pick_best_cuda_device(self) -> int:
+        preferred_index = max(settings.MODEL_DEVICE_INDEX, 0)
+        device_count = torch.cuda.device_count()
+        if device_count <= 0:
+            return 0
+        if preferred_index < device_count:
+            return preferred_index
+
+        best_index = 0
+        best_free_memory = -1
+        for device_index in range(device_count):
+            try:
+                free_memory, _ = torch.cuda.mem_get_info(device_index)
+            except Exception:
+                free_memory = 0
+            if free_memory > best_free_memory:
+                best_index = device_index
+                best_free_memory = free_memory
+        return best_index
+
+    def _device_index_from_name(self, device_name: str) -> int:
+        if ":" not in device_name:
+            return 0
+        try:
+            return int(device_name.split(":", 1)[1])
+        except ValueError:
+            return 0
 
     def _product_dir(self, product_id: str) -> Path:
         safe_product_id = "".join(char for char in product_id if char.isalnum() or char in {"-", "_"})

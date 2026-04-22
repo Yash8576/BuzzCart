@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-m3"
     RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-v2-m3"
     MODEL_DEVICE: str = "auto"
+    MODEL_DEVICE_INDEX: int = 0
+    ENABLE_TF32: bool = True
+    EMBEDDING_BATCH_SIZE: int = 32
+    RERANK_BATCH_SIZE: int = 24
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "mistral"
     OLLAMA_TIMEOUT_SECONDS: int = 60
@@ -33,6 +37,8 @@ class Settings(BaseSettings):
     SENTENCE_TOP_K: int = 8
     NEIGHBOR_WINDOW: int = 1
     MAX_EVIDENCE_BLOCKS: int = 3
+    DIRECT_SEARCH_TOP_K: int = 14
+    DIRECT_MATCH_MIN_SCORE: float = 0.58
 
     DOCUMENT_URL_REWRITE_FROM: List[str] = Field(
         default_factory=lambda: ["localhost", "127.0.0.1", "10.0.2.2"]
