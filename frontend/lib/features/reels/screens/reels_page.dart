@@ -237,6 +237,47 @@ class _ReelViewport extends StatefulWidget {
   State<_ReelViewport> createState() => _ReelViewportState();
 }
 
+class _ReelControllerCacheEntry {
+  const _ReelControllerCacheEntry({
+    required this.controller,
+    required this.cachedAt,
+  });
+
+  final VideoPlayerController controller;
+  final DateTime cachedAt;
+}
+
+class _ReelControllerCache {
+  static const int _maxEntries = 2;
+  static final Map<String, _ReelControllerCacheEntry> _entries = {};
+
+  static VideoPlayerController? take(String reelId) {
+    final entry = _entries.remove(reelId);
+    return entry?.controller;
+  }
+
+  static void store(String reelId, VideoPlayerController controller) {
+    _entries.remove(reelId)?.controller.dispose();
+    _entries[reelId] = _ReelControllerCacheEntry(
+      controller: controller,
+      cachedAt: DateTime.now(),
+    );
+    _evictOverflow();
+  }
+
+  static void _evictOverflow() {
+    while (_entries.length > _maxEntries) {
+      final oldestEntry = _entries.entries.reduce(
+        (current, next) =>
+            current.value.cachedAt.isBefore(next.value.cachedAt)
+                ? current
+                : next,
+      );
+      _entries.remove(oldestEntry.key)?.controller.dispose();
+    }
+  }
+}
+
 class _ReelViewportState extends State<_ReelViewport> {
   VideoPlayerController? _controller;
   bool _initializing = false;
@@ -259,27 +300,35 @@ class _ReelViewportState extends State<_ReelViewport> {
         oldWidget.reel.commentCount != widget.reel.commentCount) {
       _commentCount = widget.reel.commentCount;
     }
+    if (oldWidget.reel.id != widget.reel.id) {
+      _disposeController(cacheForReuse: true);
+    }
     if (widget.isActive && _controller == null) {
       _ensureController();
     } else if (widget.isActive && _controller != null) {
       _controller!.setVolume(widget.isMuted ? 0 : 1);
       _controller!.play();
     } else if (!widget.isActive && _controller != null) {
-      _disposeController();
+      _disposeController(cacheForReuse: true);
     }
   }
 
   @override
   void dispose() {
-    _disposeController();
+    _disposeController(cacheForReuse: true);
     super.dispose();
   }
 
-  void _disposeController() {
+  void _disposeController({bool cacheForReuse = false}) {
     final controller = _controller;
     _controller = null;
     if (controller != null) {
-      controller.dispose();
+      if (cacheForReuse && controller.value.isInitialized) {
+        controller.pause();
+        _ReelControllerCache.store(widget.reel.id, controller);
+      } else {
+        controller.dispose();
+      }
     }
   }
 
@@ -288,18 +337,25 @@ class _ReelViewportState extends State<_ReelViewport> {
       return;
     }
     _initializing = true;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(UrlHelper.getPlatformUrl(widget.reel.url)),
-    );
+    final cachedController = _ReelControllerCache.take(widget.reel.id);
+    final controller =
+        cachedController ??
+        VideoPlayerController.networkUrl(
+          Uri.parse(UrlHelper.getPlatformUrl(widget.reel.url)),
+        );
     try {
-      await controller.initialize();
+      if (!controller.value.isInitialized) {
+        await controller.initialize();
+      }
       await controller.setLooping(true);
       await controller.setVolume(widget.isMuted ? 0 : 1);
       if (widget.isActive) {
         await controller.play();
+      } else {
+        await controller.pause();
       }
       if (!mounted) {
-        await controller.dispose();
+        _ReelControllerCache.store(widget.reel.id, controller);
         return;
       }
       setState(() {

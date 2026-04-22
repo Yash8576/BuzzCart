@@ -1562,6 +1562,47 @@ class _InlineReelMedia extends StatefulWidget {
   State<_InlineReelMedia> createState() => _InlineReelMediaState();
 }
 
+class _InlineReelControllerCacheEntry {
+  const _InlineReelControllerCacheEntry({
+    required this.controller,
+    required this.cachedAt,
+  });
+
+  final VideoPlayerController controller;
+  final DateTime cachedAt;
+}
+
+class _InlineReelControllerCache {
+  static const int _maxEntries = 3;
+  static final Map<String, _InlineReelControllerCacheEntry> _entries = {};
+
+  static VideoPlayerController? take(String videoUrl) {
+    final entry = _entries.remove(videoUrl);
+    return entry?.controller;
+  }
+
+  static void store(String videoUrl, VideoPlayerController controller) {
+    _entries.remove(videoUrl)?.controller.dispose();
+    _entries[videoUrl] = _InlineReelControllerCacheEntry(
+      controller: controller,
+      cachedAt: DateTime.now(),
+    );
+    _evictOverflow();
+  }
+
+  static void _evictOverflow() {
+    while (_entries.length > _maxEntries) {
+      final oldestEntry = _entries.entries.reduce(
+        (current, next) =>
+            current.value.cachedAt.isBefore(next.value.cachedAt)
+                ? current
+                : next,
+      );
+      _entries.remove(oldestEntry.key)?.controller.dispose();
+    }
+  }
+}
+
 class _InlineReelMediaState extends State<_InlineReelMedia>
     with WidgetsBindingObserver {
   VideoPlayerController? _controller;
@@ -1580,6 +1621,9 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
   @override
   void didUpdateWidget(covariant _InlineReelMedia oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl) {
+      _disposeController(cacheForReuse: true);
+    }
     if (widget.isActive && _isAppActive) {
       if (_controller == null) {
         _ensureController();
@@ -1588,7 +1632,7 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
         _controller!.play();
       }
     } else {
-      _disposeController();
+      _controller?.pause();
     }
   }
 
@@ -1597,27 +1641,36 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
     final isAppActive = state == AppLifecycleState.resumed;
     _isAppActive = isAppActive;
     if (!isAppActive) {
-      _disposeController();
+      _controller?.pause();
       return;
     }
-    if (widget.isActive && _controller != null) {
-      _controller!.setVolume(widget.isMuted ? 0 : 1);
-      _controller!.play();
+    if (widget.isActive) {
+      if (_controller == null) {
+        _ensureController();
+      } else {
+        _controller!.setVolume(widget.isMuted ? 0 : 1);
+        _controller!.play();
+      }
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _disposeController();
+    _disposeController(cacheForReuse: true);
     super.dispose();
   }
 
-  void _disposeController() {
+  void _disposeController({bool cacheForReuse = false}) {
     final controller = _controller;
     _controller = null;
     if (controller != null) {
-      controller.dispose();
+      if (cacheForReuse && controller.value.isInitialized) {
+        controller.pause();
+        _InlineReelControllerCache.store(widget.videoUrl, controller);
+      } else {
+        controller.dispose();
+      }
     }
   }
 
@@ -1627,19 +1680,26 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
     }
 
     _initializing = true;
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(UrlHelper.getPlatformUrl(widget.videoUrl)),
-    );
+    final cachedController = _InlineReelControllerCache.take(widget.videoUrl);
+    final controller =
+        cachedController ??
+        VideoPlayerController.networkUrl(
+          Uri.parse(UrlHelper.getPlatformUrl(widget.videoUrl)),
+        );
 
     try {
-      await controller.initialize();
+      if (!controller.value.isInitialized) {
+        await controller.initialize();
+      }
       await controller.setLooping(true);
       await controller.setVolume(widget.isMuted ? 0 : 1);
       if (widget.isActive && _isAppActive) {
         await controller.play();
+      } else {
+        await controller.pause();
       }
       if (!mounted) {
-        await controller.dispose();
+        _InlineReelControllerCache.store(widget.videoUrl, controller);
         return;
       }
       setState(() {

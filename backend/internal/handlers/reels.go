@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"buzzcart/internal/cache"
+	"context"
 	"buzzcart/internal/models"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
 const reelProductsJSONSelect = `
@@ -35,6 +38,12 @@ COALESCE(
 	) FILTER (WHERE p.id IS NOT NULL),
 	'[]'::jsonb
 ) AS products`
+
+const (
+	reelListCacheTTL     = 2 * time.Minute
+	reelDetailCacheTTL   = 1 * time.Minute
+	reelCommentsCacheTTL = 1 * time.Minute
+)
 
 var ensureContentCommentsSchemaOnce sync.Once
 
@@ -142,6 +151,83 @@ func normalizedUUIDString(value string) *string {
 
 	normalized := parsed.String()
 	return &normalized
+}
+
+func reelCacheViewerKey(userID string) string {
+	normalized := normalizedUUIDString(userID)
+	if normalized == nil {
+		return "anon"
+	}
+	return *normalized
+}
+
+func reelListCacheKey(userID string) string {
+	return fmt.Sprintf("reels:list:%s", reelCacheViewerKey(userID))
+}
+
+func reelDetailCacheKey(reelID string, userID string) string {
+	return fmt.Sprintf("reels:detail:%s:%s", reelID, reelCacheViewerKey(userID))
+}
+
+func reelCommentsCacheKey(reelID string, userID string) string {
+	return fmt.Sprintf("reels:comments:%s:%s", reelID, reelCacheViewerKey(userID))
+}
+
+func readCachedJSON[T any](key string, dest *T) bool {
+	cached, err := cache.Get(key)
+	if err != nil {
+		if err != redis.Nil {
+			log.Printf("[reels-cache] Redis get failed for %s: %v", key, err)
+		}
+		return false
+	}
+	if err := json.Unmarshal([]byte(cached), dest); err != nil {
+		log.Printf("[reels-cache] Failed to decode cached JSON for %s: %v", key, err)
+		_ = cache.Delete(key)
+		return false
+	}
+	return true
+}
+
+func writeCachedJSON(key string, value any, ttl time.Duration) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		log.Printf("[reels-cache] Failed to encode JSON for %s: %v", key, err)
+		return
+	}
+	if err := cache.Set(key, string(payload), ttl); err != nil {
+		log.Printf("[reels-cache] Redis set failed for %s: %v", key, err)
+	}
+}
+
+func invalidateCachePattern(pattern string) {
+	rdb := cache.GetClient()
+	if rdb == nil {
+		return
+	}
+
+	ctx := context.Background()
+	iter := rdb.Scan(ctx, 0, pattern, 0).Iterator()
+	for iter.Next(ctx) {
+		if err := rdb.Del(ctx, iter.Val()).Err(); err != nil {
+			log.Printf("[reels-cache] Failed to delete cache key %s: %v", iter.Val(), err)
+		}
+	}
+	if err := iter.Err(); err != nil {
+		log.Printf("[reels-cache] Failed to scan pattern %s: %v", pattern, err)
+	}
+}
+
+func invalidateReelListCache() {
+	invalidateCachePattern("reels:list:*")
+}
+
+func invalidateReelDetailCache(reelID string) {
+	invalidateCachePattern(fmt.Sprintf("reels:detail:%s:*", reelID))
+}
+
+func invalidateReelCommentsCache(reelID string) {
+	invalidateCachePattern(fmt.Sprintf("reels:comments:%s:*", reelID))
 }
 
 func fetchTaggedProducts(tx *sql.Tx, userID string, role models.UserRole, productIDs []string) ([]models.ProductSimple, error) {
@@ -428,6 +514,10 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 			}
 		}
 
+		invalidateReelListCache()
+		invalidateReelDetailCache(reel.ID)
+		invalidateReelCommentsCache(reel.ID)
+
 		resolveReelMediaURLs(&reel)
 		c.JSON(http.StatusOK, reel)
 	}
@@ -436,6 +526,18 @@ func CreateReel(db *sql.DB) gin.HandlerFunc {
 func GetReels(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
+		cacheKey := reelListCacheKey(userID)
+
+		var cachedReels []models.Reel
+		if readCachedJSON(cacheKey, &cachedReels) {
+			c.JSON(http.StatusOK, cachedReels)
+			return
+		}
+
+		normalizedViewerID := ""
+		if normalized := normalizedUUIDString(userID); normalized != nil {
+			normalizedViewerID = *normalized
+		}
 
 		query := `
 			SELECT
@@ -479,7 +581,7 @@ func GetReels(db *sql.DB) gin.HandlerFunc {
 			LIMIT 20
 		`
 
-		rows, err := db.Query(query, userID)
+		rows, err := db.Query(query, normalizedViewerID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reels"})
 			return
@@ -516,6 +618,12 @@ func GetReels(db *sql.DB) gin.HandlerFunc {
 			reels = append(reels, reel)
 		}
 
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch reels"})
+			return
+		}
+
+		writeCachedJSON(cacheKey, reels, reelListCacheTTL)
 		c.JSON(http.StatusOK, reels)
 	}
 }
@@ -532,6 +640,14 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 		}
 		if !canAccess {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
+			return
+		}
+
+		cacheKey := reelDetailCacheKey(reelID, userID)
+		var cachedReel models.Reel
+		if readCachedJSON(cacheKey, &cachedReel) {
+			_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)
+			c.JSON(http.StatusOK, cachedReel)
 			return
 		}
 
@@ -570,6 +686,7 @@ func GetReel(db *sql.DB) gin.HandlerFunc {
 
 		reel.Products = decodeTaggedProducts(productsJSON)
 		resolveReelMediaURLs(&reel)
+		writeCachedJSON(cacheKey, reel, reelDetailCacheTTL)
 
 		_, _ = db.Exec("UPDATE content_items SET view_count = view_count + 1 WHERE id = $1", reelID)
 
@@ -581,6 +698,7 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reelID := c.Param("reel_id")
 		userID := c.GetString("user_id")
+		cacheKey := reelCommentsCacheKey(reelID, userID)
 
 		if err := ensureContentCommentsSchema(db); err != nil {
 			log.Printf("[GetReelComments] Failed to ensure content_comments schema: %v", err)
@@ -602,6 +720,12 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 		}
 		if !reelExists {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Reel not found"})
+			return
+		}
+
+		var cachedComments []models.ReelComment
+		if readCachedJSON(cacheKey, &cachedComments) {
+			c.JSON(http.StatusOK, cachedComments)
 			return
 		}
 
@@ -658,6 +782,7 @@ func GetReelComments(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		writeCachedJSON(cacheKey, comments, reelCommentsCacheTTL)
 		c.JSON(http.StatusOK, comments)
 	}
 }
@@ -772,6 +897,11 @@ func CreateReelComment(db *sql.DB) gin.HandlerFunc {
 
 		comment.IsCurrentUser = true
 		comment.UserAvatar = readableMediaURLPtr(comment.UserAvatar)
+
+		invalidateReelCommentsCache(reelID)
+		invalidateReelListCache()
+		invalidateReelDetailCache(reelID)
+
 		c.JSON(http.StatusOK, comment)
 	}
 }
@@ -796,6 +926,9 @@ func LikeReel(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to like reel"})
 			return
 		}
+
+		invalidateReelListCache()
+		invalidateReelDetailCache(reelID)
 
 		c.JSON(http.StatusOK, gin.H{"message": "Reel liked"})
 	}
