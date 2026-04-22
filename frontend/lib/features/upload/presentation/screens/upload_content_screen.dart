@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -9,6 +10,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 import '../../../../core/providers/app_refresh_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/upload_content_provider.dart';
@@ -30,6 +32,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
   bool _isUploading = false;
   bool _isLoadingTagOptions = false;
   List<ProductModel> _eligibleTaggedProducts = const <ProductModel>[];
+  XFile? _customReelThumbnailFile;
+  String? _activeReelSelectionKey;
 
   @override
   void initState() {
@@ -40,6 +44,20 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
   void dispose() {
     _captionController.dispose();
     super.dispose();
+  }
+
+  void _syncReelThumbnailState(UploadContentProvider provider) {
+    final currentReelKey = provider.selectedMediaType == 'reel' &&
+            provider.selectedFiles.isNotEmpty
+        ? provider.selectedFiles.first.path
+        : null;
+
+    if (_activeReelSelectionKey == currentReelKey) {
+      return;
+    }
+
+    _activeReelSelectionKey = currentReelKey;
+    _customReelThumbnailFile = null;
   }
 
   Future<void> _pickMedia(
@@ -402,6 +420,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           if (mounted) {
             provider.notifyUploadSuccess();
             provider.clearAll();
+            _customReelThumbnailFile = null;
+            _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -431,6 +451,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
           if (mounted) {
             provider.clearAll();
+            _customReelThumbnailFile = null;
+            _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Video uploaded successfully!')),
@@ -448,11 +470,15 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         final result = await _api.uploadVideo(file, folder: 'reels');
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
+          final thumbnailUrl = await _uploadReelThumbnail(
+            file,
+            fallbackUrl: videoUrl,
+          );
 
           // Create reel record
           await _api.createReel(
             url: videoUrl,
-            thumbnail: videoUrl, // Using same URL for thumbnail for now
+            thumbnail: thumbnailUrl,
             width: dimensions.width.round(),
             height: dimensions.height.round(),
             caption: caption,
@@ -462,6 +488,8 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
           if (mounted) {
             provider.clearAll();
+            _customReelThumbnailFile = null;
+            _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Reel uploaded successfully!')),
@@ -489,6 +517,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
   Widget build(BuildContext context) {
     return Consumer<UploadContentProvider>(
       builder: (context, provider, child) {
+        _syncReelThumbnailState(provider);
         return Scaffold(
           appBar: AppBar(
             title: const Text('Upload Content'),
@@ -739,6 +768,86 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                         children: [
                           Row(
                             children: [
+                              const Icon(Icons.image_outlined),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'Reel Thumbnail',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: provider.selectedFiles.isEmpty
+                                    ? null
+                                    : _pickCustomReelThumbnail,
+                                child: Text(
+                                  _customReelThumbnailFile == null
+                                      ? 'Upload'
+                                      : 'Change',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _customReelThumbnailFile == null
+                                ? 'Optional. If you skip it, we will auto-generate one from a random frame in the reel.'
+                                : 'This uploaded image will be used as the reel thumbnail.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          if (_customReelThumbnailFile != null) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: SizedBox(
+                                    width: 86,
+                                    height: 120,
+                                    child: _buildImagePreview(
+                                      _customReelThumbnailFile!,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _customReelThumbnailFile!.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _customReelThumbnailFile = null;
+                                    });
+                                  },
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
                               const Icon(Icons.sell_outlined),
                               const SizedBox(width: 8),
                               const Expanded(
@@ -877,6 +986,10 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                     icon: const Icon(Icons.close),
                                     onPressed: () {
                                       provider.removeFile(0);
+                                      setState(() {
+                                        _customReelThumbnailFile = null;
+                                        _activeReelSelectionKey = null;
+                                      });
                                     },
                                   ),
                                 ],
@@ -1216,6 +1329,143 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     const targetRatio = 9 / 16;
     final actualRatio = size.width / size.height;
     return (actualRatio - targetRatio).abs() <= 0.03;
+  }
+
+  Future<String> _uploadReelThumbnail(
+    XFile videoFile, {
+    required String fallbackUrl,
+  }) async {
+    final thumbnailFile =
+        _customReelThumbnailFile ?? await _createReelThumbnailFile(videoFile);
+    if (thumbnailFile == null) {
+      return fallbackUrl;
+    }
+
+    try {
+      final uploadResult = await _api.uploadImage(
+        thumbnailFile,
+        folder: 'reels-thumbnails',
+      );
+      final uploadedUrl = (uploadResult['url'] as String?)?.trim();
+      if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
+        return uploadedUrl;
+      }
+    } catch (_) {
+      // Fall back to the video URL if thumbnail upload fails.
+    }
+
+    return fallbackUrl;
+  }
+
+  Future<XFile?> _createReelThumbnailFile(XFile videoFile) async {
+    if (kIsWeb) {
+      return null;
+    }
+
+    try {
+      final durationMs = await _getVideoDurationMs(videoFile);
+      final thumbnailBytes = await VideoThumbnail.thumbnailData(
+        video: videoFile.path,
+        imageFormat: ImageFormat.JPEG,
+        quality: 72,
+        maxWidth: 720,
+        timeMs: _randomThumbnailTimeMs(durationMs),
+      );
+      if (thumbnailBytes == null || thumbnailBytes.isEmpty) {
+        return null;
+      }
+
+      return XFile.fromData(
+        thumbnailBytes,
+        name: 'reel_thumb_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        mimeType: 'image/jpeg',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _pickCustomReelThumbnail() async {
+    final picked = await showModalBottomSheet<XFile>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Choose from gallery'),
+                onTap: () async {
+                  final navigator = Navigator.of(context);
+                  final image = await _pickPhotoFromGalleryWithCloudFallback();
+                  if (!navigator.mounted) {
+                    return;
+                  }
+                  navigator.pop(image);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Take photo'),
+                onTap: () async {
+                  final navigator = Navigator.of(context);
+                  final image = await _picker.pickImage(
+                    source: ImageSource.camera,
+                    maxWidth: 1440,
+                    maxHeight: 2560,
+                    imageQuality: 85,
+                  );
+                  if (!navigator.mounted) {
+                    return;
+                  }
+                  navigator.pop(image);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (picked == null || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _customReelThumbnailFile = picked;
+    });
+  }
+
+  Future<int?> _getVideoDurationMs(XFile file) async {
+    VideoPlayerController? controller;
+    try {
+      controller = kIsWeb
+          ? VideoPlayerController.networkUrl(Uri.parse(file.path))
+          : VideoPlayerController.file(File(file.path));
+      await controller.initialize();
+      return controller.value.duration.inMilliseconds;
+    } catch (_) {
+      return null;
+    } finally {
+      await controller?.dispose();
+    }
+  }
+
+  int _randomThumbnailTimeMs(int? durationMs) {
+    final usableDuration = durationMs ?? 0;
+    if (usableDuration <= 1500) {
+      return 0;
+    }
+
+    final minMs = (usableDuration * 0.15).round();
+    final maxMs = (usableDuration * 0.75).round();
+    if (maxMs <= minMs) {
+      return minMs;
+    }
+
+    return minMs + math.Random().nextInt(maxMs - minMs);
   }
 }
 

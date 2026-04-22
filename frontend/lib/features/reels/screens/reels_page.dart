@@ -29,6 +29,7 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
   bool _areReelsMuted = true;
   AppRefreshProvider? _appRefreshProvider;
   int _lastContentVersion = 0;
+  String? _lastRequestedReelId;
 
   @override
   void initState() {
@@ -84,13 +85,21 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
     try {
       setState(() => _loading = true);
       final reels = await _api.getReels();
+      final requestedReelId = _requestedReelIdFromRoute();
+      final targetIndex = _indexForReelId(reels, requestedReelId);
       if (!mounted) {
         return;
       }
       setState(() {
         _reels = reels;
-        _currentIndex = 0;
+        _currentIndex = targetIndex;
         _loading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_pageController.hasClients) {
+          return;
+        }
+        _pageController.jumpToPage(targetIndex);
       });
     } catch (_) {
       if (!mounted) {
@@ -122,8 +131,48 @@ class _ReelsPageState extends State<ReelsPage> with WidgetsBindingObserver {
     });
   }
 
+  String? _requestedReelIdFromRoute() {
+    final requested = GoRouterState.of(context).uri.queryParameters['id'];
+    if (requested == null || requested.trim().isEmpty) {
+      return null;
+    }
+    return requested.trim();
+  }
+
+  int _indexForReelId(List<ReelModel> reels, String? reelId) {
+    if (reelId == null) {
+      return 0;
+    }
+    final index = reels.indexWhere((reel) => reel.id == reelId);
+    return index >= 0 ? index : 0;
+  }
+
+  void _syncRequestedReel() {
+    final requestedReelId = _requestedReelIdFromRoute();
+    if (_lastRequestedReelId == requestedReelId || _reels.isEmpty) {
+      return;
+    }
+
+    _lastRequestedReelId = requestedReelId;
+    final targetIndex = _indexForReelId(_reels, requestedReelId);
+    if (targetIndex == _currentIndex) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_pageController.hasClients) {
+        return;
+      }
+      _pageController.jumpToPage(targetIndex);
+      setState(() {
+        _currentIndex = targetIndex;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _syncRequestedReel();
     final activeScope = ActiveBranchScope.maybeOf(context);
     final isReelsBranchActive = (activeScope?.currentIndex ?? 0) == 2 &&
         (activeScope?.currentPath ?? '') == '/reels';
@@ -268,10 +317,9 @@ class _ReelControllerCache {
   static void _evictOverflow() {
     while (_entries.length > _maxEntries) {
       final oldestEntry = _entries.entries.reduce(
-        (current, next) =>
-            current.value.cachedAt.isBefore(next.value.cachedAt)
-                ? current
-                : next,
+        (current, next) => current.value.cachedAt.isBefore(next.value.cachedAt)
+            ? current
+            : next,
       );
       _entries.remove(oldestEntry.key)?.controller.dispose();
     }
@@ -338,8 +386,7 @@ class _ReelViewportState extends State<_ReelViewport> {
     }
     _initializing = true;
     final cachedController = _ReelControllerCache.take(widget.reel.id);
-    final controller =
-        cachedController ??
+    final controller = cachedController ??
         VideoPlayerController.networkUrl(
           Uri.parse(UrlHelper.getPlatformUrl(widget.reel.url)),
         );

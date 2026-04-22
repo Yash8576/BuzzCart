@@ -155,6 +155,16 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
+  String? _preferredReelThumbnail(MediaItem reel) {
+    final thumbnail = reel.thumbnailUrl?.trim();
+    if (thumbnail != null &&
+        thumbnail.isNotEmpty &&
+        thumbnail != reel.mediaUrl.trim()) {
+      return thumbnail;
+    }
+    return null;
+  }
+
   void _warmVisibleProfileImages() {
     if (!mounted) {
       return;
@@ -167,8 +177,8 @@ class _ProfilePageState extends State<ProfilePage>
         if ((video.thumbnailUrl ?? video.mediaUrl).trim().isNotEmpty)
           (video.thumbnailUrl ?? video.mediaUrl).trim(),
       for (final reel in _reels.take(12))
-        if ((reel.thumbnailUrl ?? reel.mediaUrl).trim().isNotEmpty)
-          (reel.thumbnailUrl ?? reel.mediaUrl).trim(),
+        if ((_preferredReelThumbnail(reel) ?? '').trim().isNotEmpty)
+          _preferredReelThumbnail(reel)!.trim(),
       for (final product in _products.take(12))
         if (product.images.isNotEmpty && product.images.first.trim().isNotEmpty)
           product.images.first.trim(),
@@ -1460,256 +1470,260 @@ class _ProfilePageState extends State<ProfilePage>
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-          if (isDesktop)
-            SliverAppBar(
-              pinned: true,
-              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-              foregroundColor: Theme.of(context).colorScheme.onSurface,
-              title: Text(
-                isOwnProfile ? 'Profile' : (displayUser?['name'] ?? 'Profile'),
+            if (isDesktop)
+              SliverAppBar(
+                pinned: true,
+                backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                title: Text(
+                  isOwnProfile
+                      ? 'Profile'
+                      : (displayUser?['name'] ?? 'Profile'),
+                ),
+                actions: [
+                  if (isOwnProfile)
+                    IconButton(
+                      icon: const Icon(Icons.settings),
+                      onPressed: () => context.push('/settings'),
+                    ),
+                ],
               ),
-              actions: [
-                if (isOwnProfile)
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    onPressed: () => context.push('/settings'),
-                  ),
-              ],
-            ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, isDesktop ? 12 : 2, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      GestureDetector(
-                        onLongPress:
-                            isOwnProfile ? _showAvatarEditOptions : null,
-                        child: SizedBox(
-                          width: 84,
-                          height: 84,
-                          child: Stack(
-                            children: [
-                              Container(
-                                width: 84,
-                                height: 84,
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color:
-                                      Theme.of(context).scaffoldBackgroundColor,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: ClipOval(
-                                  child: _buildAvatarImage(
-                                    imageProvider: avatarImageProvider,
-                                    fallbackText: (isOwnProfile
-                                                ? currentUser.name
-                                                : displayUser?['name'] ?? '')
-                                            .toString()
-                                            .isNotEmpty
-                                        ? (isOwnProfile
-                                                ? currentUser.name
-                                                : displayUser?['name'])
-                                            .toString()[0]
-                                            .toUpperCase()
-                                        : 'U',
-                                  ),
-                                ),
-                              ),
-                              if (isOwnProfile)
-                                Positioned(
-                                  right: 2,
-                                  bottom: 2,
-                                  child: Material(
-                                    color: Colors.grey.shade200,
-                                    shape: const CircleBorder(),
-                                    child: InkWell(
-                                      onTap: _showAvatarEditOptions,
-                                      customBorder: const CircleBorder(),
-                                      child: const Padding(
-                                        padding: EdgeInsets.all(5),
-                                        child: Icon(
-                                          Icons.edit,
-                                          size: 13,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              if (_isAvatarUpdating)
-                                Positioned.fill(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.35),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Center(
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: SizedBox(
-                          height: 84,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(6, 8, 0, 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, isDesktop ? 12 : 2, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        GestureDetector(
+                          onLongPress:
+                              isOwnProfile ? _showAvatarEditOptions : null,
+                          child: SizedBox(
+                            width: 84,
+                            height: 84,
+                            child: Stack(
                               children: [
-                                Text(
-                                  isOwnProfile
-                                      ? currentUser.name
-                                      : (displayUser?['name'] ?? ''),
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
+                                Container(
+                                  width: 84,
+                                  height: 84,
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .scaffoldBackgroundColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: ClipOval(
+                                    child: _buildAvatarImage(
+                                      imageProvider: avatarImageProvider,
+                                      fallbackText: (isOwnProfile
+                                                  ? currentUser.name
+                                                  : displayUser?['name'] ?? '')
+                                              .toString()
+                                              .isNotEmpty
+                                          ? (isOwnProfile
+                                                  ? currentUser.name
+                                                  : displayUser?['name'])
+                                              .toString()[0]
+                                              .toUpperCase()
+                                          : 'U',
+                                    ),
                                   ),
                                 ),
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(
-                                      child: _StatItem(
-                                        label: 'Posts',
-                                        count: postsCount,
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: _StatItem(
-                                        label: 'Followers',
-                                        count: isOwnProfile
-                                            ? currentUser.followersCount
-                                            : (displayUser?[
-                                                    'followers_count'] ??
-                                                0),
-                                        onTap: () => _showSocialUsers(
-                                          title: 'Followers',
-                                          followers: true,
+                                if (isOwnProfile)
+                                  Positioned(
+                                    right: 2,
+                                    bottom: 2,
+                                    child: Material(
+                                      color: Colors.grey.shade200,
+                                      shape: const CircleBorder(),
+                                      child: InkWell(
+                                        onTap: _showAvatarEditOptions,
+                                        customBorder: const CircleBorder(),
+                                        child: const Padding(
+                                          padding: EdgeInsets.all(5),
+                                          child: Icon(
+                                            Icons.edit,
+                                            size: 13,
+                                            color: Colors.black87,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                    Expanded(
-                                      child: _StatItem(
-                                        label: 'Following',
-                                        count: isOwnProfile
-                                            ? currentUser.followingCount
-                                            : (displayUser?[
-                                                    'following_count'] ??
-                                                0),
-                                        onTap: () => _showSocialUsers(
-                                          title: 'Following',
-                                          followers: false,
+                                  ),
+                                if (_isAvatarUpdating)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.35),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Center(
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
                                         ),
                                       ),
                                     ),
-                                  ],
-                                ),
+                                  ),
                               ],
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      if (isOwnProfile) ...[
+                        const SizedBox(width: 16),
                         Expanded(
-                          child: _buildProfileActionButton(
-                            onPressed: _showEditProfileDialog,
-                            label: 'Edit Profile',
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _buildProfileActionButton(
-                            onPressed: () {},
-                            label: 'Share',
-                          ),
-                        ),
-                      ] else ...[
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: _isRelationshipUpdating
-                                ? null
-                                : _handleFollowAction,
-                            icon: _isRelationshipUpdating
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
+                          child: SizedBox(
+                            height: 84,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 8, 0, 8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    isOwnProfile
+                                        ? currentUser.name
+                                        : (displayUser?['name'] ?? ''),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                  )
-                                : Icon(
-                                    isFollowing
-                                        ? Icons.check_circle_outline
-                                        : Icons.person_add,
                                   ),
-                            label: Text(isFollowing ? 'Following' : 'Follow'),
-                          ),
-                        ),
-                        if (isConnection) ...[
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _openMessages,
-                              icon: const Icon(Icons.message),
-                              label: const Text('Message'),
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: _StatItem(
+                                          label: 'Posts',
+                                          count: postsCount,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _StatItem(
+                                          label: 'Followers',
+                                          count: isOwnProfile
+                                              ? currentUser.followersCount
+                                              : (displayUser?[
+                                                      'followers_count'] ??
+                                                  0),
+                                          onTap: () => _showSocialUsers(
+                                            title: 'Followers',
+                                            followers: true,
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _StatItem(
+                                          label: 'Following',
+                                          count: isOwnProfile
+                                              ? currentUser.followingCount
+                                              : (displayUser?[
+                                                      'following_count'] ??
+                                                  0),
+                                          onTap: () => _showSocialUsers(
+                                            title: 'Following',
+                                            followers: false,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        if (isOwnProfile) ...[
+                          Expanded(
+                            child: _buildProfileActionButton(
+                              onPressed: _showEditProfileDialog,
+                              label: 'Edit Profile',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildProfileActionButton(
+                              onPressed: () {},
+                              label: 'Share',
+                            ),
+                          ),
+                        ] else ...[
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isRelationshipUpdating
+                                  ? null
+                                  : _handleFollowAction,
+                              icon: _isRelationshipUpdating
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Icon(
+                                      isFollowing
+                                          ? Icons.check_circle_outline
+                                          : Icons.person_add,
+                                    ),
+                              label: Text(isFollowing ? 'Following' : 'Follow'),
+                            ),
+                          ),
+                          if (isConnection) ...[
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _openMessages,
+                                icon: const Icon(Icons.message),
+                                label: const Text('Message'),
+                              ),
+                            ),
+                          ],
                         ],
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: _TabBarDelegate(
-              TabBar(
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _TabBarDelegate(
+                TabBar(
+                  controller: _tabController,
+                  tabs: [
+                    const Tab(text: 'Photos'),
+                    const Tab(text: 'Videos'),
+                    const Tab(text: 'Reels'),
+                    Tab(text: productsTabLabel),
+                  ],
+                ),
+              ),
+            ),
+            SliverFillRemaining(
+              child: TabBarView(
                 controller: _tabController,
-                tabs: [
-                  const Tab(text: 'Photos'),
-                  const Tab(text: 'Videos'),
-                  const Tab(text: 'Reels'),
-                  Tab(text: productsTabLabel),
+                children: [
+                  _buildPhotosGrid(),
+                  _buildVideosGrid(),
+                  _buildReelsGrid(),
+                  _buildProductsGrid(),
                 ],
               ),
             ),
-          ),
-          SliverFillRemaining(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildPhotosGrid(),
-                _buildVideosGrid(),
-                _buildReelsGrid(),
-                _buildProductsGrid(),
-              ],
-            ),
-          ),
           ],
         ),
       ),
@@ -2008,20 +2022,39 @@ class _ProfilePageState extends State<ProfilePage>
         final reel = _reels[index];
         final deletingKey = 'media:${reel.id}';
         return InkWell(
-          onTap: _isDeleting(deletingKey) ? null : () => context.push('/reels'),
+          onTap: _isDeleting(deletingKey)
+              ? null
+              : () => context.push('/reels?id=${reel.id}'),
           child: Stack(
             fit: StackFit.expand,
             children: [
               Opacity(
                 opacity: _isDeleting(deletingKey) ? 0.45 : 1,
-                child: _buildCachedImage(
-                  reel.thumbnailUrl ?? reel.mediaUrl,
-                  fit: BoxFit.cover,
-                  errorWidget: Container(
-                    color: Colors.grey[300],
-                    child: const Icon(Icons.video_camera_back, size: 36),
-                  ),
-                ),
+                child: (_preferredReelThumbnail(reel) != null)
+                    ? _buildCachedImage(
+                        _preferredReelThumbnail(reel)!,
+                        fit: BoxFit.cover,
+                        errorWidget: Container(
+                          color: Colors.grey[300],
+                          child: const Icon(Icons.video_camera_back, size: 36),
+                        ),
+                      )
+                    : Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.grey.shade800,
+                              Colors.grey.shade900,
+                            ],
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.video_camera_back,
+                              size: 36, color: Colors.white70),
+                        ),
+                      ),
               ),
               const Center(
                 child:

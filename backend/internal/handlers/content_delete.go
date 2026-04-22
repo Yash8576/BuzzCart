@@ -133,6 +133,31 @@ func loadContentCleanupTargets(ctx context.Context, tx *sql.Tx, contentID, userI
 	return nil
 }
 
+func loadContentLinkedMediaIDs(ctx context.Context, tx *sql.Tx, contentID, userID string) ([]string, error) {
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT id
+		 FROM user_media
+		 WHERE content_id = $1 AND user_id = $2`,
+		contentID,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	mediaIDs := []string{}
+	for rows.Next() {
+		var mediaID string
+		if err := rows.Scan(&mediaID); err != nil {
+			return nil, err
+		}
+		mediaIDs = append(mediaIDs, mediaID)
+	}
+	return mediaIDs, rows.Err()
+}
+
 func deleteStorageObjects(targets map[string]struct{}) {
 	if len(targets) == 0 {
 		return
@@ -421,6 +446,20 @@ func deleteContentItemByType(db *sql.DB, contentType string) gin.HandlerFunc {
 			return
 		}
 
+		linkedMediaIDs, err := loadContentLinkedMediaIDs(ctx, tx, contentID, userID)
+		if err != nil {
+			log.Printf("[Delete%s] Failed to load linked media IDs for %s: %v", contentType, contentID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
+			return
+		}
+		for _, mediaID := range linkedMediaIDs {
+			if err := deletePostsByMediaID(ctx, tx, mediaID); err != nil {
+				log.Printf("[Delete%s] Failed to delete linked posts for media %s: %v", contentType, mediaID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
+				return
+			}
+		}
+
 		if _, err := tx.ExecContext(ctx, "DELETE FROM user_media WHERE content_id = $1 AND user_id = $2", contentID, userID); err != nil {
 			log.Printf("[Delete%s] Failed to remove gallery media for %s: %v", contentType, contentID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
@@ -449,6 +488,12 @@ func deleteContentItemByType(db *sql.DB, contentType string) gin.HandlerFunc {
 			log.Printf("[Delete%s] Failed to commit delete for %s: %v", contentType, contentID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete content"})
 			return
+		}
+
+		if contentType == "reel" {
+			invalidateReelListCache()
+			invalidateReelDetailCache(contentID)
+			invalidateReelCommentsCache(contentID)
 		}
 
 		deleteStorageObjects(storageTargets)
