@@ -17,6 +17,8 @@ import '../../../core/utils/url_helper.dart';
 import '../../layout/main_layout.dart';
 import '../../products/widgets/product_card_social_preview.dart';
 
+final Map<String, int> _homeVideoDurationCache = <String, int>{};
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -49,6 +51,7 @@ class _HomePageState extends State<HomePage> {
   int? _activeInlineReelSectionIndex;
   bool _areInlineReelsMuted = true;
   bool _inlineReelVisibilityCheckScheduled = false;
+  Map<String, VideoModel> _videoLookupByUrl = <String, VideoModel>{};
 
   @override
   void initState() {
@@ -342,7 +345,8 @@ class _HomePageState extends State<HomePage> {
           .map((post) => post.mediaUrl)
           .toSet();
 
-      final videos = (results[2] as List<VideoModel>)
+      final allVideos = (results[2] as List<VideoModel>);
+      final videos = allVideos
           .where(
             (video) =>
                 video.creatorId != currentUserId &&
@@ -376,6 +380,9 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
       setState(() {
         _sections = sections;
+        _videoLookupByUrl = <String, VideoModel>{
+          for (final video in allVideos) video.url: video,
+        };
         _isLoading = false;
       });
       _scheduleInlineReelVisibilityCheck();
@@ -1263,16 +1270,30 @@ class _HomePageState extends State<HomePage> {
     double viewportWidth,
     bool isInlineReelActive,
   ) {
+    final linkedVideo = _linkedVideoForPost(post);
+    final isVideoPost = post.mediaType == 'video';
+
     return _buildMediaCard(
       maxWidth: _mediaCardMaxWidth,
       viewportWidth: viewportWidth,
-      onTap: null,
+      onTap: isVideoPost && linkedVideo != null
+          ? () => context.push('/videos/${linkedVideo.id}')
+          : null,
       onHeaderTap: () => context.push('/profile/${post.userId}'),
-      media: _buildPostMedia(post, isInlineReelActive),
+      media: _buildPostMedia(
+        post,
+        isInlineReelActive,
+        linkedVideo: linkedVideo,
+      ),
       creatorName: post.authorName,
       creatorAvatar: post.authorAvatar,
       createdAt: post.createdAt,
-      bodyText: post.caption,
+      bodyText: isVideoPost
+          ? _postVideoTitle(post, linkedVideo)
+          : post.caption,
+      bodyTextPosition: isVideoPost
+          ? _MediaCardBodyTextPosition.aboveMedia
+          : _MediaCardBodyTextPosition.belowMedia,
     );
   }
 
@@ -1286,11 +1307,16 @@ class _HomePageState extends State<HomePage> {
         imageUrl: video.thumbnail,
         aspectRatio: 16 / 9,
         playIcon: true,
+        durationBadge: _HomeVideoDurationBadge(
+          videoUrl: video.url,
+          initialDurationSeconds: video.duration,
+        ),
       ),
       creatorName: video.creatorName,
       creatorAvatar: video.creatorAvatar,
       createdAt: video.createdAt,
       bodyText: video.title,
+      bodyTextPosition: _MediaCardBodyTextPosition.aboveMedia,
     );
   }
 
@@ -1318,7 +1344,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildPostMedia(PostModel post, bool isInlineReelActive) {
+  Widget _buildPostMedia(
+    PostModel post,
+    bool isInlineReelActive, {
+    VideoModel? linkedVideo,
+  }) {
     if (post.mediaType == 'reel') {
       return _InlineReelMedia(
         videoUrl: post.mediaUrl,
@@ -1335,6 +1365,12 @@ class _HomePageState extends State<HomePage> {
       imageUrl: post.thumbnailUrl ?? post.mediaUrl,
       aspectRatio: aspectRatio,
       playIcon: post.mediaType == 'video',
+      durationBadge: post.mediaType == 'video'
+          ? _HomeVideoDurationBadge(
+              videoUrl: post.mediaUrl,
+              initialDurationSeconds: linkedVideo?.duration ?? 0,
+            )
+          : null,
     );
   }
 
@@ -1342,6 +1378,7 @@ class _HomePageState extends State<HomePage> {
     required String imageUrl,
     required double aspectRatio,
     bool playIcon = false,
+    Widget? durationBadge,
   }) {
     return AspectRatio(
       aspectRatio: aspectRatio,
@@ -1372,6 +1409,12 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
+          if (durationBadge != null)
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: durationBadge,
+            ),
         ],
       ),
     );
@@ -1387,7 +1430,12 @@ class _HomePageState extends State<HomePage> {
     String? bodyText,
     VoidCallback? onTap,
     VoidCallback? onHeaderTap,
+    _MediaCardBodyTextPosition bodyTextPosition =
+        _MediaCardBodyTextPosition.belowMedia,
   }) {
+    final trimmedBodyText = bodyText?.trim();
+    final hasBodyText = trimmedBodyText != null && trimmedBodyText.isNotEmpty;
+
     return _buildSectionShell(
       maxWidth: viewportWidth,
       child: Align(
@@ -1457,12 +1505,29 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        if (bodyTextPosition ==
+                                _MediaCardBodyTextPosition.aboveMedia &&
+                            hasBodyText)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                            child: Text(
+                              trimmedBodyText,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         media,
-                        if (bodyText != null && bodyText.trim().isNotEmpty)
+                        if (bodyTextPosition ==
+                                _MediaCardBodyTextPosition.belowMedia &&
+                            hasBodyText)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                             child: Text(
-                              bodyText.trim(),
+                              trimmedBodyText,
                               style: Theme.of(context).textTheme.bodyMedium,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
@@ -1472,12 +1537,29 @@ class _HomePageState extends State<HomePage> {
                     ),
                   )
                 else ...[
+                  if (bodyTextPosition ==
+                          _MediaCardBodyTextPosition.aboveMedia &&
+                      hasBodyText)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                      child: Text(
+                        trimmedBodyText,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   media,
-                  if (bodyText != null && bodyText.trim().isNotEmpty)
+                  if (bodyTextPosition ==
+                          _MediaCardBodyTextPosition.belowMedia &&
+                      hasBodyText)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                       child: Text(
-                        bodyText.trim(),
+                        trimmedBodyText,
                         style: Theme.of(context).textTheme.bodyMedium,
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
@@ -1540,6 +1622,124 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _areInlineReelsMuted = isMuted;
     });
+  }
+
+  VideoModel? _linkedVideoForPost(PostModel post) {
+    if (post.mediaType != 'video') {
+      return null;
+    }
+    return _videoLookupByUrl[post.mediaUrl];
+  }
+
+  String _postVideoTitle(PostModel post, VideoModel? linkedVideo) {
+    final linkedTitle = linkedVideo?.title.trim() ?? '';
+    if (linkedTitle.isNotEmpty) {
+      return linkedTitle;
+    }
+    final caption = post.caption.trim();
+    if (caption.isNotEmpty) {
+      return caption;
+    }
+    return 'Untitled Video';
+  }
+}
+
+enum _MediaCardBodyTextPosition {
+  aboveMedia,
+  belowMedia,
+}
+
+class _HomeDurationBadge extends StatelessWidget {
+  const _HomeDurationBadge({required this.durationLabel});
+
+  final String durationLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        durationLabel,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeVideoDurationBadge extends StatefulWidget {
+  const _HomeVideoDurationBadge({
+    required this.videoUrl,
+    required this.initialDurationSeconds,
+  });
+
+  final String videoUrl;
+  final int initialDurationSeconds;
+
+  @override
+  State<_HomeVideoDurationBadge> createState() => _HomeVideoDurationBadgeState();
+}
+
+class _HomeVideoDurationBadgeState extends State<_HomeVideoDurationBadge> {
+  late int _durationSeconds;
+
+  @override
+  void initState() {
+    super.initState();
+    _durationSeconds =
+        _homeVideoDurationCache[widget.videoUrl] ?? widget.initialDurationSeconds;
+    _ensureDuration();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HomeVideoDurationBadge oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.initialDurationSeconds != widget.initialDurationSeconds) {
+      _durationSeconds = _homeVideoDurationCache[widget.videoUrl] ??
+          widget.initialDurationSeconds;
+      _ensureDuration();
+    }
+  }
+
+  Future<void> _ensureDuration() async {
+    if (_durationSeconds > 0) {
+      return;
+    }
+
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(UrlHelper.getPlayableVideoUrl(widget.videoUrl)),
+    );
+
+    try {
+      await controller.initialize();
+      final duration = controller.value.duration.inSeconds;
+      if (duration <= 0 || !mounted) {
+        return;
+      }
+      _homeVideoDurationCache[widget.videoUrl] = duration;
+      setState(() {
+        _durationSeconds = duration;
+      });
+    } catch (_) {
+      // Leave the existing label in place when metadata can't be resolved.
+    } finally {
+      await controller.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _HomeDurationBadge(
+      durationLabel: _formatVideoDuration(_durationSeconds),
+    );
   }
 }
 
@@ -1825,6 +2025,19 @@ class _InlineReelThumbnail extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatVideoDuration(int totalSeconds) {
+  final duration = Duration(seconds: totalSeconds.clamp(0, 359999));
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+  if (hours > 0) {
+    return '$hours:$minutes:$seconds';
+  }
+
+  return '${duration.inMinutes}:$seconds';
 }
 
 enum _HomeSectionType {

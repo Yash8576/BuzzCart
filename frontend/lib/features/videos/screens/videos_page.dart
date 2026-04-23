@@ -384,6 +384,8 @@ class _VideoDetailView extends StatefulWidget {
 }
 
 class _VideoDetailViewState extends State<_VideoDetailView> {
+  static const Duration _transportAutoHideDelay = Duration(seconds: 2);
+
   VideoPlayerController? _controller;
   bool _initializing = true;
   bool _isPlaying = false;
@@ -392,6 +394,7 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
   int _resolvedDuration = 0;
   bool _resumeAfterFullscreen = false;
   bool _showInlineControls = false;
+  Timer? _inlineControlsHideTimer;
 
   bool get _supportsHoverControls =>
       kIsWeb ||
@@ -408,6 +411,7 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
 
   @override
   void dispose() {
+    _inlineControlsHideTimer?.cancel();
     _controller?.removeListener(_syncPlaybackState);
     _controller?.dispose();
     unawaited(_restoreSystemChrome());
@@ -436,7 +440,9 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
         _resolvedDuration = controller.value.duration.inSeconds > 0
             ? controller.value.duration.inSeconds
             : widget.video.duration;
+        _showInlineControls = true;
       });
+      _updateInlineControlsForPlaybackState(_isPlaying);
     } catch (_) {
       await controller.dispose();
       if (!mounted) {
@@ -450,10 +456,50 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
 
   void _syncPlaybackState() {
     final isPlaying = _controller?.value.isPlaying ?? false;
-    if (_isPlaying == isPlaying || !mounted) {
+    if (!mounted || _isPlaying == isPlaying) {
       return;
     }
-    setState(() => _isPlaying = isPlaying);
+    setState(() {
+      _isPlaying = isPlaying;
+      if (!isPlaying) {
+        _showInlineControls = true;
+      }
+    });
+    _updateInlineControlsForPlaybackState(isPlaying);
+  }
+
+  void _updateInlineControlsForPlaybackState(bool isPlaying) {
+    _inlineControlsHideTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    if (!isPlaying) {
+      return;
+    }
+    if (_supportsHoverControls) {
+      return;
+    }
+    _inlineControlsHideTimer = Timer(_transportAutoHideDelay, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showInlineControls = false;
+      });
+    });
+  }
+
+  void _showInlineTransportControls({bool autoHideIfPlaying = true}) {
+    _inlineControlsHideTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showInlineControls = true;
+    });
+    if (autoHideIfPlaying && _isPlaying) {
+      _updateInlineControlsForPlaybackState(true);
+    }
   }
 
   Future<void> _togglePlayback() async {
@@ -554,7 +600,10 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
             controller: controller,
             title: widget.video.title,
             isMuted: _isMuted,
-            onToggleMute: _toggleMute,
+            onToggleMute: () async {
+              await _toggleMute();
+              return _isMuted;
+            },
             onTogglePlayback: _togglePlayback,
             onSeekBack: () => _seekRelative(-10),
             onSeekForward: () => _seekRelative(10),
@@ -705,6 +754,8 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
   Widget _buildVideoPlayerStack({required VideoPlayerValue value}) {
     final controller = _controller;
     final liveReady = controller != null && value.isInitialized;
+    final transportControlsVisible =
+        _showInlineControls && liveReady && !_fullscreenOpen;
     final position = liveReady ? value.position : Duration.zero;
     final totalDuration = liveReady
         ? value.duration
@@ -738,36 +789,43 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: _togglePlayback,
+            onTap: liveReady
+                ? () {
+                    if (_supportsHoverControls) {
+                      return;
+                    }
+                    if (_showInlineControls) {
+                      _inlineControlsHideTimer?.cancel();
+                      setState(() {
+                        _showInlineControls = false;
+                      });
+                    } else {
+                      _showInlineTransportControls();
+                    }
+                  }
+                : null,
             child: const SizedBox.expand(),
           ),
         ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.12),
-                Colors.transparent,
-                Colors.black.withValues(alpha: 0.48),
-              ],
+        if (transportControlsVisible)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.12),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.48),
+                ],
+              ),
             ),
           ),
-        ),
         if (_initializing)
           const Center(
             child: CircularProgressIndicator(color: Colors.white),
           )
-        else if ((!value.isPlaying || _fullscreenOpen) && liveReady)
-          const Center(
-            child: Icon(
-              Icons.play_circle_fill,
-              size: 76,
-              color: Colors.white,
-            ),
-          ),
-        if (_showInlineControls && liveReady && !_fullscreenOpen)
+        else if (transportControlsVisible)
           Positioned.fill(
             child: Container(
               color: Colors.black.withValues(alpha: 0.12),
@@ -782,7 +840,13 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
                     const SizedBox(width: 18),
                     _OverlayCircleButton(
                       icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
-                      onTap: _togglePlayback,
+                      onTap: () async {
+                        await _togglePlayback();
+                        if (!mounted) {
+                          return;
+                        }
+                        _showInlineTransportControls(autoHideIfPlaying: true);
+                      },
                     ),
                     const SizedBox(width: 18),
                     _OverlayCircleButton(
@@ -794,39 +858,44 @@ class _VideoDetailViewState extends State<_VideoDetailView> {
               ),
             ),
           ),
-        Positioned(
-          top: 12,
-          left: 12,
-          child: _OverlayCircleButton(
-            icon: Icons.arrow_back,
-            onTap: () => context.pop(),
+        if (liveReady && !_fullscreenOpen)
+          Positioned(
+            top: 12,
+            left: 12,
+            child: _OverlayCircleButton(
+              icon: Icons.arrow_back,
+              onTap: () => context.pop(),
+            ),
           ),
-        ),
-        Positioned(
-          top: 12,
-          right: 12,
-          child: Row(
-            children: [
-              _OverlayCircleButton(
-                icon: _isMuted ? Icons.volume_off : Icons.volume_up,
-                onTap: _toggleMute,
-              ),
-              const SizedBox(width: 10),
-              _OverlayCircleButton(
-                icon: Icons.fullscreen,
-                onTap: _openFullscreen,
-              ),
-            ],
+        if (liveReady && !_fullscreenOpen)
+          Positioned(
+            top: 12,
+            right: 12,
+            child: Row(
+              children: [
+                _OverlayCircleButton(
+                  icon: _isMuted
+                      ? Icons.volume_off_rounded
+                      : Icons.volume_up_rounded,
+                  onTap: _toggleMute,
+                ),
+                const SizedBox(width: 10),
+                _OverlayCircleButton(
+                  icon: Icons.fullscreen,
+                  onTap: _openFullscreen,
+                ),
+              ],
+            ),
           ),
-        ),
-        Positioned(
-          right: 12,
-          bottom: 12,
-          child: _DurationBadge(
-            durationLabel:
-                '${_formatPlaybackDuration(clampedPosition)}/${_formatPlaybackDuration(totalDuration)}',
+        if (liveReady && !_fullscreenOpen)
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: _DurationBadge(
+              durationLabel:
+                  '${_formatPlaybackDuration(clampedPosition)}/${_formatPlaybackDuration(totalDuration)}',
+            ),
           ),
-        ),
       ],
     );
   }
@@ -1239,7 +1308,7 @@ class _FullscreenVideoDialog extends StatefulWidget {
   final VideoPlayerController controller;
   final String title;
   final bool isMuted;
-  final Future<void> Function() onToggleMute;
+  final Future<bool> Function() onToggleMute;
   final Future<void> Function() onTogglePlayback;
   final Future<void> Function() onSeekBack;
   final Future<void> Function() onSeekForward;
@@ -1249,9 +1318,19 @@ class _FullscreenVideoDialog extends StatefulWidget {
 }
 
 class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
+  static const Duration _transportAutoHideDelay = Duration(seconds: 2);
+
+  late bool _isMuted;
+  bool _showTransportControls = true;
+  Timer? _transportHideTimer;
+  bool _lastIsPlaying = false;
+
   @override
   void initState() {
     super.initState();
+    _isMuted = widget.isMuted;
+    _lastIsPlaying = widget.controller.value.isPlaying;
+    widget.controller.addListener(_handleControllerChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted || !widget.controller.value.isInitialized) {
         return;
@@ -1259,8 +1338,69 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
       await widget.controller.play();
       if (mounted) {
         setState(() {});
+        _updateTransportVisibility(widget.controller.value.isPlaying);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerChanged);
+    _transportHideTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleToggleMute() async {
+    final nextMuted = await widget.onToggleMute();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isMuted = nextMuted;
+    });
+  }
+
+  void _updateTransportVisibility(bool isPlaying) {
+    _transportHideTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    if (!isPlaying) {
+      setState(() {
+        _showTransportControls = true;
+      });
+      return;
+    }
+    _transportHideTimer = Timer(_transportAutoHideDelay, () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showTransportControls = false;
+      });
+    });
+  }
+
+  void _showFullscreenTransportControls({bool autoHideIfPlaying = true}) {
+    _transportHideTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _showTransportControls = true;
+    });
+    if (autoHideIfPlaying && widget.controller.value.isPlaying) {
+      _updateTransportVisibility(true);
+    }
+  }
+
+  void _handleControllerChanged() {
+    final isPlaying = widget.controller.value.isPlaying;
+    if (!mounted || _lastIsPlaying == isPlaying) {
+      return;
+    }
+    _lastIsPlaying = isPlaying;
+    _updateTransportVisibility(isPlaying);
   }
 
   @override
@@ -1285,10 +1425,23 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              Center(
-                child: AspectRatio(
-                  aspectRatio: aspectRatio,
-                  child: VideoPlayer(controller),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  if (_showTransportControls) {
+                    _transportHideTimer?.cancel();
+                    setState(() {
+                      _showTransportControls = false;
+                    });
+                  } else {
+                    _showFullscreenTransportControls();
+                  }
+                },
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: aspectRatio,
+                    child: VideoPlayer(controller),
+                  ),
                 ),
               ),
               Positioned(
@@ -1311,8 +1464,10 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
                     ),
                     const SizedBox(width: 12),
                     _OverlayCircleButton(
-                      icon: widget.isMuted ? Icons.volume_off : Icons.volume_up,
-                      onTap: () => unawaited(widget.onToggleMute()),
+                      icon: _isMuted
+                          ? Icons.volume_off_rounded
+                          : Icons.volume_up_rounded,
+                      onTap: () => unawaited(_handleToggleMute()),
                     ),
                     const SizedBox(width: 10),
                     _OverlayCircleButton(
@@ -1330,63 +1485,83 @@ class _FullscreenVideoDialogState extends State<_FullscreenVideoDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 6,
+                    if (_showTransportControls) ...[
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 6,
+                          ),
+                        ),
+                        child: Slider(
+                          value: totalSeconds <= 0 ? 0 : currentSeconds.toDouble(),
+                          min: 0,
+                          max: totalSeconds <= 0 ? 1 : totalSeconds.toDouble(),
+                          onChanged: totalSeconds <= 0
+                              ? null
+                              : (nextValue) => controller.seekTo(
+                                    Duration(seconds: nextValue.round()),
+                                  ),
+                      ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              _formatPlaybackDuration(position),
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            const Spacer(),
+                            Text(
+                              _formatPlaybackDuration(duration),
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Slider(
-                        value: totalSeconds <= 0 ? 0 : currentSeconds.toDouble(),
-                        min: 0,
-                        max: totalSeconds <= 0 ? 1 : totalSeconds.toDouble(),
-                        onChanged: totalSeconds <= 0
-                            ? null
-                            : (nextValue) => controller.seekTo(
-                                  Duration(seconds: nextValue.round()),
-                                ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
+                      const SizedBox(height: 12),
+                    ],
+                    if (_showTransportControls)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            _formatPlaybackDuration(position),
-                            style: const TextStyle(color: Colors.white70),
+                          _OverlayCircleButton(
+                            icon: Icons.replay_10,
+                            onTap: () => unawaited(widget.onSeekBack()),
                           ),
-                          const Spacer(),
-                          Text(
-                            _formatPlaybackDuration(duration),
-                            style: const TextStyle(color: Colors.white70),
+                          const SizedBox(width: 18),
+                          _OverlayCircleButton(
+                            icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
+                            onTap: () async {
+                              await widget.onTogglePlayback();
+                              if (!mounted) {
+                                return;
+                              }
+                              _showFullscreenTransportControls(
+                                autoHideIfPlaying: true,
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 18),
+                          _OverlayCircleButton(
+                            icon: Icons.forward_10,
+                            onTap: () => unawaited(widget.onSeekForward()),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _OverlayCircleButton(
-                          icon: Icons.replay_10,
-                          onTap: () => unawaited(widget.onSeekBack()),
-                        ),
-                        const SizedBox(width: 18),
-                        _OverlayCircleButton(
-                          icon: value.isPlaying ? Icons.pause : Icons.play_arrow,
-                          onTap: () => unawaited(widget.onTogglePlayback()),
-                        ),
-                        const SizedBox(width: 18),
-                        _OverlayCircleButton(
-                          icon: Icons.forward_10,
-                          onTap: () => unawaited(widget.onSeekForward()),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
+              if (!_showTransportControls)
+                Positioned(
+                  right: 24,
+                  bottom: 28,
+                  child: _DurationBadge(
+                    durationLabel:
+                        '${_formatPlaybackDuration(position)}/${_formatPlaybackDuration(duration)}',
+                  ),
+                ),
             ],
           );
         },
