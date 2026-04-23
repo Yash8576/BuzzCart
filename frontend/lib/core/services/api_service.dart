@@ -759,6 +759,34 @@ class ApiService {
     }
   }
 
+  Future<List<ContentCommentModel>> getVideoComments(String videoId) async {
+    try {
+      final response = await _dio.get('/videos/$videoId/comments');
+      return (response.data as List? ?? [])
+          .map((item) =>
+              ContentCommentModel.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<ContentCommentModel> createVideoComment({
+    required String videoId,
+    required String commentText,
+  }) async {
+    try {
+      final response = await _dio.post('/videos/$videoId/comments', data: {
+        'comment_text': commentText,
+      });
+      return ContentCommentModel.fromJson(
+        response.data as Map<String, dynamic>,
+      );
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Reels APIs
   Future<List<ReelModel>> getReels() async {
     try {

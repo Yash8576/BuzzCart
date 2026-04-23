@@ -17,6 +17,18 @@ class UrlHelper {
     return UrlHelperPlatform.convertUrl(url);
   }
 
+  static String getPlayableVideoUrl(String? url) {
+    final resolvedUrl = getPlatformUrl(url);
+    if (resolvedUrl.isEmpty) {
+      return '';
+    }
+
+    return UrlHelperPlatform.convertPlayableVideoUrl(
+      resolvedUrl,
+      AppConfig.apiBaseUrl,
+    );
+  }
+
   /// Gets the full storage URL for a media path.
   ///
   /// If the path is already a full URL, converts it to platform-specific

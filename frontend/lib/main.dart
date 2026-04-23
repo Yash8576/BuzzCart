@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:go_router/go_router.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/cart_provider.dart';
@@ -16,6 +19,10 @@ import 'features/messages/providers/messages_provider.dart';
 void main() async {
   // Ensure Flutter binding is initialized
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+    MediaKit.ensureInitialized();
+    VideoPlayerMediaKit.ensureInitialized(windows: true);
+  }
 
   runApp(
     MultiProvider(

@@ -22,6 +22,10 @@ class UrlHelperPlatform {
     return '${AppConfig.apiBaseUrl}/media/proxy?url=${Uri.encodeComponent(url)}';
   }
 
+  static String convertPlayableVideoUrl(String url, String apiBaseUrl) {
+    return url;
+  }
+
   static bool _looksLikeImageUrl(Uri uri) {
     final decodedPath = Uri.decodeComponent(uri.path).toLowerCase();
     return decodedPath.endsWith('.jpg') ||

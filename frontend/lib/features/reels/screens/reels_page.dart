@@ -10,6 +10,8 @@ import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
+import '../../content/presentation/widgets/content_bottom_sheets.dart'
+    as content_sheets;
 import '../../layout/main_layout.dart';
 
 class ReelsPage extends StatefulWidget {
@@ -358,6 +360,11 @@ class _ReelViewportState extends State<_ReelViewport> {
   bool _liked = false;
   int _commentCount = 0;
 
+  bool get _shouldCacheController =>
+      !kIsWeb &&
+      defaultTargetPlatform != TargetPlatform.android &&
+      defaultTargetPlatform != TargetPlatform.iOS;
+
   @override
   void initState() {
     super.initState();
@@ -375,7 +382,7 @@ class _ReelViewportState extends State<_ReelViewport> {
       _commentCount = widget.reel.commentCount;
     }
     if (oldWidget.reel.id != widget.reel.id) {
-      _disposeController(cacheForReuse: true);
+      _disposeController(cacheForReuse: _shouldCacheController);
     }
     if (widget.isActive && _controller == null) {
       _ensureController();
@@ -383,13 +390,13 @@ class _ReelViewportState extends State<_ReelViewport> {
       _controller!.setVolume(widget.isMuted ? 0 : 1);
       _controller!.play();
     } else if (!widget.isActive && _controller != null) {
-      _disposeController(cacheForReuse: true);
+      _disposeController(cacheForReuse: _shouldCacheController);
     }
   }
 
   @override
   void dispose() {
-    _disposeController(cacheForReuse: true);
+    _disposeController(cacheForReuse: _shouldCacheController);
     super.dispose();
   }
 
@@ -414,7 +421,7 @@ class _ReelViewportState extends State<_ReelViewport> {
     final cachedController = _ReelControllerCache.take(widget.reel.id);
     final controller = cachedController ??
         VideoPlayerController.networkUrl(
-          Uri.parse(UrlHelper.getPlatformUrl(widget.reel.url)),
+          Uri.parse(UrlHelper.getPlayableVideoUrl(widget.reel.url)),
         );
     try {
       if (!controller.value.isInitialized) {
@@ -483,10 +490,49 @@ class _ReelViewportState extends State<_ReelViewport> {
   }
 
   Future<void> _openComments() async {
-    final updatedCount = await showReelCommentsSheet(
+    final updatedCount = await content_sheets.showContentCommentsSheet(
       context: context,
-      reel: widget.reel,
+      title: 'Comments',
       initialCount: _commentCount,
+      loadComments: () async {
+        final comments = await context.read<ApiService>().getReelComments(
+              widget.reel.id,
+            );
+        return comments
+            .map(
+              (comment) => ContentCommentModel(
+                id: comment.id,
+                contentId: comment.reelId,
+                userId: comment.userId,
+                commentText: comment.commentText,
+                createdAt: comment.createdAt,
+                updatedAt: comment.updatedAt,
+                username: comment.username,
+                userAvatar: comment.userAvatar,
+                isFollowing: comment.isFollowing,
+                isCurrentUser: comment.isCurrentUser,
+              ),
+            )
+            .toList();
+      },
+      submitComment: (commentText) async {
+        final comment = await context.read<ApiService>().createReelComment(
+              reelId: widget.reel.id,
+              commentText: commentText,
+            );
+        return ContentCommentModel(
+          id: comment.id,
+          contentId: comment.reelId,
+          userId: comment.userId,
+          commentText: comment.commentText,
+          createdAt: comment.createdAt,
+          updatedAt: comment.updatedAt,
+          username: comment.username,
+          userAvatar: comment.userAvatar,
+          isFollowing: comment.isFollowing,
+          isCurrentUser: comment.isCurrentUser,
+        );
+      },
     );
     if (!mounted || updatedCount == null || updatedCount == _commentCount) {
       return;
@@ -599,9 +645,9 @@ class _ReelViewportState extends State<_ReelViewport> {
                 count: products.length,
                 onTap: products.isEmpty
                     ? null
-                    : () => showTaggedProductsSheet(
+                    : () => content_sheets.showTaggedProductsSheet(
                           context: context,
-                          reel: widget.reel,
+                          products: widget.reel.products,
                         ),
               ),
               const SizedBox(height: 18),
@@ -686,9 +732,9 @@ class _ReelViewportState extends State<_ReelViewport> {
               if (products.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 TextButton.icon(
-                  onPressed: () => showTaggedProductsSheet(
+                  onPressed: () => content_sheets.showTaggedProductsSheet(
                     context: context,
-                    reel: widget.reel,
+                    products: widget.reel.products,
                   ),
                   style: TextButton.styleFrom(
                     foregroundColor: Colors.white,

@@ -10,8 +10,8 @@ import (
 const (
 	// MaxImageSize is 10MB
 	MaxImageSize = 10 * 1024 * 1024
-	// MaxVideoSize is 100MB
-	MaxVideoSize = 100 * 1024 * 1024
+	// MaxVideoSize is 120MB
+	MaxVideoSize = 120 * 1024 * 1024
 	// MaxAvatarSize is 5MB
 	MaxAvatarSize = 5 * 1024 * 1024
 	// MaxDocumentSize is 25MB

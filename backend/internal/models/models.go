@@ -224,6 +224,7 @@ type Video struct {
 	Duration      int             `json:"duration" db:"duration"`
 	Views         int             `json:"views" db:"views"`
 	Likes         int             `json:"likes" db:"likes"`
+	CommentCount  int             `json:"comment_count" db:"comment_count"`
 	CreatorID     string          `json:"creator_id" db:"creator_id"`
 	CreatorName   string          `json:"creator_name" db:"creator_name"`
 	CreatorAvatar *string         `json:"creator_avatar,omitempty" db:"creator_avatar"`
@@ -283,6 +284,23 @@ type ReelCommentCreate struct {
 	CommentText string `json:"comment_text" binding:"required,min=1,max=2000"`
 }
 
+type ContentComment struct {
+	ID            string    `json:"id" db:"id"`
+	ContentID     string    `json:"content_id" db:"content_id"`
+	UserID        string    `json:"user_id" db:"user_id"`
+	CommentText   string    `json:"comment_text" db:"comment_text"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
+	Username      string    `json:"username,omitempty" db:"username"`
+	UserAvatar    *string   `json:"user_avatar,omitempty" db:"user_avatar"`
+	IsFollowing   bool      `json:"is_following" db:"-"`
+	IsCurrentUser bool      `json:"is_current_user" db:"-"`
+}
+
+type ContentCommentCreate struct {
+	CommentText string `json:"comment_text" binding:"required,min=1,max=2000"`
+}
+
 type ProductSimple struct {
 	ID    string  `json:"id" db:"id"`
 	Title string  `json:"title" db:"title"`
@@ -291,14 +309,14 @@ type ProductSimple struct {
 }
 
 type CartItem struct {
-	ProductID       string   `json:"product_id" db:"product_id"`
-	Title           string   `json:"title" db:"title"`
-	Price           float64  `json:"price" db:"price"`
-	CompareAtPrice  *float64 `json:"compare_at_price,omitempty" db:"compare_at_price"`
-	SellerName      string   `json:"seller_name,omitempty" db:"seller_name"`
-	Image           string   `json:"image" db:"image"`
-	Quantity        int      `json:"quantity" db:"quantity"`
-	StockQuantity   int      `json:"stock_quantity,omitempty" db:"stock_quantity"`
+	ProductID      string   `json:"product_id" db:"product_id"`
+	Title          string   `json:"title" db:"title"`
+	Price          float64  `json:"price" db:"price"`
+	CompareAtPrice *float64 `json:"compare_at_price,omitempty" db:"compare_at_price"`
+	SellerName     string   `json:"seller_name,omitempty" db:"seller_name"`
+	Image          string   `json:"image" db:"image"`
+	Quantity       int      `json:"quantity" db:"quantity"`
+	StockQuantity  int      `json:"stock_quantity,omitempty" db:"stock_quantity"`
 }
 
 type Cart struct {

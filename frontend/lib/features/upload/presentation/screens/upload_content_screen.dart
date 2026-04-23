@@ -27,12 +27,15 @@ class UploadContentScreen extends StatefulWidget {
 
 class _UploadContentScreenState extends State<UploadContentScreen> {
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _titleController = TextEditingController();
   final TextEditingController _captionController = TextEditingController();
   final ApiService _api = ApiService();
   bool _isUploading = false;
   bool _isLoadingTagOptions = false;
   List<ProductModel> _eligibleTaggedProducts = const <ProductModel>[];
+  XFile? _customVideoThumbnailFile;
   XFile? _customReelThumbnailFile;
+  String? _activeVideoSelectionKey;
   String? _activeReelSelectionKey;
 
   @override
@@ -42,6 +45,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
   @override
   void dispose() {
+    _titleController.dispose();
     _captionController.dispose();
     super.dispose();
   }
@@ -58,6 +62,20 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
     _activeReelSelectionKey = currentReelKey;
     _customReelThumbnailFile = null;
+  }
+
+  void _syncVideoThumbnailState(UploadContentProvider provider) {
+    final currentVideoKey = provider.selectedMediaType == 'video' &&
+            provider.selectedFiles.isNotEmpty
+        ? provider.selectedFiles.first.path
+        : null;
+
+    if (_activeVideoSelectionKey == currentVideoKey) {
+      return;
+    }
+
+    _activeVideoSelectionKey = currentVideoKey;
+    _customVideoThumbnailFile = null;
   }
 
   Future<void> _pickMedia(
@@ -399,14 +417,24 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
       return;
     }
 
+    final contentType = provider.selectedMediaType;
+    final title = _titleController.text.trim();
+    final caption = _captionController.text.trim();
+    if (contentType == 'video' && title.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Video title is required')),
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isUploading = true;
     });
 
     try {
       final file = provider.selectedFiles.first;
-      final contentType = provider.selectedMediaType;
-      final caption = _captionController.text.trim();
       final appRefresh = context.read<AppRefreshProvider>();
 
       if (contentType == 'photo') {
@@ -420,7 +448,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
           if (mounted) {
             provider.notifyUploadSuccess();
             provider.clearAll();
+            _titleController.clear();
+            _captionController.clear();
+            _customVideoThumbnailFile = null;
             _customReelThumbnailFile = null;
+            _activeVideoSelectionKey = null;
             _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -438,20 +470,34 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         final result = await _api.uploadVideo(file, folder: 'videos');
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
-          final title = caption.isEmpty ? 'Untitled Video' : caption;
-          final description = caption.isEmpty ? 'No description' : caption;
+          final description = caption.isEmpty ? title : caption;
+          final thumbnailUrl = await _uploadVideoThumbnail(
+            file,
+            fallbackUrl: videoUrl,
+            folder: 'videos-thumbnails',
+            customThumbnailFile: _customVideoThumbnailFile,
+            promptLabel: 'video',
+          );
+          final durationMs = await _getVideoDurationMs(file);
 
           // Create video record
           await _api.createVideo(
             title: title,
             description: description,
             url: videoUrl,
-            thumbnail: videoUrl, // Using same URL for thumbnail for now
+            thumbnail: thumbnailUrl,
+            duration: durationMs == null ? null : (durationMs / 1000).round(),
+            productIds:
+                provider.taggedProducts.map((product) => product.id).toList(),
           );
 
           if (mounted) {
             provider.clearAll();
+            _titleController.clear();
+            _captionController.clear();
+            _customVideoThumbnailFile = null;
             _customReelThumbnailFile = null;
+            _activeVideoSelectionKey = null;
             _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -470,9 +516,12 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
         final result = await _api.uploadVideo(file, folder: 'reels');
         if (result['url'] != null) {
           final videoUrl = result['url'] as String;
-          final thumbnailUrl = await _uploadReelThumbnail(
+          final thumbnailUrl = await _uploadVideoThumbnail(
             file,
             fallbackUrl: videoUrl,
+            folder: 'reels-thumbnails',
+            customThumbnailFile: _customReelThumbnailFile,
+            promptLabel: 'reel',
           );
 
           // Create reel record
@@ -488,7 +537,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
           if (mounted) {
             provider.clearAll();
+            _titleController.clear();
+            _captionController.clear();
+            _customVideoThumbnailFile = null;
             _customReelThumbnailFile = null;
+            _activeVideoSelectionKey = null;
             _activeReelSelectionKey = null;
             appRefresh.notifyContentPublished();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -517,6 +570,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
   Widget build(BuildContext context) {
     return Consumer<UploadContentProvider>(
       builder: (context, provider, child) {
+        _syncVideoThumbnailState(provider);
         _syncReelThumbnailState(provider);
         return Scaffold(
           appBar: AppBar(
@@ -758,85 +812,103 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                     ),
                   ),
 
-                if (provider.selectedMediaType == 'reel') ...[
+                if (provider.selectedMediaType == 'video' ||
+                    provider.selectedMediaType == 'reel') ...[
                   const SizedBox(height: 12),
                   Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                    child: Builder(
+                      builder: (context) {
+                        final isReel = provider.selectedMediaType == 'reel';
+                        final selectedThumbnail = isReel
+                            ? _customReelThumbnailFile
+                            : _customVideoThumbnailFile;
+
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.image_outlined),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'Reel Thumbnail',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: provider.selectedFiles.isEmpty
-                                    ? null
-                                    : _pickCustomReelThumbnail,
-                                child: Text(
-                                  _customReelThumbnailFile == null
-                                      ? 'Upload'
-                                      : 'Change',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _customReelThumbnailFile == null
-                                ? 'Optional. If you skip it, we will auto-generate one from a random frame in the reel.'
-                                : 'This uploaded image will be used as the reel thumbnail.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          if (_customReelThumbnailFile != null) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: SizedBox(
-                                    width: 86,
-                                    height: 120,
-                                    child: _buildImagePreview(
-                                      _customReelThumbnailFile!,
+                              Row(
+                                children: [
+                                  const Icon(Icons.image_outlined),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      isReel
+                                          ? 'Reel Thumbnail'
+                                          : 'Video Thumbnail',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    _customReelThumbnailFile!.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12),
+                                  TextButton(
+                                    onPressed: provider.selectedFiles.isEmpty
+                                        ? null
+                                        : () => _pickCustomVideoThumbnail(
+                                              isReel: isReel,
+                                            ),
+                                    child: Text(
+                                      selectedThumbnail == null
+                                          ? 'Upload'
+                                          : 'Change',
+                                    ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                selectedThumbnail == null
+                                    ? 'Optional. If you skip it, we can generate one from the ${isReel ? 'reel' : 'video'} before upload.'
+                                    : 'This uploaded image will be used as the ${isReel ? 'reel' : 'video'} thumbnail.',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
                                 ),
-                                IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _customReelThumbnailFile = null;
-                                    });
-                                  },
-                                  icon: const Icon(Icons.delete_outline),
+                              ),
+                              if (selectedThumbnail != null) ...[
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: SizedBox(
+                                        width: isReel ? 86 : 120,
+                                        height: isReel ? 120 : 68,
+                                        child: _buildImagePreview(
+                                          selectedThumbnail,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        selectedThumbnail.name,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          if (isReel) {
+                                            _customReelThumbnailFile = null;
+                                          } else {
+                                            _customVideoThumbnailFile = null;
+                                          }
+                                        });
+                                      },
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                  ],
                                 ),
                               ],
-                            ),
-                          ],
-                        ],
-                      ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -987,7 +1059,9 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
                                     onPressed: () {
                                       provider.removeFile(0);
                                       setState(() {
+                                        _customVideoThumbnailFile = null;
                                         _customReelThumbnailFile = null;
+                                        _activeVideoSelectionKey = null;
                                         _activeReelSelectionKey = null;
                                       });
                                     },
@@ -1057,15 +1131,32 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
                 const SizedBox(height: 20),
 
+                if (provider.selectedMediaType == 'video') ...[
+                  TextField(
+                    controller: _titleController,
+                    maxLength: 120,
+                    decoration: const InputDecoration(
+                      labelText: 'Title',
+                      hintText: 'Add a title for this video',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+
                 // Caption input
                 TextField(
                   controller: _captionController,
                   onChanged: provider.setCaption,
                   maxLines: 4,
                   maxLength: 500,
-                  decoration: const InputDecoration(
-                    labelText: 'Caption (Optional)',
-                    hintText: 'Write a caption for your post...',
+                  decoration: InputDecoration(
+                    labelText: provider.selectedMediaType == 'video'
+                        ? 'Description (Optional)'
+                        : 'Caption (Optional)',
+                    hintText: provider.selectedMediaType == 'video'
+                        ? 'Write a description for your video...'
+                        : 'Write a caption for your post...',
                     border: OutlineInputBorder(),
                     alignLabelWithHint: true,
                   ),
@@ -1331,12 +1422,22 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     return (actualRatio - targetRatio).abs() <= 0.03;
   }
 
-  Future<String> _uploadReelThumbnail(
+  Future<String> _uploadVideoThumbnail(
     XFile videoFile, {
     required String fallbackUrl,
+    required String folder,
+    required String promptLabel,
+    XFile? customThumbnailFile,
   }) async {
-    final thumbnailFile =
-        _customReelThumbnailFile ?? await _createReelThumbnailFile(videoFile);
+    XFile? thumbnailFile = customThumbnailFile;
+    if (thumbnailFile == null) {
+      final shouldGenerate =
+          await _confirmGeneratedThumbnail(promptLabel: promptLabel);
+      if (!shouldGenerate) {
+        return fallbackUrl;
+      }
+      thumbnailFile = await _createVideoThumbnailFile(videoFile);
+    }
     if (thumbnailFile == null) {
       return fallbackUrl;
     }
@@ -1344,7 +1445,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     try {
       final uploadResult = await _api.uploadImage(
         thumbnailFile,
-        folder: 'reels-thumbnails',
+        folder: folder,
       );
       final uploadedUrl = (uploadResult['url'] as String?)?.trim();
       if (uploadedUrl != null && uploadedUrl.isNotEmpty) {
@@ -1357,7 +1458,35 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     return fallbackUrl;
   }
 
-  Future<XFile?> _createReelThumbnailFile(XFile videoFile) async {
+  Future<bool> _confirmGeneratedThumbnail({required String promptLabel}) async {
+    if (!mounted) {
+      return false;
+    }
+
+    final shouldGenerate = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Generate Thumbnail?'),
+        content: Text(
+          'No custom thumbnail was uploaded for this $promptLabel. Generate one from the video now?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Generate'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldGenerate ?? true;
+  }
+
+  Future<XFile?> _createVideoThumbnailFile(XFile videoFile) async {
     if (kIsWeb) {
       return null;
     }
@@ -1377,7 +1506,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
 
       return XFile.fromData(
         thumbnailBytes,
-        name: 'reel_thumb_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        name: 'video_thumb_${DateTime.now().millisecondsSinceEpoch}.jpg',
         mimeType: 'image/jpeg',
       );
     } catch (_) {
@@ -1385,7 +1514,7 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     }
   }
 
-  Future<void> _pickCustomReelThumbnail() async {
+  Future<void> _pickCustomVideoThumbnail({required bool isReel}) async {
     final picked = await showModalBottomSheet<XFile>(
       context: context,
       showDragHandle: true,
@@ -1434,7 +1563,11 @@ class _UploadContentScreenState extends State<UploadContentScreen> {
     }
 
     setState(() {
-      _customReelThumbnailFile = picked;
+      if (isReel) {
+        _customReelThumbnailFile = picked;
+      } else {
+        _customVideoThumbnailFile = picked;
+      }
     });
   }
 

@@ -1609,6 +1609,11 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
   bool _initializing = false;
   bool _isAppActive = true;
 
+  bool get _shouldCacheController =>
+      !kIsWeb &&
+      defaultTargetPlatform != TargetPlatform.android &&
+      defaultTargetPlatform != TargetPlatform.iOS;
+
   @override
   void initState() {
     super.initState();
@@ -1622,7 +1627,7 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
   void didUpdateWidget(covariant _InlineReelMedia oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.videoUrl != widget.videoUrl) {
-      _disposeController(cacheForReuse: true);
+      _disposeController(cacheForReuse: _shouldCacheController);
     }
     if (widget.isActive && _isAppActive) {
       if (_controller == null) {
@@ -1657,7 +1662,7 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _disposeController(cacheForReuse: true);
+    _disposeController(cacheForReuse: _shouldCacheController);
     super.dispose();
   }
 
@@ -1684,7 +1689,7 @@ class _InlineReelMediaState extends State<_InlineReelMedia>
     final controller =
         cachedController ??
         VideoPlayerController.networkUrl(
-          Uri.parse(UrlHelper.getPlatformUrl(widget.videoUrl)),
+          Uri.parse(UrlHelper.getPlayableVideoUrl(widget.videoUrl)),
         );
 
     try {

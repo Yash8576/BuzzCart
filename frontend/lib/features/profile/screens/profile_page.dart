@@ -1969,10 +1969,13 @@ class _ProfilePageState extends State<ProfilePage>
       itemBuilder: (context, index) {
         final video = _videos[index];
         final deletingKey = 'media:${video.id}';
+        final targetVideoId = (video.contentId?.trim().isNotEmpty ?? false)
+            ? video.contentId!
+            : video.id;
         return InkWell(
           onTap: _isDeleting(deletingKey)
               ? null
-              : () => context.push('/videos/${video.id}'),
+              : () => context.push('/videos/$targetVideoId'),
           child: Stack(
             fit: StackFit.expand,
             children: [

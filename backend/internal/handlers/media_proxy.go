@@ -16,6 +16,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func validateAllowedRemoteMediaURL(rawURL string) (*url.URL, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || parsedURL.Scheme != "https" {
+		return nil, err
+	}
+
+	host := strings.ToLower(parsedURL.Hostname())
+	if host != "firebasestorage.googleapis.com" && host != "storage.googleapis.com" {
+		return nil, http.ErrNotSupported
+	}
+
+	return parsedURL, nil
+}
+
 func ProxyMediaHandler(c *gin.Context) {
 	rawURL := strings.TrimSpace(c.Query("url"))
 	if rawURL == "" {
@@ -23,15 +37,8 @@ func ProxyMediaHandler(c *gin.Context) {
 		return
 	}
 
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil || parsedURL.Scheme != "https" {
+	if _, err := validateAllowedRemoteMediaURL(rawURL); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media url"})
-		return
-	}
-
-	host := strings.ToLower(parsedURL.Hostname())
-	if host != "firebasestorage.googleapis.com" && host != "storage.googleapis.com" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported media host"})
 		return
 	}
 
@@ -88,4 +95,63 @@ func ProxyMediaHandler(c *gin.Context) {
 
 	c.Header("Cache-Control", "public, max-age=3600")
 	c.Data(http.StatusOK, "image/png", encoded.Bytes())
+}
+
+func StreamMediaHandler(c *gin.Context) {
+	rawURL := strings.TrimSpace(c.Query("url"))
+	if rawURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url is required"})
+		return
+	}
+
+	if _, err := validateAllowedRemoteMediaURL(rawURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media url"})
+		return
+	}
+
+	client := &http.Client{Timeout: 0}
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, rawURL, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid media url"})
+		return
+	}
+
+	if rangeHeader := strings.TrimSpace(c.GetHeader("Range")); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+	if ifRange := strings.TrimSpace(c.GetHeader("If-Range")); ifRange != "" {
+		req.Header.Set("If-Range", ifRange)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[StreamMedia] fetch failed for %q: %v", rawURL, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch media"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		c.JSON(resp.StatusCode, gin.H{"error": "media fetch failed"})
+		return
+	}
+
+	for _, key := range []string{
+		"Accept-Ranges",
+		"Cache-Control",
+		"Content-Length",
+		"Content-Range",
+		"Content-Type",
+		"ETag",
+		"Last-Modified",
+	} {
+		if value := strings.TrimSpace(resp.Header.Get(key)); value != "" {
+			c.Header(key, value)
+		}
+	}
+	c.Status(resp.StatusCode)
+
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		log.Printf("[StreamMedia] stream failed for %q: %v", rawURL, err)
+	}
 }

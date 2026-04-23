@@ -164,8 +164,10 @@ func main() {
 		videos := api.Group("/videos")
 		{
 			videos.POST("", middleware.Auth(cfg.JWTSecret), handlers.CreateVideo(db))
-			videos.GET("", handlers.GetVideos(db))
-			videos.GET("/:video_id", handlers.GetVideo(db))
+			videos.GET("", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetVideos(db))
+			videos.GET("/:video_id", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetVideo(db))
+			videos.GET("/:video_id/comments", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetVideoComments(db))
+			videos.POST("/:video_id/comments", middleware.Auth(cfg.JWTSecret), handlers.CreateVideoComment(db))
 			videos.DELETE("/:video_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteVideo(db))
 			videos.POST("/:video_id/like", middleware.Auth(cfg.JWTSecret), handlers.LikeVideo(db))
 		}
@@ -210,6 +212,7 @@ func main() {
 
 		// User media routes
 		api.GET("/media/proxy", handlers.ProxyMediaHandler)
+		api.GET("/media/stream", handlers.StreamMediaHandler)
 		api.GET("/users/:user_id/media", handlers.GetUserMedia(db))
 		api.GET("/users/:user_id/purchases", middleware.OptionalAuth(cfg.JWTSecret), handlers.GetUserPurchases(db))
 		api.DELETE("/users/media/:media_id", middleware.Auth(cfg.JWTSecret), handlers.DeleteUserMedia(db))

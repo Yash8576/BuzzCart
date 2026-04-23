@@ -6,4 +6,9 @@ class UrlHelperPlatform {
     throw UnsupportedError(
         'Cannot determine platform. This should be replaced by conditional import.');
   }
+
+  static String convertPlayableVideoUrl(String url, String apiBaseUrl) {
+    throw UnsupportedError(
+        'Cannot determine platform. This should be replaced by conditional import.');
+  }
 }

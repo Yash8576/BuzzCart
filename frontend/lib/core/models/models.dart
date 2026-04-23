@@ -519,6 +519,7 @@ class VideoModel {
   final int duration;
   final int views;
   final int likes;
+  final int commentCount;
   final String creatorId;
   final String creatorName;
   final String? creatorAvatar;
@@ -534,6 +535,7 @@ class VideoModel {
     required this.duration,
     this.views = 0,
     this.likes = 0,
+    this.commentCount = 0,
     required this.creatorId,
     required this.creatorName,
     this.creatorAvatar,
@@ -551,15 +553,42 @@ class VideoModel {
       duration: json['duration'] as int,
       views: json['views'] as int? ?? 0,
       likes: json['likes'] as int? ?? 0,
+      commentCount: json['comment_count'] as int? ?? 0,
       creatorId: json['creator_id'] as String,
       creatorName: json['creator_name'] as String,
       creatorAvatar: json['creator_avatar'] as String?,
       products: (json['products'] as List?)
-              ?.map((p) => ProductModel.fromJson(p as Map<String, dynamic>))
+              ?.map((p) => ProductModel.fromJson(_videoTaggedProductJson(
+                    p as Map<String, dynamic>,
+                  )))
               .toList() ??
           [],
       createdAt: json['created_at'] as String,
     );
+  }
+
+  static Map<String, dynamic> _videoTaggedProductJson(
+      Map<String, dynamic> json) {
+    final image = (json['image'] as String?)?.trim();
+    return <String, dynamic>{
+      'id': json['id'] as String,
+      'title': json['title'] as String? ?? '',
+      'description': '',
+      'price': (json['price'] as num?)?.toDouble() ?? 0,
+      'images': [
+        if (image != null && image.isNotEmpty) image,
+      ],
+      'category': '',
+      'tags': const <String>[],
+      'seller_id': '',
+      'seller_name': '',
+      'rating': 0,
+      'reviews_count': 0,
+      'views': 0,
+      'buys': 0,
+      'metadata': const <String, dynamic>{},
+      'created_at': DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+    };
   }
 }
 
@@ -674,6 +703,47 @@ class ReelCommentModel {
     return ReelCommentModel(
       id: json['id'] as String,
       reelId: json['reel_id'] as String,
+      userId: json['user_id'] as String,
+      commentText: json['comment_text'] as String? ?? '',
+      createdAt: json['created_at'] as String,
+      updatedAt: json['updated_at'] as String? ?? json['created_at'] as String,
+      username: json['username'] as String? ?? 'Unknown',
+      userAvatar: json['user_avatar'] as String?,
+      isFollowing: json['is_following'] as bool? ?? false,
+      isCurrentUser: json['is_current_user'] as bool? ?? false,
+    );
+  }
+}
+
+class ContentCommentModel {
+  final String id;
+  final String contentId;
+  final String userId;
+  final String commentText;
+  final String createdAt;
+  final String updatedAt;
+  final String username;
+  final String? userAvatar;
+  final bool isFollowing;
+  final bool isCurrentUser;
+
+  ContentCommentModel({
+    required this.id,
+    required this.contentId,
+    required this.userId,
+    required this.commentText,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.username,
+    this.userAvatar,
+    this.isFollowing = false,
+    this.isCurrentUser = false,
+  });
+
+  factory ContentCommentModel.fromJson(Map<String, dynamic> json) {
+    return ContentCommentModel(
+      id: json['id'] as String,
+      contentId: (json['content_id'] ?? json['reel_id']) as String,
       userId: json['user_id'] as String,
       commentText: json['comment_text'] as String? ?? '',
       createdAt: json['created_at'] as String,

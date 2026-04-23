@@ -40,7 +40,7 @@ class AppConfig {
 
   // Media
   static const int maxImageSizeBytes = 10 * 1024 * 1024; // 10 MB
-  static const int maxVideoSizeBytes = 100 * 1024 * 1024; // 100 MB
+  static const int maxVideoSizeBytes = 120 * 1024 * 1024; // 120 MB
   static const Duration maxReelDuration = Duration(seconds: 60);
   static const Duration maxVideoDuration = Duration(minutes: 10);
 
