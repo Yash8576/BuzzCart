@@ -11,4 +11,6 @@ class PlatformConfig {
       return 'localhost';
     }
   }
+
+  static String get initialRouteOverride => '';
 }

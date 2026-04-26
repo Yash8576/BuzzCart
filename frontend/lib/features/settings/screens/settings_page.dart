@@ -541,7 +541,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 if (confirmed == true && mounted) {
                   authProvider.logout();
                   if (mounted) {
-                    navigator.pushReplacementNamed('/login');
+                    navigator.pushReplacementNamed('/Login');
                     scaffoldMessenger.showSnackBar(
                       const SnackBar(content: Text('Logged out successfully')),
                     );

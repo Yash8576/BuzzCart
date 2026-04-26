@@ -1,187 +1,64 @@
-# Like2Share - Docker Management Scripts
+# BuzzCart Local Scripts
 
-This folder contains scripts to easily manage Docker services for the Like2Share application.
+These scripts help run BuzzCart locally from `projects/buzzcart`.
 
-## Available Scripts
+## Default local stack
 
-### Windows Scripts (.bat)
+The default scripts start:
 
-#### 1. start-all-services.bat
-**Purpose:** Start all Docker services (Cloud SQL Proxy, Redis, Backend, Frontend, Chatbot)
+- Redis
+- backend
+- frontend
 
-**Usage:**
-```batch
-cd scripts
-start-all-services.bat
-```
+They do not start chatbot or Ollama by default.
 
-**What it does:**
-- Stops any existing containers
-- Starts Cloud SQL Proxy, Redis, Backend, Frontend, and Chatbot services
-- Shows service status and connection URLs
+## Windows scripts
 
-**When to use:** Daily development startup
+### `start-all-services.bat`
 
----
+Starts the default local stack.
 
-#### 2. rebuild-and-start.bat
-**Purpose:** Rebuild backend Docker image and start all services
+### `rebuild-and-start.bat`
 
-**Usage:**
-```batch
-cd scripts
-rebuild-and-start.bat
-```
+Rebuilds Docker images and starts the default local stack.
 
-**What it does:**
-- Stops and removes existing containers
-- Rebuilds the backend Docker image from source
-- Starts all services with the new build
-- Shows build logs and service status
+### `stop-all-services.bat`
 
-**When to use:** After making changes to backend code
+Stops the local Docker stack.
 
----
+## Unix script
 
-#### 3. stop-all-services.bat
-**Purpose:** Stop all running Docker services
+### `start-all-services.sh`
 
-**Usage:**
-```batch
-cd scripts
-stop-all-services.bat
-```
+Unix equivalent of the Windows startup script.
 
-**What it does:**
-- Gracefully stops all running containers
-- Preserves data volumes
+## Default service URLs
 
-**When to use:** End of work session or before system restart
+| Service | URL/Port |
+|---|---|
+| Redis | `localhost:6379` |
+| Backend | `localhost:8080` |
+| Frontend | `localhost:8081` |
 
----
+## Chatbot profile
 
-### Unix Scripts (.sh)
+Chatbot and Ollama stay opt-in only:
 
-#### start-all-services.sh
-Same functionality as Windows version for Linux/Mac users
-
-**Usage:**
 ```bash
-cd scripts
-chmod +x start-all-services.sh
-./start-all-services.sh
+docker compose -f docker/docker-compose.yml --profile chatbot up -d chatbot ollama ollama-init
 ```
 
----
+## Database options
 
-## Service Details
+- Run backend directly against local Postgres
+- Run Cloud SQL Auth Proxy separately with `scripts/firebase/start-cloud-sql-proxy.ps1`
+- If backend runs in Docker while the database proxy runs on the host, use `host.docker.internal` in `backend/.env`
 
-After running `start-all-services.bat` or `rebuild-and-start.bat`, the following services will be available:
+## Common commands
 
-| Service    | URL/Port            | Credentials                                    |
-|------------|---------------------|------------------------------------------------|
-| Cloud SQL Proxy | `localhost:5434` | Connects Docker services to `buzzcart-daeb6-database` |
-| Redis      | `localhost:6379`    | No authentication                              |
-| Backend    | `localhost:8080`    | REST API                                       |
-| Frontend   | `localhost:80`      | Web app                                        |
-| Chatbot    | `localhost:8001`    | Chatbot API                                    |
-
----
-
-## Common Workflows
-
-### Starting Development Environment
-```batch
-# First time or after code changes
-rebuild-and-start.bat
-
-# Subsequent startups
-start-all-services.bat
-```
-
-### Connecting to Database with pgAdmin
-1. Run `start-all-services.bat`
-2. Open pgAdmin 4
-3. Create new server connection:
-   - Host: `localhost`
-   - Port: `5434`
-   - Database: `buzzcart-daeb6-database`
-   - Username: `buzzcart_app`
-   - Password: your Cloud SQL app password
-
-### Viewing Logs
-```batch
-# View all service logs
+```bash
 docker compose -f docker/docker-compose.yml logs -f
-
-# View specific service logs
 docker compose -f docker/docker-compose.yml logs -f backend
-docker compose -f docker/docker-compose.yml logs -f cloudsql-proxy
-```
-
-### Troubleshooting
-
-**Issue:** Services fail to start
-```batch
-# Check what's running
-docker compose -f docker/docker-compose.yml ps
-
-# Check logs for errors
-docker compose -f docker/docker-compose.yml logs
-
-# Clean restart
-docker compose -f docker/docker-compose.yml down
-docker compose -f docker/docker-compose.yml up -d --build
-```
-
-**Issue:** Port already in use
-```batch
-# Check what's using ports 5434, 6379, 8080, 8001
-netstat -ano | findstr ":5434"
-netstat -ano | findstr ":8080"
-
-# Kill process if needed
-taskkill /PID <process_id> /F
-```
-
-**Issue:** Database data reset needed
-```batch
-# WARNING: This deletes all data
-docker compose -f docker/docker-compose.yml down -v
-rebuild-and-start.bat
-```
-
----
-
-## Notes
-
-- All scripts should be run from the `scripts` directory
-- Scripts use relative paths, so they work from any project location
-- Data persists across container restarts in Docker volumes
-- Cloud SQL access is handled by the `cloudsql-proxy` service in Docker Compose
-- Use `rebuild-and-start.bat` after pulling code updates
-- Frontend should connect to `http://localhost:8080/api`
-
----
-
-## Quick Reference
-
-```batch
-# Start services
-scripts\start-all-services.bat
-
-# Rebuild backend
-scripts\rebuild-and-start.bat
-
-# Stop services
-scripts\stop-all-services.bat
-
-# View logs
-docker compose -f docker/docker-compose.yml logs -f
-
-# Restart specific service
 docker compose -f docker/docker-compose.yml restart backend
-
-# Clean everything (WARNING: deletes data)
-docker compose -f docker/docker-compose.yml down -v
+docker compose -f docker/docker-compose.yml down
 ```

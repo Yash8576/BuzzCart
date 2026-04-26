@@ -1,118 +1,28 @@
-# Environment files (NEVER commit real secrets!)
+# Local environment and secrets
 .env
-.env.local
-.env.*.local
-backend/.env
-frontend/.env
-webapp/backend/.env
-webapp/frontend/.env
-chatbot/.env
+.env.*
+!.env.example
+PRIVATE_VALUES.local.md
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-.pytest_cache/
-.coverage
-htmlcov/
+# Logs and local helpers
+cloud-sql-proxy*.log
+proxy-*.log
+tools/cloud-sql-proxy.exe
+stop
 
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-dist/
-dist-ssr/
-*.local
-
-# Flutter/Dart
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.packages
-.pub-cache/
-.pub/
-build/
-frontend/build/
+# Flutter generated artifacts
 frontend/.dart_tool/
-frontend/.gradle-user-home/
+frontend/build/
+frontend/.flutter-plugins-dependencies
+frontend/android/.gradle/
+frontend/android/.kotlin/
+frontend/android/build/
+frontend/android/local.properties
+frontend/ios/Flutter/ephemeral/
+frontend/linux/flutter/ephemeral/
+frontend/macos/Flutter/ephemeral/
+frontend/windows/flutter/ephemeral/
 
-# Local Go cache
-.gocache-local/
-.gocache/
-.gopath/
-backend/.gocache/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-*.tmp
-*.temp
-.cache/
-
-# Backups
-backups/*.sql
-backups/*.dump
-backups/media/*
-!backups/media/.gitkeep
-
-# Storage (local development)
+# Local media output
 storage/media/*
 !storage/media/.gitkeep
-storage/backend_db/*
-!storage/backend_db/.gitkeep
-storage/frontend_db/*
-!storage/frontend_db/.gitkeep
-
-# OS
-Thumbs.db
-.DS_Store
-
-# Secrets & Keys
-*.key
-*.pem
-*.p12
-secrets/
-credentials/
-
-# Go binaries
-backend/bin/
-*.exe
-
-# Webapp subdirectory
-webapp/

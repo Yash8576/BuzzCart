@@ -1,6 +1,0 @@
-# GitHub Actions - Deploy Workflow
-name: Deploy
-
-on:
-  push:
-    branches: [ main ]

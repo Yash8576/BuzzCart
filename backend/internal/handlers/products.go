@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -441,35 +440,6 @@ func metadataMediaQueueURLs(raw any) []string {
 		}
 	}
 	return results
-}
-
-func deleteProductDocumentIndex(productID string) {
-	baseURL := strings.TrimSpace(os.Getenv("CHATBOT_API_URL"))
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(os.Getenv("CHATBOT_BASE_URL"))
-	}
-	if baseURL == "" {
-		baseURL = "http://chatbot:8001"
-	}
-
-	endpoint := strings.TrimRight(baseURL, "/") + "/api/v1/documents/" + productID
-	req, err := http.NewRequest(http.MethodDelete, endpoint, nil)
-	if err != nil {
-		log.Printf("[DeleteProduct] Failed to build chatbot document delete request for product %s: %v", productID, err)
-		return
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("[DeleteProduct] Failed to delete chatbot product document for %s: %v", productID, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode != http.StatusNotFound {
-		log.Printf("[DeleteProduct] Chatbot document delete returned status %d for product %s", resp.StatusCode, productID)
-	}
 }
 
 func GetSellerProducts(db *sql.DB) gin.HandlerFunc {

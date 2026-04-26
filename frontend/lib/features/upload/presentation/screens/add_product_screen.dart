@@ -7,14 +7,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../../../core/config/app_config.dart';
 import '../../../../core/models/models.dart';
 import '../../../../core/providers/add_product_provider.dart';
 import '../../../../core/providers/app_refresh_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/services/api_service.dart';
 import '../../../../core/utils/url_helper.dart';
-import '../../../../shared/services/chatbot_service.dart';
 
 class AddProductScreen extends StatefulWidget {
   final ProductModel? editingProduct;
@@ -30,7 +28,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final ApiService _api;
-  late final ChatbotService _chatbot;
 
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -82,7 +79,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
   void initState() {
     super.initState();
     _api = context.read<ApiService>();
-    _chatbot = ChatbotService(baseUrl: AppConfig.chatbotBaseUrl);
     _storageProductId = widget.editingProduct?.id ?? _uuid.v4();
     _addManualSpecificationRow();
     _addBulletPointRow();
@@ -714,7 +710,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
           return false;
         });
 
-      late final ProductModel savedProduct;
       if (_isEditing) {
         final editingProduct = widget.editingProduct!;
         final latest = await _api.getProduct(editingProduct.id);
@@ -723,7 +718,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ? (latest.stockQuantity - adjustBy).clamp(0, 1 << 31)
             : latest.stockQuantity + adjustBy;
 
-        savedProduct = await _api.updateProduct(
+        await _api.updateProduct(
           productId: editingProduct.id,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -740,7 +735,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
           metadata: metadata,
         );
       } else {
-        savedProduct = await _api.createProduct(
+        await _api.createProduct(
           id: _storageProductId,
           title: _titleController.text.trim(),
           description: _descriptionController.text.trim(),
@@ -758,29 +753,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
         );
       }
 
-      var indexingMessage = '';
+      var postSaveMessage = '';
       final normalizedSpecificationPdfUrl = specificationPdfUrl?.trim() ?? '';
       if (normalizedSpecificationPdfUrl.isNotEmpty) {
-        try {
-          final syncResult = await _chatbot.syncProductDocument(
-            productId: savedProduct.id,
-            documentUrl: normalizedSpecificationPdfUrl,
-            force: true,
-          );
-          indexingMessage =
-              ' Document indexed: ${syncResult.chunksCreated} chunks from ${syncResult.pagesProcessed} pages.';
-        } catch (_) {
-          indexingMessage =
-              ' Product saved, but document indexing is still pending.';
-        }
-      } else if (_isEditing) {
-        try {
-          await _chatbot.deleteProductDocument(savedProduct.id);
-          indexingMessage = ' Existing document index was removed.';
-        } catch (_) {
-          indexingMessage =
-              ' Product saved, but an older document index may still exist.';
-        }
+        postSaveMessage =
+            ' Specification PDF saved for product details. Product assistant is coming soon.';
       }
 
       if (!mounted) {
@@ -793,8 +770,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         SnackBar(
           content: Text(
             _isEditing
-                ? 'Product updated successfully.$indexingMessage'
-                : 'Product added to your warehouse successfully.$indexingMessage',
+                ? 'Product updated successfully.$postSaveMessage'
+                : 'Product added to your warehouse successfully.$postSaveMessage',
           ),
         ),
       );

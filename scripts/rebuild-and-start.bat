@@ -1,8 +1,8 @@
 @echo off
-REM Rebuild and start all Docker services for Like2Share application
+REM Rebuild and start the default BuzzCart local Docker services
 
 echo ========================================
-echo Rebuilding Like2Share Services
+echo Rebuilding BuzzCart Services
 echo ========================================
 echo.
 
@@ -12,8 +12,8 @@ echo Stopping and removing existing containers...
 docker compose -f docker/docker-compose.yml down
 echo.
 
-echo Building and starting all services...
-docker compose -f docker/docker-compose.yml up -d --build cloudsql-proxy redis backend frontend chatbot
+echo Building and starting default services...
+docker compose -f docker/docker-compose.yml up -d --build redis backend frontend
 echo.
 
 echo Waiting for services to be healthy...
@@ -31,14 +31,13 @@ echo.
 echo ========================================
 echo Service URLs:
 echo ========================================
-echo Cloud SQL Proxy:  localhost:5434
-echo   Target DB:      buzzcart-daeb6-database
-echo.
 echo Redis:       localhost:6379
 echo Backend:     localhost:8080
-echo Frontend:    localhost:80
-echo Chatbot:     localhost:8001
+echo Frontend:    localhost:8081
 echo ========================================
+echo.
+echo Chatbot and Ollama stay opt-in. Use:
+echo docker compose -f docker/docker-compose.yml --profile chatbot up -d chatbot ollama ollama-init
 echo.
 echo Rebuild complete!
 echo.

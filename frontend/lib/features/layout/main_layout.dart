@@ -112,7 +112,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
       return;
     }
 
-    if (path == '/login' || path == '/signup' || path == '/splash') {
+    if (path == '/Login' || path == '/Signup' || path == '/splash') {
       context.go(path);
       return;
     }
@@ -374,7 +374,7 @@ class _MainLayoutState extends State<MainLayout> with WidgetsBindingObserver {
                     onPressed: () async {
                       await context.read<AuthProvider>().logout();
                       if (mounted) {
-                        _navigateTo('/login');
+                        _navigateTo('/Login');
                       }
                     },
                   ),

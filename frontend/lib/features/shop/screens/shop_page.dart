@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../core/config/app_config.dart';
 import '../../../core/models/models.dart';
 import '../../../core/providers/app_refresh_provider.dart';
 import '../../../core/providers/auth_provider.dart';
@@ -14,7 +13,6 @@ import '../../../core/providers/cart_provider.dart';
 import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/url_helper.dart';
-import '../../../shared/services/chatbot_service.dart';
 import '../../products/widgets/product_card_social_preview.dart';
 import '../../products/widgets/product_buyers_sheet.dart';
 import '../../products/widgets/product_reviews_sheet.dart';
@@ -66,9 +64,6 @@ class _ShopPageState extends State<ShopPage> {
   }
 
   late final ApiService _api;
-  final ChatbotService _chatbot = ChatbotService(
-    baseUrl: AppConfig.chatbotBaseUrl,
-  );
   List<ProductModel> _allProducts = [];
   List<ProductModel> _products = [];
   ProductModel? _productDetail;
@@ -357,7 +352,8 @@ class _ShopPageState extends State<ShopPage> {
     }
 
     final cartProvider = context.read<CartProvider>();
-    final maxQuantity = product.stockQuantity > 0 ? product.stockQuantity : null;
+    final maxQuantity =
+        product.stockQuantity > 0 ? product.stockQuantity : null;
     final cartItems = cartProvider.cart.items;
     final previousQuantity = _effectiveCartQuantity(product, cartItems);
 
@@ -369,7 +365,8 @@ class _ShopPageState extends State<ShopPage> {
     }
 
     setState(() {
-      _pendingCartQuantities[product.id] = targetQuantity > 0 ? targetQuantity : 0;
+      _pendingCartQuantities[product.id] =
+          targetQuantity > 0 ? targetQuantity : 0;
       _updatingCartProductIds.add(product.id);
     });
 
@@ -417,7 +414,9 @@ class _ShopPageState extends State<ShopPage> {
         borderRadius: BorderRadius.circular(999),
         elevation: 2,
         child: InkWell(
-          onTap: canAddToCart && !isUpdating ? () => _handleGridAddToCart(product) : null,
+          onTap: canAddToCart && !isUpdating
+              ? () => _handleGridAddToCart(product)
+              : null,
           borderRadius: BorderRadius.circular(999),
           child: Padding(
             padding: const EdgeInsets.all(8),
@@ -708,178 +707,16 @@ class _ShopPageState extends State<ShopPage> {
   }
 
   Future<void> _openDocumentAssistant(ProductModel product) async {
-    final documentUrl = product.specificationPdfUrl?.trim() ?? '';
-    if (documentUrl.isEmpty) {
+    if (!mounted) {
       return;
     }
 
-    String questionText = '';
-    final currentUserId = context.read<AuthProvider>().user?.id;
-    ProductDocumentAnswer? latestAnswer;
-    String? errorText;
-    bool isSubmitting = false;
+    final detail = product.specificationPdfUrl?.trim().isNotEmpty == true
+        ? ' Product PDF support is already saved for future rollout.'
+        : '';
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            Future<void> submitQuestion() async {
-              final query = questionText.trim();
-              if (query.isEmpty || isSubmitting) {
-                return;
-              }
-
-              setSheetState(() {
-                isSubmitting = true;
-                errorText = null;
-              });
-
-              try {
-                final answer = await _chatbot.askProductDocument(
-                  productId: product.id,
-                  query: query,
-                  productName: product.title,
-                  userId: currentUserId,
-                  documentUrl: documentUrl,
-                );
-
-                if (!sheetContext.mounted) {
-                  return;
-                }
-
-                setSheetState(() {
-                  latestAnswer = answer;
-                });
-              } catch (e) {
-                if (!sheetContext.mounted) {
-                  return;
-                }
-
-                setSheetState(() {
-                  errorText = 'Unable to query the product document right now.';
-                });
-              } finally {
-                if (sheetContext.mounted) {
-                  setSheetState(() {
-                    isSubmitting = false;
-                  });
-                }
-              }
-            }
-
-            final answer = latestAnswer;
-            final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
-
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 20),
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Product Chatbot',
-                              style: Theme.of(sheetContext)
-                                  .textTheme
-                                  .titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Close chatbot',
-                            onPressed: () => Navigator.of(sheetContext).pop(),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Answers are restricted to the uploaded specification PDF for ${product.title}.',
-                        style: TextStyle(color: Colors.grey[700], height: 1.4),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        minLines: 2,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          labelText: 'Ask a direct question',
-                          hintText: 'Example: What is the battery capacity?',
-                          border: OutlineInputBorder(),
-                        ),
-                        onChanged: (value) => questionText = value,
-                        onSubmitted: (_) => submitQuestion(),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: isSubmitting ? null : submitQuestion,
-                          icon: isSubmitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.auto_awesome_outlined),
-                          label: Text(
-                            isSubmitting ? 'Searching document...' : 'Ask PDF',
-                          ),
-                        ),
-                      ),
-                      if (errorText != null) ...[
-                        const SizedBox(height: 14),
-                        Text(
-                          errorText!,
-                          style: const TextStyle(color: Colors.redAccent),
-                        ),
-                      ],
-                      if (answer != null) ...[
-                        const SizedBox(height: 18),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: Theme.of(sheetContext)
-                                .colorScheme
-                                .surfaceContainerHighest
-                                .withValues(alpha: 0.55),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                answer.answer,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  height: 1.45,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Coming soon.$detail')),
     );
   }
 
@@ -1259,7 +1096,8 @@ class _ShopPageState extends State<ShopPage> {
                             child: FilledButton.icon(
                               onPressed: () => _openDocumentAssistant(product),
                               icon: const Icon(Icons.chat_bubble_outline),
-                              label: const Text('Open Product Chatbot'),
+                              label:
+                                  const Text('Product Assistant (Coming soon)'),
                             ),
                           ),
                           const SizedBox(height: 14),
@@ -1625,163 +1463,165 @@ class _ShopPageState extends State<ShopPage> {
                         return GridView.builder(
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: columns,
-                          childAspectRatio: 0.64,
-                          crossAxisSpacing: _gridSpacing,
-                          mainAxisSpacing: _gridSpacing,
-                        ),
-                        itemCount: _products.length,
-                        itemBuilder: (context, index) {
-                          final product = _products[index];
-                          final cartItems =
-                              context.watch<CartProvider>().cart.items;
-                          final inCartQuantity =
-                              _effectiveCartQuantity(product, cartItems);
-                          final remainingStock = _remainingStockForProduct(
-                              product, inCartQuantity);
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            childAspectRatio: 0.64,
+                            crossAxisSpacing: _gridSpacing,
+                            mainAxisSpacing: _gridSpacing,
+                          ),
+                          itemCount: _products.length,
+                          itemBuilder: (context, index) {
+                            final product = _products[index];
+                            final cartItems =
+                                context.watch<CartProvider>().cart.items;
+                            final inCartQuantity =
+                                _effectiveCartQuantity(product, cartItems);
+                            final remainingStock = _remainingStockForProduct(
+                                product, inCartQuantity);
 
-                          return Card(
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () => context.push('/shop/${product.id}'),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        _buildCachedImage(
-                                          product.images.isNotEmpty
-                                              ? product.images.first
-                                              : '',
-                                          fit: BoxFit.cover,
-                                          errorWidget: Container(
-                                            color: Colors.grey[300],
-                                            child: const Icon(Icons.image),
-                                          ),
-                                        ),
-                                        Positioned(
-                                          right: 10,
-                                          bottom: 10,
-                                          child: _buildGridCartAction(
-                                            product,
-                                            inCartQuantity,
-                                            remainingStock,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.all(8),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          product.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w500),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          product.brandName ??
-                                              product.sellerName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        if (!_hasDiscount(product))
-                                          Text(
-                                            '\$${product.price.toStringAsFixed(2)}',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.electricBlue,
+                            return Card(
+                              clipBehavior: Clip.antiAlias,
+                              child: InkWell(
+                                onTap: () =>
+                                    context.push('/shop/${product.id}'),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          _buildCachedImage(
+                                            product.images.isNotEmpty
+                                                ? product.images.first
+                                                : '',
+                                            fit: BoxFit.cover,
+                                            errorWidget: Container(
+                                              color: Colors.grey[300],
+                                              child: const Icon(Icons.image),
                                             ),
+                                          ),
+                                          Positioned(
+                                            right: 10,
+                                            bottom: 10,
+                                            child: _buildGridCartAction(
+                                              product,
+                                              inCartQuantity,
+                                              remainingStock,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            product.title,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
-                                          )
-                                        else
-                                          Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      '\$${product.price.toStringAsFixed(2)}',
-                                                      style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        color: AppColors
-                                                            .electricBlue,
-                                                      ),
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 6,
-                                                      vertical: 2,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color: AppColors
-                                                          .successGreen
-                                                          .withAlpha(24),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              999),
-                                                    ),
-                                                    child: Text(
-                                                      '${_percentOff(product)}% OFF',
-                                                      style: const TextStyle(
-                                                        color: AppColors
-                                                            .successGreen,
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        fontSize: 10,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '\$${product.compareAtPrice!.toStringAsFixed(2)}',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  decoration: TextDecoration
-                                                      .lineThrough,
-                                                  color: Colors.grey[600],
-                                                ),
-                                              ),
-                                            ],
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w500),
                                           ),
-                                        const SizedBox(height: 6),
-                                        ProductCardSocialPreview(
-                                          productId: product.id,
-                                          maxAvatars: 2,
-                                        ),
-                                      ],
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            product.brandName ??
+                                                product.sellerName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          if (!_hasDiscount(product))
+                                            Text(
+                                              '\$${product.price.toStringAsFixed(2)}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: AppColors.electricBlue,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            )
+                                          else
+                                            Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        '\$${product.price.toStringAsFixed(2)}',
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          color: AppColors
+                                                              .electricBlue,
+                                                        ),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: AppColors
+                                                            .successGreen
+                                                            .withAlpha(24),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(999),
+                                                      ),
+                                                      child: Text(
+                                                        '${_percentOff(product)}% OFF',
+                                                        style: const TextStyle(
+                                                          color: AppColors
+                                                              .successGreen,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          fontSize: 10,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  '\$${product.compareAtPrice!.toStringAsFixed(2)}',
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    decoration: TextDecoration
+                                                        .lineThrough,
+                                                    color: Colors.grey[600],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          const SizedBox(height: 6),
+                                          ProductCardSocialPreview(
+                                            productId: product.id,
+                                            maxAvatars: 2,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
                         );
                       },
                     ),

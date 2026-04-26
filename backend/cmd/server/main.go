@@ -33,7 +33,9 @@ func main() {
 	defer database.Disconnect()
 
 	// Initialize Redis connection
-	if err := cache.InitRedis(cfg.RedisURL); err != nil {
+	if cfg.RedisURL == "" {
+		log.Println("Redis disabled: REDIS_URL is not set")
+	} else if err := cache.InitRedis(cfg.RedisURL); err != nil {
 		log.Printf("Warning: Failed to connect to Redis: %v (caching disabled)", err)
 	} else {
 		log.Println("Successfully connected to Redis")
@@ -56,10 +58,10 @@ func main() {
 	messageHub := handlers.NewMessageHub()
 
 	// Add middleware
-	router.Use(middleware.Recovery())        // Custom panic recovery
-	router.Use(middleware.RequestLogger())   // Structured request logging
-	router.Use(middleware.SecurityHeaders()) // Security headers
-	router.Use(middleware.CORS())            // CORS support
+	router.Use(middleware.Recovery())               // Custom panic recovery
+	router.Use(middleware.RequestLogger())          // Structured request logging
+	router.Use(middleware.SecurityHeaders())        // Security headers
+	router.Use(middleware.CORS(cfg.AllowedOrigins)) // CORS support
 
 	// Enhanced health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -267,7 +269,7 @@ func main() {
 	// Start server
 	port := cfg.Port
 	if port == "" {
-		port = "8000"
+		port = "8080"
 	}
 
 	log.Printf("Server starting on port %s", port)
