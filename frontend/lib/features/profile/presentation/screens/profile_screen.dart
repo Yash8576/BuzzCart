@@ -343,7 +343,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                   TextButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      context.go('/login');
+                      context.go('/Login');
                     },
                     child: const Text(
                       'Logout',

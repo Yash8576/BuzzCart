@@ -1,9 +1,8 @@
 @echo off
-REM Start all Docker services for Like2Share application
-REM This script starts Cloud SQL Proxy, Redis, Backend, Frontend, and Chatbot services
+REM Start the default BuzzCart local Docker services
 
 echo ========================================
-echo Starting Like2Share Services
+echo Starting BuzzCart Services
 echo ========================================
 echo.
 
@@ -13,8 +12,8 @@ echo Stopping any existing containers...
 docker compose -f docker/docker-compose.yml down
 echo.
 
-echo Starting all services...
-docker compose -f docker/docker-compose.yml up -d cloudsql-proxy redis backend frontend chatbot
+echo Starting default services...
+docker compose -f docker/docker-compose.yml up -d redis backend frontend
 echo.
 
 echo Waiting for services to be healthy...
@@ -28,16 +27,14 @@ echo.
 echo ========================================
 echo Service URLs:
 echo ========================================
-echo Cloud SQL Proxy:  localhost:5434
-echo   Target DB:      buzzcart-daeb6-database
-echo.
 echo Redis:       localhost:6379
 echo Backend:     localhost:8080
-echo Frontend:    localhost:80
-echo Chatbot:     localhost:8001
+echo Frontend:    localhost:8081
 echo ========================================
 echo.
-echo All services started successfully!
+echo Chatbot and Ollama stay opt-in. Use:
+echo docker compose -f docker/docker-compose.yml --profile chatbot up -d chatbot ollama ollama-init
+echo.
 echo Run 'docker compose -f docker/docker-compose.yml logs -f' to view logs
 echo.
 pause

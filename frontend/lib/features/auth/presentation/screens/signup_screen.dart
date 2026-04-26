@@ -463,7 +463,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                 style: textTheme.bodySmall,
                               ),
                               TextButton(
-                                onPressed: () => context.go('/login'),
+                                onPressed: () => context.go('/Login'),
                                 style: TextButton.styleFrom(
                                   padding: EdgeInsets.zero,
                                   minimumSize: const Size(0, 0),

@@ -258,7 +258,7 @@ class _LoginPageState extends State<LoginPage> {
                                 style: textTheme.bodySmall,
                               ),
                               TextButton(
-                                onPressed: () => context.go('/signup'),
+                                onPressed: () => context.go('/Signup'),
                                 style: TextButton.styleFrom(
                                   padding: EdgeInsets.zero,
                                   minimumSize: const Size(0, 0),

@@ -1,8 +1,8 @@
 @echo off
-REM Stop all Docker services for Like2Share application
+REM Stop all BuzzCart local Docker services
 
 echo ========================================
-echo Stopping Like2Share Services
+echo Stopping BuzzCart Services
 echo ========================================
 echo.
 

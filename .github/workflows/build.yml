@@ -1,6 +1,0 @@
-# GitHub Actions - Build Workflow
-name: Build
-
-on:
-  push:
-    branches: [ main ]

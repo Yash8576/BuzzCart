@@ -1,16 +1,39 @@
-# frontend
+# BuzzCart Frontend
 
-A new Flutter project.
+Flutter frontend for BuzzCart.
 
-## Getting Started
+## Local development
 
-This project is a starting point for a Flutter application.
+Install dependencies:
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+```
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+Run locally against a local backend:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter run -d chrome \
+  --dart-define=API_BASE_URL=http://localhost:8080/api \
+  --dart-define=WS_BASE_URL=ws://localhost:8080/ws \
+  --dart-define=CHATBOT_ENABLED=false
+```
+
+If no `dart-define` overrides are provided, the app still falls back to local-friendly defaults.
+
+## Production build
+
+Use [dart_defines.example](./dart_defines.example) as the source of truth for build-time values.
+
+Example:
+
+```bash
+flutter build web --release \
+  --base-href /nexacore/BuzzCart/ \
+  --dart-define=API_BASE_URL=https://api.your-domain.com/api \
+  --dart-define=WS_BASE_URL=wss://api.your-domain.com/ws \
+  --dart-define=CHATBOT_ENABLED=false \
+  --dart-define=PRODUCTION=true
+```
+
+The built web output is published into the shared Cloudflare Pages site under `/nexacore/BuzzCart/`.

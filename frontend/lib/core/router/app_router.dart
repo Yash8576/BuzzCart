@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
 import '../providers/auth_provider.dart';
 import '../providers/upload_content_provider.dart';
 import '../providers/add_product_provider.dart';
@@ -38,14 +39,19 @@ final GlobalKey<NavigatorState> _profileBranchNavigatorKey =
 
 // Create a router that refreshes when AuthProvider changes
 GoRouter createAppRouter(AuthProvider authProvider) {
+  final initialRouteOverride = AppConfig.initialRouteOverride;
+  final useInitialRouteOverride = initialRouteOverride.isNotEmpty;
+
   return GoRouter(
     navigatorKey: _rootNavigatorKey,
-    initialLocation: '/splash',
+    initialLocation:
+        useInitialRouteOverride ? initialRouteOverride : '/splash',
+    overridePlatformDefaultLocation: useInitialRouteOverride,
     refreshListenable: authProvider,
     redirect: (context, state) {
       final isSplash = state.matchedLocation == '/splash';
-      final isLogin = state.matchedLocation == '/login';
-      final isSignup = state.matchedLocation == '/signup';
+      final isLogin = state.matchedLocation == '/Login';
+      final isSignup = state.matchedLocation == '/Signup';
       final isAuth = isLogin || isSignup;
 
       debugPrint(
@@ -58,7 +64,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
 
       // After loading completes, redirect from splash
       if (isSplash && !authProvider.isLoading) {
-        return authProvider.isAuthenticated ? '/' : '/login';
+        return authProvider.isAuthenticated ? '/' : '/Login';
       }
 
       // Redirect authenticated users away from auth pages
@@ -68,7 +74,7 @@ GoRouter createAppRouter(AuthProvider authProvider) {
 
       // Redirect unauthenticated users to login
       if (!authProvider.isAuthenticated && !isAuth && !isSplash) {
-        return '/login';
+        return '/Login';
       }
 
       return null;
@@ -82,11 +88,11 @@ GoRouter createAppRouter(AuthProvider authProvider) {
 
       // Public routes
       GoRoute(
-        path: '/login',
+        path: '/Login',
         builder: (context, state) => const LoginPage(),
       ),
       GoRoute(
-        path: '/signup',
+        path: '/Signup',
         builder: (context, state) => const SignupScreen(),
       ),
 
